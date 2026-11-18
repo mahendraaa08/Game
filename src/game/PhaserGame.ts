@@ -9,23 +9,28 @@ import { MainMenuScene } from './scenes/MainMenuScene';
 import { PauseMenuScene } from './scenes/PauseMenuScene';
 import { PreloadScene } from './scenes/PreloadScene';
 import { VictoryScene } from './scenes/VictoryScene';
+import { StorageManager } from './utils/StorageManager';
 
-export function createPhaserGame(parentId: string): Phaser.Game {
-  const config: Phaser.Types.Core.GameConfig = {
-    type: Phaser.AUTO,
+function buildConfig(parentId: string, renderType: number): Phaser.Types.Core.GameConfig {
+  const settings = StorageManager.load().settings;
+  const width = Math.max(320, window.innerWidth || 1280);
+  const height = Math.max(240, window.innerHeight || 720);
+
+  return {
+    type: renderType,
     parent: parentId,
     backgroundColor: '#040711',
     scale: {
       mode: Phaser.Scale.RESIZE,
       autoCenter: Phaser.Scale.CENTER_BOTH,
-      width: window.innerWidth,
-      height: window.innerHeight,
+      width,
+      height,
     },
     input: {
       activePointers: 3,
     },
     render: {
-      antialias: true,
+      antialias: settings.performanceQuality !== 'balanced',
       powerPreference: 'high-performance',
     },
     scene: [
@@ -41,6 +46,16 @@ export function createPhaserGame(parentId: string): Phaser.Game {
       VictoryScene,
     ],
   };
+}
 
-  return new Phaser.Game(config);
+export function createPhaserGame(parentId: string): Phaser.Game {
+  try {
+    return new Phaser.Game(buildConfig(parentId, Phaser.AUTO));
+  } catch {
+    const parentEl = document.getElementById(parentId);
+    if (parentEl) {
+      parentEl.innerHTML = '';
+    }
+    return new Phaser.Game(buildConfig(parentId, Phaser.CANVAS));
+  }
 }

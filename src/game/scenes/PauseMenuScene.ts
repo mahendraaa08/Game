@@ -13,6 +13,12 @@ export class PauseMenuScene extends Phaser.Scene {
     super('PauseMenuScene');
   }
 
+  private stopBossAlertIfPresent(): void {
+    if (this.scene.isActive('BossScene') || this.scene.isPaused('BossScene')) {
+      this.scene.stop('BossScene');
+    }
+  }
+
   create(data: PauseData): void {
     EventBus.emit('scene:changed', 'PauseMenuScene');
 
@@ -21,16 +27,19 @@ export class PauseMenuScene extends Phaser.Scene {
         this.resumePlay();
       }),
       EventBus.on('ui:restart-level', () => {
+        this.stopBossAlertIfPresent();
         this.scene.stop('GameScene');
         this.scene.stop('PauseMenuScene');
         this.scene.start('GameScene', data.levelData);
       }),
       EventBus.on('ui:open-hangar', () => {
+        this.stopBossAlertIfPresent();
         this.scene.stop('GameScene');
         this.scene.stop('PauseMenuScene');
         this.scene.start('HangarScene');
       }),
       EventBus.on('ui:open-menu', () => {
+        this.stopBossAlertIfPresent();
         this.scene.stop('GameScene');
         this.scene.stop('PauseMenuScene');
         this.scene.start('MainMenuScene');
@@ -45,6 +54,9 @@ export class PauseMenuScene extends Phaser.Scene {
 
   private resumePlay(): void {
     if (!this.scene.isPaused('GameScene')) return;
+    if (this.scene.isPaused('BossScene')) {
+      this.scene.resume('BossScene');
+    }
     this.scene.resume('GameScene');
     EventBus.emit('scene:changed', 'GameScene');
     this.scene.stop('PauseMenuScene');

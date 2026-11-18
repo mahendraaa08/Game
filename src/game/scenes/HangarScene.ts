@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CAMPAIGN_LEVELS } from '../config/LevelConfig';
-import { SHIPS } from '../config/ShipConfig';
+import { ShipId, SHIPS } from '../config/ShipConfig';
 import { getWeaponFireRateAtLevel, SpecialId, WeaponId, WEAPONS } from '../config/WeaponConfig';
 import { SoundManager } from '../audio/SoundManager';
 import { ProjectileManager } from '../entities/ProjectileManager';
@@ -14,11 +14,31 @@ export class HangarScene extends Phaser.Scene {
   private ship!: Phaser.GameObjects.Sprite;
   private projectiles!: ProjectileManager;
   private dummyTarget!: Phaser.GameObjects.Sprite;
+  private dummyTargetObj!: Targetable;
+  private dummyTargetList: Targetable[] = [];
   private fireTimerMs = 0;
   private age = 0;
+  private selectedShip: ShipId = 'falcon_x';
   private selectedWeapon: WeaponId = 'plasma';
   private selectedSpecial: SpecialId = 'emp_nova';
+  private cachedWeaponLevels: Record<WeaponId, number> = {
+    plasma: 1,
+    dual_laser: 1,
+    spread: 1,
+    homing: 1,
+    beam: 1,
+    lightning: 1,
+  };
   private unsubs: Array<() => void> = [];
+
+  private flashDummyTarget = (): void => {
+    this.dummyTarget.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    this.time.delayedCall(50, () => {
+      if (this.dummyTarget.active) {
+        this.dummyTarget.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
+      }
+    });
+  };
 
   constructor() {
     super('HangarScene');
@@ -27,8 +47,10 @@ export class HangarScene extends Phaser.Scene {
   create(): void {
     EventBus.emit('scene:changed', 'HangarScene');
     const saved = StorageManager.load();
+    this.selectedShip = saved.selectedShip;
     this.selectedWeapon = saved.selectedWeapon;
     this.selectedSpecial = saved.selectedSpecial;
+    this.cachedWeaponLevels = { ...saved.weaponLevels };
     SoundManager.playMusic('campaign');
 
     this.bg = new BackgroundSystem(this, CAMPAIGN_LEVELS[0].environment, saved.settings.fxQuality);
@@ -37,13 +59,25 @@ export class HangarScene extends Phaser.Scene {
 
     const w = this.scale.width;
     const h = this.scale.height;
-    const shipDef = SHIPS[saved.selectedShip] ?? SHIPS.falcon_x;
+    const shipDef = SHIPS[this.selectedShip] ?? SHIPS.falcon_x;
 
     this.ship = this.add.sprite(w * 0.5, h * 0.68, shipDef.textureKey).setScale(1.35).setDepth(10);
     this.dummyTarget = this.add.sprite(w * 0.5, h * 0.25, 'enemy_fighter').setScale(1.1).setDepth(10);
 
+    this.dummyTargetObj = {
+      x: this.dummyTarget.x,
+      y: this.dummyTarget.y,
+      active: true,
+      hp: 999,
+      radius: 26,
+      sprite: this.dummyTarget,
+      takeDamage: () => false,
+    };
+    this.dummyTargetList = [this.dummyTargetObj];
+
     this.unsubs.push(
       EventBus.on('ui:select-ship', (shipId) => {
+        this.selectedShip = shipId;
         const def = SHIPS[shipId];
         if (def && this.ship?.active) {
           this.ship.setTexture(def.textureKey);
@@ -56,6 +90,11 @@ export class HangarScene extends Phaser.Scene {
       EventBus.on('ui:select-special', (sId) => {
         this.selectedSpecial = sId;
         StorageManager.setSpecial(sId);
+      }),
+      EventBus.on('progress:updated', () => {
+        const latest = StorageManager.load();
+        this.selectedShip = latest.selectedShip;
+        this.cachedWeaponLevels = { ...latest.weaponLevels };
       }),
       EventBus.on('ui:start-level', (levelNumber) => {
         const p = StorageManager.load();
@@ -100,20 +139,11 @@ export class HangarScene extends Phaser.Scene {
     const h = this.scale.height;
     this.ship.setPosition(w * 0.5 + Math.sin(this.age * 1.4) * 32, h * 0.68);
     this.dummyTarget.setPosition(w * 0.5 + Math.sin(this.age * 1.9) * 65, h * 0.24);
+    this.dummyTargetObj.x = this.dummyTarget.x;
+    this.dummyTargetObj.y = this.dummyTarget.y;
 
-    const targetObj: Targetable = {
-      x: this.dummyTarget.x,
-      y: this.dummyTarget.y,
-      active: true,
-      hp: 999,
-      radius: 26,
-      sprite: this.dummyTarget,
-      takeDamage: () => false,
-    };
-
-    const saved = StorageManager.load();
-    const wLevel = saved.weaponLevels[this.selectedWeapon] ?? 1;
-    const shipDef = SHIPS[saved.selectedShip] ?? SHIPS.falcon_x;
+    const wLevel = this.cachedWeaponLevels[this.selectedWeapon] ?? 1;
+    const shipDef = SHIPS[this.selectedShip] ?? SHIPS.falcon_x;
 
     this.fireTimerMs -= dt * 1000;
     if (this.fireTimerMs <= 0) {
@@ -124,15 +154,8 @@ export class HangarScene extends Phaser.Scene {
         this.ship.x,
         this.ship.y,
         shipDef.stats.damageMult,
-        [targetObj],
-        () => {
-          this.dummyTarget.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-          this.time.delayedCall(50, () => {
-            if (this.dummyTarget.active) {
-              this.dummyTarget.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
-            }
-          });
-        },
+        this.dummyTargetList,
+        this.flashDummyTarget,
         {
           weaponLevel: wLevel,
           hasAstralWingBolts: shipDef.id === 'celestial',
@@ -141,16 +164,11 @@ export class HangarScene extends Phaser.Scene {
       );
     }
 
-    this.projectiles.update(dt, [targetObj]);
+    this.projectiles.update(dt, this.dummyTargetList);
     this.projectiles.forEachPlayerBullet((b) => {
       if (Math.hypot(b.sprite.x - this.dummyTarget.x, b.sprite.y - this.dummyTarget.y) < 28) {
         b.setActive(false).setVisible(false);
-        this.dummyTarget.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-        this.time.delayedCall(50, () => {
-          if (this.dummyTarget.active) {
-            this.dummyTarget.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
-          }
-        });
+        this.flashDummyTarget();
       }
     });
   }

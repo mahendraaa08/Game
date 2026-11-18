@@ -387,27 +387,69 @@ class ProgressionManagerImpl {
     return { ok: true, message: `${def.name} upgraded to Lv.${cur + 1}!` };
   }
 
-  toggleEquipDrone(droneId: DroneId): ActionResult {
+  equipDrone(droneId: DroneId, targetSlotIndex?: 0 | 1): ActionResult {
     const def = DRONES[droneId];
+    if (!def) return { ok: false, message: 'Invalid drone module.' };
     const p = StorageManager.load();
-    if (!p.ownedDrones[droneId]) {
+    if (!p.ownedDrones[droneId] || p.ownedDrones[droneId]! <= 0) {
       return { ok: false, message: `Unlock ${def.name} first.` };
     }
-    if (p.equippedDrones.includes(droneId)) {
-      p.equippedDrones = p.equippedDrones.filter((id) => id !== droneId);
-      StorageManager.save(p);
-      this.emitChanged();
-      return { ok: true, message: `${def.name} placed in reserve.` };
+
+    const existingIdx = p.equippedDrones.indexOf(droneId);
+    if (existingIdx !== -1) {
+      if (targetSlotIndex !== undefined && existingIdx !== targetSlotIndex && p.equippedDrones.length === 2) {
+        const swapped = [...p.equippedDrones];
+        const other = swapped[targetSlotIndex];
+        swapped[targetSlotIndex] = droneId;
+        swapped[existingIdx] = other;
+        p.equippedDrones = swapped.slice(0, 2);
+        StorageManager.save(p);
+        this.emitChanged();
+        return {
+          ok: true,
+          message: `${def.name} moved to Equipment Slot 0${targetSlotIndex + 1}.`,
+        };
+      }
+      return { ok: true, message: `${def.name} is already equipped.` };
     }
-    if (p.equippedDrones.length >= 2) {
-      // Replace oldest slot seamlessly
-      p.equippedDrones = [p.equippedDrones[1], droneId];
-    } else {
+
+    if (p.equippedDrones.length < 2) {
       p.equippedDrones = [...p.equippedDrones, droneId];
+    } else {
+      const replaceIdx = targetSlotIndex === 1 ? 1 : 0;
+      const next = [...p.equippedDrones];
+      next[replaceIdx] = droneId;
+      p.equippedDrones = next.slice(0, 2);
     }
+
     StorageManager.save(p);
     this.emitChanged();
-    return { ok: true, message: `${def.name} active (${p.equippedDrones.length}/2 slots).` };
+    const assignedSlot = p.equippedDrones.indexOf(droneId) + 1;
+    return {
+      ok: true,
+      message: `${def.name} equipped to Slot 0${assignedSlot} (${p.equippedDrones.length}/2).`,
+    };
+  }
+
+  unequipDrone(droneId: DroneId): ActionResult {
+    const def = DRONES[droneId];
+    if (!def) return { ok: false, message: 'Invalid drone module.' };
+    const p = StorageManager.load();
+    if (!p.equippedDrones.includes(droneId)) {
+      return { ok: false, message: `${def.name} is not currently equipped.` };
+    }
+    p.equippedDrones = p.equippedDrones.filter((id) => id !== droneId);
+    StorageManager.save(p);
+    this.emitChanged();
+    return { ok: true, message: `${def.name} unequipped to reserve bay.` };
+  }
+
+  toggleEquipDrone(droneId: DroneId): ActionResult {
+    const p = StorageManager.load();
+    if (p.equippedDrones.includes(droneId)) {
+      return this.unequipDrone(droneId);
+    }
+    return this.equipDrone(droneId);
   }
 
   claimDailyMission(missionId: string): ActionResult {
@@ -464,19 +506,6 @@ class ProgressionManagerImpl {
     StorageManager.save(p);
     this.emitChanged();
     return { ok: true, message: `Achievement claimed: +${def.rewardCredits} Credits, +${def.rewardCrystals} Crystals!` };
-  }
-
-  exchangeCreditsForCrystal(): ActionResult {
-    const p = StorageManager.load();
-    const cost = 450;
-    if (p.credits < cost) {
-      return { ok: false, message: `Need ${cost - p.credits} more Credits.` };
-    }
-    p.credits -= cost;
-    this.addRewardHistory(p, 'Supply Exchange: +1 Crystal', 0, 1);
-    StorageManager.save(p);
-    this.emitChanged();
-    return { ok: true, message: 'Refined +1 Crystal for 450 Credits.' };
   }
 
   // ---- REAL GAMEPLAY EVENT RECORDING ----

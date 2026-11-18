@@ -55,7 +55,7 @@ export const CreditsBadge: React.FC<CurrencyBadgeProps> = ({
   prefix = '',
   size = 'md',
   onClick,
-  title = 'Credits — Tap to open Armory & Supply Exchange',
+  title = 'Credits',
 }) => {
   const classes = `group inline-flex items-center gap-2 rounded-xl border border-amber-400/45 bg-gradient-to-br from-[#1a1306]/90 via-[#120d05]/92 to-[#090d18]/92 shadow-[0_0_16px_rgba(245,158,11,0.12)] backdrop-blur-sm transition-[border-color,transform,filter] duration-150 ${
     size === 'sm' ? 'min-h-[34px] px-2.5 py-1 text-xs' : 'min-h-[38px] px-3 py-1.5 text-xs sm:text-sm'
@@ -91,7 +91,7 @@ export const CrystalsBadge: React.FC<CurrencyBadgeProps> = ({
   prefix = '',
   size = 'md',
   onClick,
-  title = 'Void Crystals — Tap to open Armory & Supply Exchange',
+  title = 'Void Crystals',
 }) => {
   const classes = `group inline-flex items-center gap-2 rounded-xl border border-cyan-400/45 bg-gradient-to-br from-[#06192a]/90 via-[#071222]/92 to-[#090d18]/92 shadow-[0_0_16px_rgba(34,211,238,0.12)] backdrop-blur-sm transition-[border-color,transform,filter] duration-150 ${
     size === 'sm' ? 'min-h-[34px] px-2.5 py-1 text-xs' : 'min-h-[38px] px-3 py-1.5 text-xs sm:text-sm'
@@ -121,3 +121,37 @@ export const CrystalsBadge: React.FC<CurrencyBadgeProps> = ({
 
   return <div className={classes}>{inner}</div>;
 };
+
+interface CompactCurrencyClusterProps {
+  credits: number;
+  crystals: number;
+}
+
+export const CompactCurrencyCluster: React.FC<CompactCurrencyClusterProps> = ({
+  credits,
+  crystals,
+}) => {
+  return (
+    <div
+      aria-label={`Credits ${credits.toLocaleString()}, Crystals ${crystals.toLocaleString()}`}
+      className="flex min-h-[42px] items-center gap-2 sm:gap-3 rounded-xl border border-slate-700/65 bg-[#070f20]/84 px-2.5 sm:px-3.5 py-1.5 backdrop-blur-sm select-none"
+    >
+      <div className="flex items-center gap-1.5">
+        <CreditCoinIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+        <span className="font-mono-num text-xs sm:text-[13px] font-semibold tracking-tight text-slate-100 whitespace-nowrap">
+          {credits.toLocaleString()}
+        </span>
+      </div>
+
+      <span aria-hidden="true" className="h-3.5 w-px shrink-0 bg-slate-700/80" />
+
+      <div className="flex items-center gap-1.5">
+        <CrystalGemIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+        <span className="font-mono-num text-xs sm:text-[13px] font-semibold tracking-tight text-cyan-200 whitespace-nowrap">
+          {crystals.toLocaleString()}
+        </span>
+      </div>
+    </div>
+  );
+};
+

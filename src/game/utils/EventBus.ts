@@ -3,6 +3,7 @@ import { GameMode } from '../config/GameModeConfig';
 import { PowerUpType } from '../config/PowerUpConfig';
 import { ShipId } from '../config/ShipConfig';
 import { SpecialId, WeaponId } from '../config/WeaponConfig';
+import { GameSettings } from './StorageManager';
 
 export interface StartRunRequest {
   mode: GameMode;
@@ -56,16 +57,13 @@ export interface VictoryPayload {
 export type AppRoute =
   | 'menu'
   | 'modes'
-  | 'hangar_hub'
   | 'ships'
   | 'weapons'
   | 'armory'
-  | 'codex'
   | 'missions'
   | 'settings';
 
 type EventMap = {
-  'preload:progress': number;
   'scene:changed': SceneId;
   'hud:update': HudSnapshot;
   'powerup:collected': PowerUpPickupPayload;
@@ -89,6 +87,7 @@ type EventMap = {
   'ui:trigger-dash': void;
   'ui:trigger-special': void;
   'progress:updated': void;
+  'settings:updated': GameSettings;
 };
 
 type Listener<T> = (payload: T) => void;

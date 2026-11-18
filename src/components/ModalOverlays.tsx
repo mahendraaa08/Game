@@ -20,6 +20,7 @@ import {
 import { StorageManager } from '../game/utils/StorageManager';
 import { DedicatedScreenShell } from './DedicatedScreenShell';
 import { SettingsPanel } from './hub/SettingsPanel';
+import { ConfirmButtonPair } from './ui/ConfirmButtonPair';
 import { CreditsBadge, CrystalsBadge } from './ui/CurrencyBadges';
 
 type PauseView = 'pause' | 'settings' | 'confirm_exit';
@@ -109,28 +110,17 @@ export const PauseModal: React.FC = () => {
             Enemy kills and mission counters are saved without sector clear rewards.
           </p>
 
-          <div className="mt-6 grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                SoundManager.playButtonClick();
-                setView('pause');
-              }}
-              className="flex min-h-[48px] items-center justify-center rounded-xl border border-slate-700/80 bg-[#0f1728]/90 px-4 py-2.5 font-display text-sm font-semibold tracking-wide text-slate-200 transition-colors duration-150 hover:border-cyan-300/45 hover:bg-[#142038] hover:text-white active:scale-[0.98]"
-            >
-              CANCEL
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                SoundManager.playButtonClick();
-                EventBus.emit('ui:abort-mission');
-              }}
-              className="flex min-h-[48px] items-center justify-center rounded-xl border border-rose-400/35 bg-rose-600 px-4 py-2.5 font-display text-sm font-bold tracking-wide text-white transition-colors duration-150 hover:bg-rose-500 active:scale-[0.98]"
-            >
-              EXIT MISSION
-            </button>
-          </div>
+          <ConfirmButtonPair
+            className="mt-6 grid grid-cols-2 gap-3"
+            onCancel={() => {
+              SoundManager.playButtonClick();
+              setView('pause');
+            }}
+            onConfirm={() => {
+              SoundManager.playButtonClick();
+              EventBus.emit('ui:abort-mission');
+            }}
+          />
         </div>
       </div>
     );
@@ -271,7 +261,7 @@ export const LevelResultModal: React.FC<{ data: LevelResultPayload }> = ({ data 
           <button
             type="button"
             onClick={() => {
-              EventBus.emit('ui:navigate-route', 'hangar_hub');
+              EventBus.emit('ui:navigate-route', 'ships');
               EventBus.emit('ui:open-hangar');
             }}
             className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:border-sky-400/70"
@@ -344,7 +334,7 @@ export const GameOverModal: React.FC<{ data: GameOverPayload }> = ({ data }) => 
           <button
             type="button"
             onClick={() => {
-              EventBus.emit('ui:navigate-route', 'hangar_hub');
+              EventBus.emit('ui:navigate-route', 'ships');
               EventBus.emit('ui:open-hangar');
             }}
             className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:border-sky-400/70"
@@ -424,7 +414,7 @@ export const VictoryModal: React.FC<{ data: VictoryPayload }> = ({ data }) => {
             <button
               type="button"
               onClick={() => {
-                EventBus.emit('ui:navigate-route', 'hangar_hub');
+                EventBus.emit('ui:navigate-route', 'ships');
                 EventBus.emit('ui:open-hangar');
               }}
               className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:border-sky-400/70"

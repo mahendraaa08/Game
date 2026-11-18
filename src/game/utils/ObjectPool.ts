@@ -33,6 +33,23 @@ export class ObjectPool<T extends Poolable> {
     return null;
   }
 
+  hasActive(): boolean {
+    for (let i = 0; i < this.items.length; i++) {
+      if (this.items[i].active) return true;
+    }
+    return false;
+  }
+
+  fillActive(out: T[]): T[] {
+    out.length = 0;
+    for (let i = 0; i < this.items.length; i++) {
+      if (this.items[i].active) {
+        out.push(this.items[i]);
+      }
+    }
+    return out;
+  }
+
   getActiveItems(): T[] {
     return this.items.filter((item) => item.active);
   }

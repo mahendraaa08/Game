@@ -36,10 +36,55 @@
   touch-action: none;
 }
 
+/* Unified Global Thin Light-Blue Scrollbar (matches Fleet Roster reference) */
+*,
+.scroll-panel,
+.swipe-strip-x {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(56, 189, 248, 0.35) rgba(15, 23, 42, 0.4);
+}
+
+*::-webkit-scrollbar,
+.scroll-panel::-webkit-scrollbar,
+.swipe-strip-x::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+*::-webkit-scrollbar-track,
+.scroll-panel::-webkit-scrollbar-track,
+.swipe-strip-x::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.45);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb,
+.scroll-panel::-webkit-scrollbar-thumb,
+.swipe-strip-x::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.38);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover,
+.scroll-panel::-webkit-scrollbar-thumb:hover,
+.swipe-strip-x::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.56);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 .scroll-panel {
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
+}
+
+.swipe-strip-x {
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 }
 
 @keyframes subtle-scan {
@@ -119,8 +164,24 @@
   animation: pause-panel-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+@keyframes panel-swap-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.panel-swap {
+  animation: panel-swap-in 175ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .menu-enter,
+  .panel-swap,
   .animate-scanline,
   .powerup-enter,
   .hud-confirm-flash,
@@ -128,3 +189,42 @@
     animation: none;
   }
 }
+
+.sci-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(30, 41, 59, 0.9);
+  outline: none;
+  cursor: pointer;
+}
+
+.sci-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: #38bdf8;
+  border: 2px solid #e0f2fe;
+  box-shadow: 0 2px 6px rgba(2, 6, 18, 0.55);
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), background-color 150ms ease;
+}
+
+.sci-slider::-webkit-slider-thumb:hover,
+.sci-slider::-webkit-slider-thumb:active {
+  background: #7dd3fc;
+  transform: scale(1.1);
+}
+
+.sci-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: #38bdf8;
+  border: 2px solid #e0f2fe;
+  box-shadow: 0 2px 6px rgba(2, 6, 18, 0.55);
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), background-color 150ms ease;
+}
+

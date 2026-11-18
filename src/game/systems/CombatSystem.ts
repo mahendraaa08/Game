@@ -22,12 +22,24 @@ interface SparkParticle {
   setVisible(v: boolean): this;
 }
 
+interface ImpactFlash {
+  sprite: Phaser.GameObjects.Sprite;
+  active: boolean;
+  startScale: number;
+  endScale: number;
+  life: number;
+  maxLife: number;
+  setActive(v: boolean): this;
+  setVisible(v: boolean): this;
+}
+
 interface FloatingDamageText {
   text: Phaser.GameObjects.Text;
   active: boolean;
   vy: number;
   life: number;
   maxLife: number;
+  fontSize: number;
   setActive(v: boolean): this;
   setVisible(v: boolean): this;
 }
@@ -35,6 +47,7 @@ interface FloatingDamageText {
 export class CombatSystem {
   private scene: Phaser.Scene;
   private particlePool: ObjectPool<SparkParticle>;
+  private flashPool: ObjectPool<ImpactFlash>;
   private textPool: ObjectPool<FloatingDamageText>;
   private powerUpPool: ObjectPool<PowerUpEntity & { setActive(v: boolean): any; setVisible(v: boolean): any }>;
   private fxQuality: FxQuality = 'high';
@@ -68,7 +81,33 @@ export class CombatSystem {
         return obj;
       },
       60,
-      260
+      240
+    );
+
+    this.flashPool = new ObjectPool<ImpactFlash>(
+      () => {
+        const sprite = scene.add.sprite(-100, -100, 'particle_glow').setDepth(16);
+        const obj: ImpactFlash = {
+          sprite,
+          active: false,
+          startScale: 1,
+          endScale: 2,
+          life: 0,
+          maxLife: 0.21,
+          setActive(v: boolean) {
+            this.active = v;
+            sprite.setActive(v);
+            return this;
+          },
+          setVisible(v: boolean) {
+            sprite.setVisible(v);
+            return this;
+          },
+        };
+        return obj;
+      },
+      16,
+      36
     );
 
     this.textPool = new ObjectPool<FloatingDamageText>(
@@ -90,6 +129,7 @@ export class CombatSystem {
           vy: -48,
           life: 0,
           maxLife: 0.45,
+          fontSize: 13,
           setActive(v: boolean) {
             this.active = v;
             text.setActive(v);
@@ -136,10 +176,14 @@ export class CombatSystem {
     if (this.fxQuality === 'low' && !isCrit) return;
     const item = this.textPool.acquire();
     if (!item) return;
+    const targetSize = isCrit ? 16 : 12;
     item.setActive(true).setVisible(true);
     item.text.setPosition(x + (Math.random() - 0.5) * 16, y - 10);
     item.text.setText(isCrit ? `${amount}!` : `${amount}`);
-    item.text.setFontSize(isCrit ? 16 : 12);
+    if (item.fontSize !== targetSize) {
+      item.fontSize = targetSize;
+      item.text.setFontSize(targetSize);
+    }
     item.text.setColor(isCrit ? '#FACC15' : '#E2E8F0');
     item.text.setAlpha(1);
     item.vy = isCrit ? -64 : -42;
@@ -153,7 +197,10 @@ export class CombatSystem {
     item.setActive(true).setVisible(true);
     item.text.setPosition(x, y - 24);
     item.text.setText(label);
-    item.text.setFontSize(14);
+    if (item.fontSize !== 14) {
+      item.fontSize = 14;
+      item.text.setFontSize(14);
+    }
     item.text.setColor(colorHex);
     item.text.setAlpha(1);
     item.vy = -52;
@@ -262,15 +309,15 @@ export class CombatSystem {
     const qualityMult = this.fxQuality === 'low' ? 0.4 : this.fxQuality === 'medium' ? 0.7 : 1;
     const finalCount = Math.max(2, Math.round(count * qualityMult));
 
-    const flash = this.scene.add.sprite(x, y, 'particle_glow').setDepth(16).setTint(color).setScale(scale * 1.4);
-    this.scene.tweens.add({
-      targets: flash,
-      scaleX: scale * 2.8,
-      scaleY: scale * 2.8,
-      alpha: 0,
-      duration: 210,
-      onComplete: () => flash.destroy(),
-    });
+    const flash = this.flashPool.acquire();
+    if (flash) {
+      flash.setActive(true).setVisible(true);
+      flash.sprite.setPosition(x, y).setTint(color).setScale(scale * 1.4).setAlpha(1);
+      flash.startScale = scale * 1.4;
+      flash.endScale = scale * 2.8;
+      flash.maxLife = 0.21;
+      flash.life = 0.21;
+    }
 
     for (let i = 0; i < finalCount; i++) {
       const p = this.particlePool.acquire();
@@ -360,6 +407,18 @@ export class CombatSystem {
       p.vx *= 0.96;
       p.vy *= 0.96;
       p.sprite.setAlpha(p.life / p.maxLife);
+    });
+
+    // Update pooled impact flashes
+    this.flashPool.forEachActive((f) => {
+      f.life -= dt;
+      if (f.life <= 0) {
+        f.setActive(false).setVisible(false);
+        return;
+      }
+      const progress = 1 - f.life / f.maxLife;
+      f.sprite.setScale(Phaser.Math.Linear(f.startScale, f.endScale, progress));
+      f.sprite.setAlpha(Math.max(0, 1 - progress));
     });
 
     // Update floating damage & pickup text
@@ -522,6 +581,7 @@ export class CombatSystem {
 
   clearAll(): void {
     this.particlePool.releaseAll();
+    this.flashPool.releaseAll();
     this.textPool.releaseAll();
     this.powerUpPool.releaseAll();
   }

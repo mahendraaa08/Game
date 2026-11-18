@@ -73,6 +73,7 @@ class SoundManagerImpl {
   private lastShotSoundAt = 0;
   private lastHitSoundAt = 0;
   private lastCritSoundAt = 0;
+  private explosionBufferCache: Partial<Record<'small' | 'medium' | 'boss', AudioBuffer>> = {};
 
   private ensureContext(): AudioContext | null {
     if (this.settings.muted) return null;
@@ -82,6 +83,7 @@ class SoundManagerImpl {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return null;
       this.ctx = new AudioCtx();
+      this.explosionBufferCache = {};
 
       this.masterGain = this.ctx.createGain();
       this.musicGain = this.ctx.createGain();
@@ -334,11 +336,15 @@ class SoundManagerImpl {
     const t = ctx.currentTime;
 
     const duration = scale === 'boss' ? 0.65 : scale === 'medium' ? 0.32 : 0.18;
-    const bufferSize = Math.floor(ctx.sampleRate * duration);
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 1.8);
+    let buffer = this.explosionBufferCache[scale];
+    if (!buffer) {
+      const bufferSize = Math.floor(ctx.sampleRate * duration);
+      buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 1.8);
+      }
+      this.explosionBufferCache[scale] = buffer;
     }
 
     const noise = ctx.createBufferSource();

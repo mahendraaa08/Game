@@ -1,19 +1,16 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   CheckCircle2,
-  ChevronDown,
-  ChevronUp,
+  ChevronRight,
   Compass,
   Flame,
   Lock,
   Play,
-  ShieldAlert,
   Skull,
   Sparkles,
-  Trophy,
 } from 'lucide-react';
 import { BOSS_CONFIGS } from '../game/config/BossConfig';
-import { BOSS_RUSH_ORDER, CHALLENGES } from '../game/config/GameModeConfig';
+import { BOSS_RUSH_ORDER, CHALLENGES, GameMode } from '../game/config/GameModeConfig';
 import { CAMPAIGN_LEVELS } from '../game/config/LevelConfig';
 import { SoundManager } from '../game/audio/SoundManager';
 import { EventBus } from '../game/utils/EventBus';
@@ -23,376 +20,508 @@ import { DedicatedScreenShell } from './DedicatedScreenShell';
 interface ModeSelectorOverlayProps {
   progress: PlayerProgress;
   onBack: () => void;
-  onOpenArmory: () => void;
 }
 
 export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
   progress,
   onBack,
-  onOpenArmory,
 }) => {
+  const [selectedMode, setSelectedMode] = useState<GameMode>('campaign');
   const [selectedSector, setSelectedSector] = useState<number>(progress.highestUnlockedLevel);
-  const [showSectors, setShowSectors] = useState<boolean>(false);
-  const [showChallenges, setShowChallenges] = useState<boolean>(false);
+  const [selectedChallengeId, setSelectedChallengeId] = useState<string>(
+    () =>
+      CHALLENGES.find((c) => !progress.stats.completedChallenges.includes(c.id))?.id ??
+      CHALLENGES[0].id
+  );
 
   const sectorDef = CAMPAIGN_LEVELS[selectedSector - 1] ?? CAMPAIGN_LEVELS[0];
-  const sectorBoss = sectorDef.bossId ? BOSS_CONFIGS[sectorDef.bossId] : null;
-  const hasCampaignProgress =
-    progress.highestUnlockedLevel > 1 || progress.completedLevels.length > 0;
+  const selectedSectorUnlocked = sectorDef.levelNumber <= progress.highestUnlockedLevel;
 
-  const launchCampaign = (lvl: number) => {
+  const selectedChallenge = useMemo(
+    () => CHALLENGES.find((c) => c.id === selectedChallengeId) ?? CHALLENGES[0],
+    [selectedChallengeId]
+  );
+
+  const selectMode = (mode: GameMode) => {
+    if (selectedMode === mode) return;
     SoundManager.unlock();
     SoundManager.playButtonClick();
-    EventBus.emit('ui:start-level', lvl);
+    setSelectedMode(mode);
   };
+
+  const handleLaunchSelected = () => {
+    SoundManager.unlock();
+    SoundManager.playButtonClick();
+
+    if (selectedMode === 'campaign') {
+      if (!selectedSectorUnlocked) return;
+      EventBus.emit('ui:start-level', selectedSector);
+      return;
+    }
+    if (selectedMode === 'endless') {
+      EventBus.emit('ui:start-mode', { mode: 'endless', levelNumber: 6 });
+      return;
+    }
+    if (selectedMode === 'challenge') {
+      EventBus.emit('ui:start-mode', {
+        mode: 'challenge',
+        challengeId: selectedChallenge.id,
+        levelNumber: selectedChallenge.rules.levelBase,
+      });
+      return;
+    }
+    EventBus.emit('ui:start-mode', { mode: 'boss_rush', levelNumber: 10 });
+  };
+
+  const modeOptions: Array<{
+    id: GameMode;
+    title: string;
+    metric: string;
+    icon: React.FC<{ className?: string }>;
+    selectedBorder: string;
+    selectedBg: string;
+    iconColor: string;
+  }> = [
+    {
+      id: 'campaign',
+      title: 'Campaign',
+      metric: `${progress.completedLevels.length}/10 Cleared`,
+      icon: Compass,
+      selectedBorder: 'border-sky-300/70',
+      selectedBg: 'bg-[#0b1b34]/95',
+      iconColor: 'text-sky-300',
+    },
+    {
+      id: 'endless',
+      title: 'Endless Survival',
+      metric:
+        progress.stats.bestEndlessWave > 0
+          ? `Best Wave ${progress.stats.bestEndlessWave}`
+          : 'No Record',
+      icon: Flame,
+      selectedBorder: 'border-purple-300/70',
+      selectedBg: 'bg-[#16102b]/95',
+      iconColor: 'text-purple-300',
+    },
+    {
+      id: 'challenge',
+      title: 'Challenge Mode',
+      metric: `${progress.stats.completedChallenges.length}/${CHALLENGES.length} Completed`,
+      icon: Sparkles,
+      selectedBorder: 'border-amber-300/70',
+      selectedBg: 'bg-[#1a140b]/95',
+      iconColor: 'text-amber-300',
+    },
+    {
+      id: 'boss_rush',
+      title: 'Boss Rush',
+      metric: `${progress.stats.bossRushClears} Clears`,
+      icon: Skull,
+      selectedBorder: 'border-rose-300/70',
+      selectedBg: 'bg-[#1d0e18]/95',
+      iconColor: 'text-rose-300',
+    },
+  ];
 
   return (
     <DedicatedScreenShell
-      title="Select Game Mode"
-      subtitle="Choose your combat deployment across Void Empire space"
-      backLabel="Main Menu"
-      onBack={onBack}
-      credits={progress.credits}
-      crystals={progress.crystals}
-      onCurrencyClick={onOpenArmory}
-      maxWidthClass="max-w-5xl"
-    >
-      <div className="flex flex-col gap-4">
-          {/* 1. CAMPAIGN MODE CARD (Featured Full-Width Card) */}
-          <article className="overflow-hidden rounded-2xl border border-sky-400/45 bg-gradient-to-br from-[#0b1832]/95 via-[#081124]/95 to-[#060c1a]/95 p-5 sm:p-6 shadow-[0_0_28px_rgba(56,189,248,0.12)]">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-sky-300">
-                  <Compass className="h-4 w-4" />
-                  <span>Story Campaign</span>
-                  <span className="text-slate-600">·</span>
-                  <span className="font-mono-num">
-                    {progress.completedLevels.length}/10 Sectors Cleared
-                  </span>
-                </div>
-
-                <h2 className="mt-1.5 font-display text-2xl sm:text-3xl font-bold text-white">
-                  CAMPAIGN
-                </h2>
-                <p className="mt-1.5 max-w-xl text-xs sm:text-sm leading-relaxed text-slate-300">
-                  Defend the galaxy through the main story campaign across ten hostile sectors and five Void commanders.
-                </p>
-
-                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono-num text-xs text-slate-300">
-                  <span>
-                    Active: <strong className="text-sky-300">Sector {String(selectedSector).padStart(2, '0')} — {sectorDef.name}</strong>
-                  </span>
-                  {sectorBoss && (
-                    <span className="flex items-center gap-1 text-rose-300">
-                      <ShieldAlert className="h-3.5 w-3.5 text-rose-400" />
-                      {sectorBoss.name}
+      title="SELECT GAME MODE"
+        backLabel="Main Menu"
+        onBack={onBack}
+        credits={progress.credits}
+        crystals={progress.crystals}
+        maxWidthClass="max-w-6xl"
+      >
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[290px_1fr] lg:items-start lg:gap-6">
+          {/* LEFT RAIL (Desktop) / COMPACT 2x2 SELECTOR (Mobile): Minimal 4 Game Modes */}
+          <nav
+            aria-label="Game Modes"
+            className="grid grid-cols-2 gap-2.5 lg:grid-cols-1 lg:gap-2.5"
+          >
+            {modeOptions.map((item) => {
+              const Icon = item.icon;
+              const isSelected = selectedMode === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => selectMode(item.id)}
+                  className={`group flex min-h-[68px] sm:min-h-[76px] items-center justify-between gap-3 rounded-2xl border px-3.5 py-3 sm:px-4 text-left transition-[border-color,background-color,opacity,transform] duration-150 active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-cyan-400 ${
+                    isSelected
+                      ? `${item.selectedBorder} ${item.selectedBg} opacity-100`
+                      : 'border-slate-800/85 bg-[#081122]/80 opacity-80 hover:opacity-100 hover:border-slate-600/80 hover:bg-[#0c172d]/85'
+                  }`}
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-700/70 bg-[#050b18]">
+                      <Icon className={`h-4 w-4 ${item.iconColor}`} />
                     </span>
-                  )}
-                </div>
-              </div>
+                    <div className="min-w-0">
+                      <div className="truncate font-display text-xs sm:text-sm font-bold tracking-wide text-white">
+                        {item.title}
+                      </div>
+                      <div className="mt-0.5 truncate font-mono-num text-[11px] text-slate-400">
+                        {item.metric}
+                      </div>
+                    </div>
+                  </div>
 
-              <div className="flex shrink-0 flex-col gap-2 sm:flex-row md:flex-col md:min-w-[220px]">
-                <button
-                  type="button"
-                  onClick={() => launchCampaign(selectedSector)}
-                  className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-400 via-cyan-400 to-sky-500 px-5 py-3 font-display text-sm sm:text-base font-bold text-slate-950 shadow-[0_0_20px_rgba(56,189,248,0.28)] transition-[filter,transform] duration-150 hover:brightness-110 active:scale-[0.98]"
-                >
-                  <Play className="h-4 w-4 fill-current" />
-                  <span>
-                    {hasCampaignProgress
-                      ? `Continue Sector ${String(selectedSector).padStart(2, '0')}`
-                      : 'Start Sector 01'}
-                  </span>
+                  <ChevronRight
+                    className={`hidden h-4 w-4 shrink-0 transition-transform duration-150 lg:block ${
+                      isSelected
+                        ? 'translate-x-0.5 text-slate-200'
+                        : 'text-slate-600 group-hover:text-slate-400'
+                    }`}
+                  />
                 </button>
+              );
+            })}
+          </nav>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    SoundManager.playButtonClick();
-                    setShowSectors((v) => !v);
-                  }}
-                  className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-700/80 bg-[#070e1d]/90 px-4 py-2 text-xs font-semibold text-slate-200 transition-colors hover:border-sky-400/70"
-                >
-                  <span>{showSectors ? 'Hide Sector List' : 'Choose Sector (1–10)'}</span>
-                  {showSectors ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
+          {/* RIGHT STAGE: Single Clean Dynamic Mode Briefing & Action Area */}
+          <section
+            key={selectedMode}
+            aria-live="polite"
+            className="panel-swap flex flex-col justify-between gap-5 rounded-2xl border border-slate-700/70 bg-[#081122]/92 p-5 sm:p-6 lg:p-7"
+          >
+            {/* 1. CAMPAIGN */}
+            {selectedMode === 'campaign' && (
+              <>
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 font-mono-num text-xs text-slate-400">
+                    <span className="font-semibold uppercase tracking-wider text-sky-300">
+                      Campaign
+                    </span>
+                    <span>
+                      {progress.completedLevels.length}/{CAMPAIGN_LEVELS.length} Sectors Cleared
+                    </span>
+                  </div>
 
-            {showSectors && (
-              <div className="mt-5 border-t border-slate-800/80 pt-4">
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                  {CAMPAIGN_LEVELS.map((lvl) => {
-                    const unlocked = lvl.levelNumber <= progress.highestUnlockedLevel;
-                    const completed = progress.completedLevels.includes(lvl.levelNumber);
-                    const selected = selectedSector === lvl.levelNumber;
-                    return (
-                      <button
-                        key={lvl.levelNumber}
-                        type="button"
-                        disabled={!unlocked}
-                        onClick={() => {
-                          SoundManager.playButtonClick();
-                          setSelectedSector(lvl.levelNumber);
-                        }}
-                        className={`flex min-h-[54px] flex-col justify-between rounded-xl border p-2.5 text-left transition-colors ${
-                          !unlocked
-                            ? 'cursor-not-allowed border-slate-800/50 bg-slate-950/50 text-slate-600'
-                            : selected
-                            ? 'border-sky-400 bg-sky-500/18 text-white'
-                            : 'border-slate-800 bg-[#081022]/85 text-slate-300 hover:border-slate-600'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between font-mono-num text-[10px]">
-                          <span>S{String(lvl.levelNumber).padStart(2, '0')}</span>
-                          {!unlocked ? (
-                            <Lock className="h-3 w-3 text-slate-600" />
-                          ) : completed ? (
-                            <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                          ) : null}
-                        </div>
-                        <div className="truncate font-display text-xs font-bold">{lvl.name}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </article>
-
-          {/* 2–4: ENDLESS SURVIVAL · CHALLENGE MODE · BOSS RUSH */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            {/* 2. ENDLESS SURVIVAL */}
-            <article className="flex flex-col justify-between rounded-2xl border border-purple-400/40 bg-gradient-to-br from-[#130e29]/92 via-[#090d1f]/95 to-[#060a16]/95 p-5">
-              <div>
-                <div className="flex items-center gap-2 text-xs font-semibold text-purple-300">
-                  <Flame className="h-4 w-4" />
-                  <span>Infinite Waves</span>
-                </div>
-                <h2 className="mt-1.5 font-display text-xl font-bold text-white">
-                  ENDLESS SURVIVAL
-                </h2>
-                <p className="mt-1.5 text-xs leading-relaxed text-slate-300">
-                  Survive endless enemy waves and achieve the highest possible score. Bosses deploy every 5th wave.
-                </p>
-
-                <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl border border-slate-800/90 bg-slate-950/65 p-3 font-mono-num">
                   <div>
-                    <div className="text-[10px] text-slate-400">Best Wave</div>
-                    <div className="text-sm font-bold text-purple-300">
-                      Wave {progress.stats.bestEndlessWave || 0}
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <h2 className="font-display text-xl sm:text-2xl font-bold text-white">
+                        Sector {String(selectedSector).padStart(2, '0')} — {sectorDef.name}
+                      </h2>
+                      <span className="font-mono-num text-xs text-slate-400">
+                        {sectorDef.subtitle}
+                      </span>
                     </div>
+                    <p className="mt-2 max-w-2xl text-xs sm:text-sm leading-relaxed text-slate-300">
+                      {sectorDef.objective}
+                    </p>
                   </div>
+
+                  {/* Unboxed Clean Telemetry Line */}
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-slate-800/80 py-3 font-mono-num text-xs">
+                    <span className="text-slate-400">
+                      Waves: <strong className="text-white">{sectorDef.waves.length}</strong>
+                    </span>
+                    <span className="text-slate-400">
+                      Best Score:{' '}
+                      <strong className="text-white">
+                        {(progress.levelScores[selectedSector] ?? 0) > 0
+                          ? (progress.levelScores[selectedSector] ?? 0).toLocaleString()
+                          : '—'}
+                      </strong>
+                    </span>
+                    <span className="text-emerald-300">{sectorDef.rewardText}</span>
+                  </div>
+
+                  {/* Clean Sector Selector (01-10) */}
                   <div>
-                    <div className="text-[10px] text-slate-400">Best Score</div>
-                    <div className="text-sm font-bold text-white">
-                      {progress.stats.bestEndlessScore.toLocaleString()}
+                    <div className="mb-2.5 flex items-center justify-between text-xs">
+                      <span className="font-display font-semibold text-slate-200">
+                        Select Sector
+                      </span>
+                      <span className="font-mono-num text-[11px] text-slate-400">
+                        Unlocked to S{String(progress.highestUnlockedLevel).padStart(2, '0')}
+                      </span>
                     </div>
-                  </div>
-                </div>
-              </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  SoundManager.unlock();
-                  SoundManager.playButtonClick();
-                  EventBus.emit('ui:start-mode', { mode: 'endless', levelNumber: 6 });
-                }}
-                className="mt-5 flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-purple-500 px-4 py-2.5 font-display text-sm font-bold text-white transition-colors hover:bg-purple-400 active:scale-[0.98]"
-              >
-                <Play className="h-4 w-4 fill-current" />
-                <span>Play Endless</span>
-              </button>
-            </article>
+                    <div className="scroll-panel grid max-h-[212px] sm:max-h-none grid-cols-2 gap-2 overflow-y-auto pr-1.5 sm:grid-cols-5">
+                      {CAMPAIGN_LEVELS.map((lvl) => {
+                        const unlocked = lvl.levelNumber <= progress.highestUnlockedLevel;
+                        const completed = progress.completedLevels.includes(lvl.levelNumber);
+                        const active = selectedSector === lvl.levelNumber;
 
-            {/* 3. CHALLENGE MODE */}
-            <article className="flex flex-col justify-between rounded-2xl border border-amber-400/40 bg-gradient-to-br from-[#19130a]/92 via-[#090e1d]/95 to-[#060a16]/95 p-5">
-              <div>
-                <div className="flex items-center gap-2 text-xs font-semibold text-amber-300">
-                  <Sparkles className="h-4 w-4" />
-                  <span>Tactical Trials</span>
-                </div>
-                <h2 className="mt-1.5 font-display text-xl font-bold text-white">
-                  CHALLENGE MODE
-                </h2>
-                <p className="mt-1.5 text-xs leading-relaxed text-slate-300">
-                  Complete special objectives with unique gameplay conditions, restricted loadouts, and bonus bounties.
-                </p>
-
-                <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl border border-slate-800/90 bg-slate-950/65 p-3 font-mono-num">
-                  <div>
-                    <div className="text-[10px] text-slate-400">Completed</div>
-                    <div className="text-sm font-bold text-amber-300">
-                      {progress.stats.completedChallenges.length} / {CHALLENGES.length}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-slate-400">Top Bounty</div>
-                    <div className="text-sm font-bold text-cyan-300">18 Gems</div>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  SoundManager.playButtonClick();
-                  setShowChallenges((v) => !v);
-                }}
-                className="mt-5 flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-amber-400 px-4 py-2.5 font-display text-sm font-bold text-slate-950 transition-colors hover:bg-amber-300 active:scale-[0.98]"
-              >
-                <span>{showChallenges ? 'Hide Trials' : 'View Challenges'}</span>
-                {showChallenges ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </button>
-            </article>
-
-            {/* 4. BOSS RUSH */}
-            <article className="flex flex-col justify-between rounded-2xl border border-rose-400/40 bg-gradient-to-br from-[#1b0b15]/92 via-[#090d1e]/95 to-[#060a16]/95 p-5">
-              <div>
-                <div className="flex items-center gap-2 text-xs font-semibold text-rose-300">
-                  <Skull className="h-4 w-4" />
-                  <span>5-Boss Gauntlet</span>
-                </div>
-                <h2 className="mt-1.5 font-display text-xl font-bold text-white">
-                  BOSS RUSH
-                </h2>
-                <p className="mt-1.5 text-xs leading-relaxed text-slate-300">
-                  Face all five Void Empire commanders consecutively from Iron Guardian to the Void Emperor.
-                </p>
-
-                <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl border border-slate-800/90 bg-slate-950/65 p-3 font-mono-num">
-                  <div>
-                    <div className="text-[10px] text-slate-400">Gauntlet Clears</div>
-                    <div className="text-sm font-bold text-rose-300">
-                      {progress.stats.bossRushClears}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-slate-400">Best Score</div>
-                    <div className="text-sm font-bold text-white">
-                      {progress.stats.bestBossRushScore.toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  SoundManager.unlock();
-                  SoundManager.playButtonClick();
-                  EventBus.emit('ui:start-mode', { mode: 'boss_rush', levelNumber: 10 });
-                }}
-                className="mt-5 flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-rose-500 px-4 py-2.5 font-display text-sm font-bold text-white transition-colors hover:bg-rose-400 active:scale-[0.98]"
-              >
-                <Trophy className="h-4 w-4" />
-                <span>Play Boss Rush</span>
-              </button>
-            </article>
-          </div>
-
-          {/* Expandable Challenge Trials List */}
-          {showChallenges && (
-            <section className="menu-enter rounded-2xl border border-amber-400/35 bg-[#081022]/92 p-4 sm:p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="font-display text-base font-bold text-amber-300">
-                  Available Challenge Trials
-                </h3>
-                <span className="font-mono-num text-xs text-slate-400">
-                  {progress.stats.completedChallenges.length}/{CHALLENGES.length} Completed
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {CHALLENGES.map((c) => {
-                  const done = progress.stats.completedChallenges.includes(c.id);
-                  return (
-                    <div
-                      key={c.id}
-                      className="flex flex-col justify-between rounded-xl border border-slate-800 bg-slate-950/70 p-4"
-                    >
-                      <div>
-                        <div className="flex items-center justify-between gap-2 text-[11px]">
-                          <span
-                            className={`font-semibold ${
-                              c.difficulty === 'Extreme'
-                                ? 'text-rose-400'
-                                : c.difficulty === 'Hard'
-                                ? 'text-amber-300'
-                                : 'text-sky-300'
+                        return (
+                          <button
+                            key={lvl.levelNumber}
+                            type="button"
+                            disabled={!unlocked}
+                            onClick={() => {
+                              SoundManager.playButtonClick();
+                              setSelectedSector(lvl.levelNumber);
+                            }}
+                            className={`flex min-h-[62px] flex-col justify-between rounded-xl border px-3 py-2.5 text-left transition-[border-color,background-color] duration-150 ${
+                              !unlocked
+                                ? 'cursor-not-allowed border-slate-800/60 bg-slate-950/45 text-slate-600'
+                                : active
+                                ? 'border-sky-300/75 bg-sky-500/15 text-white'
+                                : 'border-slate-800 bg-[#060c1a]/85 text-slate-300 hover:border-slate-600'
                             }`}
                           >
-                            {c.difficulty} · {c.constraintsLabel}
-                          </span>
-                          {done && (
-                            <span className="flex items-center gap-1 font-semibold text-emerald-400">
-                              <CheckCircle2 className="h-3.5 w-3.5" /> Cleared
-                            </span>
-                          )}
-                        </div>
-                        <h4 className="mt-1 font-display text-base font-bold text-white">{c.title}</h4>
-                        <p className="mt-1 text-xs leading-relaxed text-slate-300">{c.objective}</p>
-                      </div>
-
-                      <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-800/80 pt-3">
-                        <div className="font-mono-num text-xs">
-                          <span className="text-amber-300">+{c.rewardCredits} CR</span>
-                          <span className="mx-1.5 text-slate-600">·</span>
-                          <span className="text-cyan-300">+{c.rewardCrystals} Gems</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            SoundManager.unlock();
-                            SoundManager.playButtonClick();
-                            EventBus.emit('ui:start-mode', {
-                              mode: 'challenge',
-                              challengeId: c.id,
-                              levelNumber: c.rules.levelBase,
-                            });
-                          }}
-                          className="flex min-h-[40px] items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-2 font-display text-xs font-bold text-slate-950 hover:bg-sky-400"
-                        >
-                          <Play className="h-3.5 w-3.5 fill-current" />
-                          <span>{done ? 'Replay' : 'Play'}</span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* Boss Rush Roster Preview */}
-          <section className="rounded-2xl border border-slate-800/80 bg-[#081022]/85 p-4">
-            <div className="mb-2.5 flex items-center justify-between text-xs">
-              <span className="font-display font-bold text-slate-200">
-                Boss Rush Gauntlet Sequence
-              </span>
-              <span className="font-mono-num text-slate-400">
-                Reward: +1,400 CR · +10 Gems Clear Bonus
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-              {BOSS_RUSH_ORDER.map((bId, idx) => {
-                const boss = BOSS_CONFIGS[bId];
-                return (
-                  <div
-                    key={bId}
-                    className="rounded-xl border border-slate-800/90 bg-slate-950/65 px-3 py-2 text-xs"
-                  >
-                    <div className="font-mono-num text-[10px] text-slate-500">Stage {idx + 1}</div>
-                    <div className="truncate font-display font-bold text-rose-300">
-                      {boss.name}
+                            <div className="flex items-center justify-between gap-1 font-mono-num text-[10.5px]">
+                              <span className="font-bold">
+                                S{String(lvl.levelNumber).padStart(2, '0')}
+                              </span>
+                              {!unlocked ? (
+                                <Lock className="h-3 w-3 text-slate-600" />
+                              ) : completed ? (
+                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                              ) : null}
+                            </div>
+                            <div className="truncate font-display text-[11.5px] font-bold">
+                              {lvl.name}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                </div>
+
+                {/* Action Bar */}
+                <div className="flex justify-end border-t border-slate-800/80 pt-4">
+                  <button
+                    type="button"
+                    disabled={!selectedSectorUnlocked}
+                    onClick={handleLaunchSelected}
+                    className="flex min-h-[48px] w-full sm:w-auto items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-sky-400 to-cyan-400 px-6 py-2.5 font-display text-sm sm:text-base font-bold tracking-wider text-slate-950 transition-[filter,transform] duration-150 hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45 sm:min-w-[220px]"
+                  >
+                    <Play className="h-4 w-4 fill-current" />
+                    <span>Play Sector {String(selectedSector).padStart(2, '0')}</span>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* 2. ENDLESS SURVIVAL */}
+            {selectedMode === 'endless' && (
+              <>
+                <div className="flex flex-col gap-5">
+                  <div className="font-mono-num text-xs font-semibold uppercase tracking-wider text-purple-300">
+                    Endless Survival
+                  </div>
+
+                  <div>
+                    <h2 className="font-display text-xl sm:text-2xl font-bold text-white">
+                      Endless Survival Simulation
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-xs sm:text-sm leading-relaxed text-slate-300">
+                      Hostile speed, hull armor, and squadron density scale continuously across every wave. Void commanders intercept every 5th wave with bonus Credits and Void Crystal milestones.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 border-y border-slate-800/80 py-4 font-mono-num sm:grid-cols-4">
+                    <div>
+                      <div className="text-[11px] text-slate-400">Best Wave</div>
+                      <div className="mt-1 text-base sm:text-lg font-bold text-purple-300">
+                        {progress.stats.bestEndlessWave > 0
+                          ? `Wave ${progress.stats.bestEndlessWave}`
+                          : '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] text-slate-400">High Score</div>
+                      <div className="mt-1 text-base sm:text-lg font-bold text-white">
+                        {progress.stats.bestEndlessScore > 0
+                          ? progress.stats.bestEndlessScore.toLocaleString()
+                          : '0'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] text-slate-400">Boss Interval</div>
+                      <div className="mt-1 text-base sm:text-lg font-bold text-cyan-300">
+                        Every 5 Waves
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] text-slate-400">Sorties Logged</div>
+                      <div className="mt-1 text-base sm:text-lg font-bold text-slate-200">
+                        {progress.stats.totalRuns.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end border-t border-slate-800/80 pt-4">
+                  <button
+                    type="button"
+                    onClick={handleLaunchSelected}
+                    className="flex min-h-[48px] w-full sm:w-auto items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-purple-400 to-fuchsia-400 px-6 py-2.5 font-display text-sm sm:text-base font-bold tracking-wider text-slate-950 transition-[filter,transform] duration-150 hover:brightness-105 active:scale-[0.98] sm:min-w-[220px]"
+                  >
+                    <Play className="h-4 w-4 fill-current" />
+                    <span>Start Survival</span>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* 3. CHALLENGE MODE */}
+            {selectedMode === 'challenge' && (
+              <>
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 font-mono-num text-xs">
+                    <span className="font-semibold uppercase tracking-wider text-amber-300">
+                      Challenge Mode
+                    </span>
+                    <span className="text-slate-400">
+                      {progress.stats.completedChallenges.length}/{CHALLENGES.length} Completed
+                    </span>
+                  </div>
+
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <h2 className="font-display text-xl sm:text-2xl font-bold text-white">
+                        {selectedChallenge.title}
+                      </h2>
+                      <span
+                        className={`font-mono-num text-xs font-semibold ${
+                          progress.stats.completedChallenges.includes(selectedChallenge.id)
+                            ? 'text-emerald-400'
+                            : 'text-sky-300'
+                        }`}
+                      >
+                        {progress.stats.completedChallenges.includes(selectedChallenge.id)
+                          ? 'Completed'
+                          : 'Available'}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 max-w-2xl text-xs sm:text-sm leading-relaxed text-slate-300">
+                      {selectedChallenge.objective}
+                    </p>
+                    <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono-num text-xs text-slate-400">
+                      <span>{selectedChallenge.constraintsLabel}</span>
+                      <span className="text-amber-300">+{selectedChallenge.rewardCredits} CR</span>
+                      <span className="text-cyan-300">+{selectedChallenge.rewardCrystals} Gems</span>
+                    </div>
+                  </div>
+
+                  <div className="scroll-panel grid max-h-[232px] sm:max-h-none grid-cols-1 gap-2.5 overflow-y-auto pr-1.5 sm:grid-cols-2">
+                    {CHALLENGES.map((c) => {
+                      const done = progress.stats.completedChallenges.includes(c.id);
+                      const isPicked = selectedChallenge.id === c.id;
+
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          aria-pressed={isPicked}
+                          onClick={() => {
+                            SoundManager.playButtonClick();
+                            setSelectedChallengeId(c.id);
+                          }}
+                          className={`flex flex-col justify-between gap-2 rounded-xl border p-3.5 text-left transition-[border-color,background-color] duration-150 ${
+                            isPicked
+                              ? 'border-amber-300/75 bg-amber-500/12'
+                              : 'border-slate-800 bg-[#060c1a]/85 hover:border-slate-600'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 font-mono-num text-[10.5px]">
+                            <span
+                              className={`font-semibold ${
+                                c.difficulty === 'Extreme'
+                                  ? 'text-rose-400'
+                                  : c.difficulty === 'Hard'
+                                  ? 'text-amber-300'
+                                  : 'text-sky-300'
+                              }`}
+                            >
+                              {c.difficulty} · {c.constraintsLabel}
+                            </span>
+                            {done && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" />}
+                          </div>
+
+                          <div className="font-display text-sm font-bold text-white">
+                            {c.title}
+                          </div>
+
+                          <div className="font-mono-num text-[11px] text-slate-400">
+                            <span className="text-amber-300">+{c.rewardCredits} CR</span>
+                            <span className="mx-1.5 text-slate-600">·</span>
+                            <span className="text-cyan-300">+{c.rewardCrystals} Gems</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex justify-end border-t border-slate-800/80 pt-4">
+                  <button
+                    type="button"
+                    onClick={handleLaunchSelected}
+                    className="flex min-h-[48px] w-full sm:w-auto items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 px-6 py-2.5 font-display text-sm sm:text-base font-bold tracking-wider text-slate-950 transition-[filter,transform] duration-150 hover:brightness-105 active:scale-[0.98] sm:min-w-[220px]"
+                  >
+                    <Play className="h-4 w-4 fill-current" />
+                    <span>Start Challenge</span>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* 4. BOSS RUSH */}
+            {selectedMode === 'boss_rush' && (
+              <>
+                <div className="flex flex-col gap-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 font-mono-num text-xs">
+                    <span className="font-semibold uppercase tracking-wider text-rose-300">
+                      Boss Rush Gauntlet
+                    </span>
+                    <span className="text-slate-400">
+                      {progress.stats.bossRushClears} Clears · Best{' '}
+                      {progress.stats.bestBossRushScore.toLocaleString()} PTS
+                    </span>
+                  </div>
+
+                  <div>
+                    <h2 className="font-display text-xl sm:text-2xl font-bold text-white">
+                      Void Commander Boss Rush
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-xs sm:text-sm leading-relaxed text-slate-300">
+                      Engage all {BOSS_RUSH_ORDER.length} Void Empire dreadnought commanders back-to-back in a single gauntlet. Clearing the full sequence awards +1,400 CR and +10 Gems.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-5">
+                    {BOSS_RUSH_ORDER.map((bId, idx) => {
+                      const boss = BOSS_CONFIGS[bId];
+                      return (
+                        <div
+                          key={bId}
+                          className="rounded-xl border border-slate-800/90 bg-[#060c1a]/85 px-3 py-3"
+                        >
+                          <div className="font-mono-num text-[10.5px] text-slate-500">
+                            0{idx + 1}
+                          </div>
+                          <div className="mt-1 truncate font-display text-xs sm:text-sm font-bold text-rose-300">
+                            {boss.name}
+                          </div>
+                          <div className="mt-0.5 truncate text-[11px] text-slate-400">
+                            {boss.title}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex justify-end border-t border-slate-800/80 pt-4">
+                  <button
+                    type="button"
+                    onClick={handleLaunchSelected}
+                    className="flex min-h-[48px] w-full sm:w-auto items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-6 py-2.5 font-display text-sm sm:text-base font-bold tracking-wider text-white transition-[filter,transform] duration-150 hover:brightness-110 active:scale-[0.98] sm:min-w-[220px]"
+                  >
+                    <Play className="h-4 w-4 fill-current" />
+                    <span>Start Boss Rush</span>
+                  </button>
+                </div>
+              </>
+            )}
           </section>
-      </div>
-    </DedicatedScreenShell>
+        </div>
+      </DedicatedScreenShell>
   );
 };

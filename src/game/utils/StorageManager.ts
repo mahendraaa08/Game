@@ -82,7 +82,6 @@ export interface PlayerProgress {
   rewardHistory: RewardHistoryEntry[];
   muted: boolean;
   totalKills: number;
-  introSeen: boolean;
 }
 
 const STORAGE_KEY = 'galactic_war_defender_save_v1';
@@ -178,7 +177,6 @@ export function createDefaultProgress(): PlayerProgress {
     rewardHistory: [],
     muted: false,
     totalKills: 0,
-    introSeen: false,
   };
 }
 
@@ -372,7 +370,6 @@ class StorageManagerImpl {
         rewardHistory: Array.isArray(parsed.rewardHistory) ? parsed.rewardHistory.slice(0, 15) : [],
         muted,
         totalKills: safeInt(parsed.totalKills, 0, 0),
-        introSeen: Boolean(parsed.introSeen),
       };
 
       this.cache = merged;
@@ -455,13 +452,6 @@ class StorageManagerImpl {
     const nextSettings: GameSettings = { ...DEFAULT_SETTINGS };
     this.save({ ...p, muted: nextSettings.muted, settings: nextSettings });
     return nextSettings;
-  }
-
-  setIntroSeen(): void {
-    const p = this.load();
-    if (!p.introSeen) {
-      this.save({ ...p, introSeen: true });
-    }
   }
 }
 

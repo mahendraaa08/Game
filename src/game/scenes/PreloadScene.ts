@@ -9,13 +9,7 @@ export class PreloadScene extends Phaser.Scene {
 
   create(): void {
     EventBus.emit('scene:changed', 'PreloadScene');
-    EventBus.emit('preload:progress', 0.35);
-
     generateAllTextures(this);
-    EventBus.emit('preload:progress', 1);
-
-    this.time.delayedCall(120, () => {
-      this.scene.start('MainMenuScene');
-    });
+    this.scene.start('MainMenuScene');
   }
 }

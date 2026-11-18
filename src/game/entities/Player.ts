@@ -10,7 +10,8 @@ import {
 } from '../config/WeaponConfig';
 import { SoundManager } from '../audio/SoundManager';
 import { ComputedPlayerStats } from '../systems/ProgressionManager';
-import { StorageManager } from '../utils/StorageManager';
+import { EventBus } from '../utils/EventBus';
+import { GameSettings, StorageManager } from '../utils/StorageManager';
 import { ProjectileManager } from './ProjectileManager';
 import { Targetable } from './Targetable';
 
@@ -53,6 +54,9 @@ export class Player {
   private lastDragY = 0;
   private dragTargetX = 0;
   private dragTargetY = 0;
+  private cachedSettings: GameSettings;
+  private settingsUnsub?: () => void;
+  private dirScratch = { x: 0, y: 0 };
 
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keys!: {
@@ -92,6 +96,10 @@ export class Player {
     this.shieldGfx = scene.add.graphics().setDepth(11);
     this.dragTargetX = x;
     this.dragTargetY = y;
+    this.cachedSettings = { ...StorageManager.load().settings };
+    this.settingsUnsub = EventBus.on('settings:updated', (next) => {
+      this.cachedSettings = { ...next };
+    });
 
     if (scene.input.keyboard) {
       this.cursors = scene.input.keyboard.createCursorKeys();
@@ -146,8 +154,7 @@ export class Player {
 
   moveDrag(pointerId: number, x: number, y: number): void {
     if (this.dragPointerId !== pointerId) return;
-    const settings = StorageManager.load().settings;
-    const sensitivity = settings.controlSensitivity ?? 1.2;
+    const sensitivity = this.cachedSettings.controlSensitivity ?? 1.2;
     const dx = (x - this.lastDragX) * sensitivity;
     const dy = (y - this.lastDragY) * sensitivity;
     this.lastDragX = x;
@@ -376,7 +383,9 @@ export class Player {
       ix /= len;
       iy /= len;
     }
-    return { x: ix, y: iy };
+    this.dirScratch.x = ix;
+    this.dirScratch.y = iy;
+    return this.dirScratch;
   }
 
   update(
@@ -421,8 +430,7 @@ export class Player {
       }
     }
 
-    const settings = StorageManager.load().settings;
-    const followSpeed = Phaser.Math.Linear(48, 18, settings.movementSmoothing ?? 0.7);
+    const followSpeed = Phaser.Math.Linear(48, 18, this.cachedSettings.movementSmoothing ?? 0.7);
     const speedCap = this.stats.moveSpeed;
 
     // Movement
@@ -436,23 +444,25 @@ export class Player {
         this.dragTargetX = this.sprite.x;
         this.dragTargetY = this.sprite.y;
       }
-      this.afterimageTimerMs -= dtMs;
-      if (this.afterimageTimerMs <= 0) {
-        this.afterimageTimerMs = 28;
-        const shipDef = SHIPS[this.stats.shipId] ?? SHIPS.falcon_x;
-        const ghost = this.scene.add
-          .sprite(this.x, this.y, shipDef.textureKey)
-          .setDepth(9)
-          .setTint(shipDef.primaryColorNum)
-          .setAlpha(0.45);
-        this.scene.tweens.add({
-          targets: ghost,
-          alpha: 0,
-          scaleX: 0.8,
-          scaleY: 0.8,
-          duration: 180,
-          onComplete: () => ghost.destroy(),
-        });
+      if (this.cachedSettings.fxQuality !== 'low') {
+        this.afterimageTimerMs -= dtMs;
+        if (this.afterimageTimerMs <= 0) {
+          this.afterimageTimerMs = this.cachedSettings.fxQuality === 'medium' ? 56 : 28;
+          const shipDef = SHIPS[this.stats.shipId] ?? SHIPS.falcon_x;
+          const ghost = this.scene.add
+            .sprite(this.x, this.y, shipDef.textureKey)
+            .setDepth(9)
+            .setTint(shipDef.primaryColorNum)
+            .setAlpha(0.45);
+          this.scene.tweens.add({
+            targets: ghost,
+            alpha: 0,
+            scaleX: 0.8,
+            scaleY: 0.8,
+            duration: 180,
+            onComplete: () => ghost.destroy(),
+          });
+        }
       }
     } else if (this.dragPointerId !== null) {
       const followAlpha = 1 - Math.exp(-followSpeed * dt);
@@ -605,6 +615,8 @@ export class Player {
   }
 
   destroy(): void {
+    this.settingsUnsub?.();
+    this.settingsUnsub = undefined;
     this.sprite.destroy();
     this.shieldGfx.destroy();
     this.thrusterGfx.destroy();

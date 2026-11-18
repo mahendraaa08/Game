@@ -61,6 +61,11 @@ export class GameScene extends Phaser.Scene {
   private unsubs: Array<() => void> = [];
   private currentData: GameSceneData = { mode: 'campaign', levelNumber: 1 };
   private hudEmitTimerMs = 0;
+  private cachedScreenShake = true;
+  private cachedBalancedPerf = false;
+  private cachedUnlockedWeapons: WeaponId[] = ['plasma'];
+  private activeEnemiesBuf: EnemyEntity[] = [];
+  private targetsBuf: Targetable[] = [];
 
   private onWindowBlur = (): void => {
     this.input.keyboard?.resetKeys();
@@ -157,6 +162,9 @@ export class GameScene extends Phaser.Scene {
     EventBus.emit('boss:warning', null);
 
     const fxQuality = saved.settings.fxQuality;
+    this.cachedScreenShake = saved.settings.screenShake;
+    this.cachedBalancedPerf = saved.settings.performanceQuality === 'balanced';
+    this.cachedUnlockedWeapons = [...saved.unlockedWeapons];
     this.bg = new BackgroundSystem(this, this.levelDef.environment, fxQuality);
     this.projectiles = new ProjectileManager(this);
     this.combat = new CombatSystem(this, fxQuality);
@@ -276,6 +284,14 @@ export class GameScene extends Phaser.Scene {
         if (this.scene.isPaused('GameScene') || this.levelEnding) return;
         this.triggerPlayerSpecial();
         this.emitHud();
+      }),
+      EventBus.on('settings:updated', (next) => {
+        this.cachedScreenShake = next.screenShake;
+        this.cachedBalancedPerf = next.performanceQuality === 'balanced';
+        this.combat?.setFxQuality(next.fxQuality);
+      }),
+      EventBus.on('progress:updated', () => {
+        this.cachedUnlockedWeapons = [...StorageManager.load().unlockedWeapons];
       })
     );
 
@@ -285,7 +301,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private shakeCamera(durationMs: number, intensity: number): void {
-    if (!StorageManager.load().settings.screenShake) return;
+    if (!this.cachedScreenShake) return;
     this.cameras.main.shake(durationMs, intensity);
   }
 
@@ -296,12 +312,15 @@ export class GameScene extends Phaser.Scene {
   private pauseGame(): void {
     if (this.levelEnding || this.scene.isPaused('GameScene')) return;
     this.player?.endDrag();
+    if (this.scene.isActive('BossScene')) {
+      this.scene.pause('BossScene');
+    }
     this.scene.pause('GameScene');
     this.scene.launch('PauseMenuScene', { levelData: this.currentData });
   }
 
   private triggerPlayerSpecial(): void {
-    const targets = this.getAllTargets();
+    const targets = this.fillAllTargets();
     this.player.tryTriggerSpecial(
       this.projectiles,
       targets,
@@ -310,12 +329,16 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  private getAllTargets(): Targetable[] {
-    const targets: Targetable[] = [...this.waveDirector.getActiveEnemies()];
-    if (this.boss && this.boss.active) {
-      targets.push(this.boss);
+  private fillAllTargets(): Targetable[] {
+    this.waveDirector.fillActiveEnemies(this.activeEnemiesBuf);
+    this.targetsBuf.length = 0;
+    for (let i = 0; i < this.activeEnemiesBuf.length; i++) {
+      this.targetsBuf.push(this.activeEnemiesBuf[i]);
     }
-    return targets;
+    if (this.boss && this.boss.active) {
+      this.targetsBuf.push(this.boss);
+    }
+    return this.targetsBuf;
   }
 
   private applyDirectDamage(target: Targetable, dmg: number, isCrit = false): void {
@@ -681,11 +704,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Weapon hotkey switching (1-6) respecting unlocked weapons & Challenge restrictions
-    const saved = StorageManager.load();
     for (let i = 0; i < this.numberKeys.length; i++) {
       if (Phaser.Input.Keyboard.JustDown(this.numberKeys[i])) {
         const wDef = WEAPON_LIST[i];
-        if (wDef && saved.unlockedWeapons.includes(wDef.id)) {
+        if (wDef && this.cachedUnlockedWeapons.includes(wDef.id)) {
           if (this.player.setWeapon(wDef.id)) {
             StorageManager.setWeapon(wDef.id);
           }
@@ -740,7 +762,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const targets = this.getAllTargets();
+    const targets = this.fillAllTargets();
 
     // Update Player
     this.player.update(
@@ -777,8 +799,8 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Update Enemies
-    const activeEnemies = this.waveDirector.getActiveEnemies();
+    // Update Enemies (reuse pre-filled activeEnemiesBuf refreshed with any new wave spawns)
+    const activeEnemies = this.waveDirector.fillActiveEnemies(this.activeEnemiesBuf);
     for (let i = 0; i < activeEnemies.length; i++) {
       activeEnemies[i].update(dt, this.player.x, this.player.y, this.projectiles);
     }
@@ -842,7 +864,8 @@ export class GameScene extends Phaser.Scene {
     );
 
     this.hudEmitTimerMs += rawDelta;
-    if (this.hudEmitTimerMs >= 33) {
+    const hudIntervalMs = this.cachedBalancedPerf ? 50 : 33;
+    if (this.hudEmitTimerMs >= hudIntervalMs) {
       this.hudEmitTimerMs = 0;
       this.emitHud();
     }

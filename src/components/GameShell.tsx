@@ -1,19 +1,20 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import Phaser from 'phaser';
+import type Phaser from 'phaser';
 import { HudSnapshot, SceneId } from '../game/config/GameConfig';
-import { SHIPS } from '../game/config/ShipConfig';
-import { createPhaserGame } from '../game/PhaserGame';
+import { SHIPS, ShipId } from '../game/config/ShipConfig';
+import { WeaponId } from '../game/config/WeaponConfig';
+import { SoundManager } from '../game/audio/SoundManager';
 import { ActionResult, computePlayerStats } from '../game/systems/ProgressionManager';
 import {
   AppRoute,
   EventBus,
   GameOverPayload,
   LevelResultPayload,
+  StartRunRequest,
   VictoryPayload,
 } from '../game/utils/EventBus';
 import { PlayerProgress, StorageManager } from '../game/utils/StorageManager';
 import { DedicatedScreenShell } from './DedicatedScreenShell';
-import { HangarHubScreen } from './HangarHubScreen';
 import { HudOverlay } from './HudOverlay';
 import { ModeSelectorOverlay } from './ModeSelectorOverlay';
 import {
@@ -24,8 +25,8 @@ import {
 } from './ModalOverlays';
 import { TitleOverlay } from './TitleOverlay';
 import { ArmoryDronesPanel } from './hub/ArmoryDronesPanel';
-import { CodexPanel } from './hub/CodexPanel';
 import { HangarShipsPanel } from './hub/HangarShipsPanel';
+import { HangarSubNav, HangarTabRoute } from './hub/HangarSubNav';
 import { MissionsAchievementsPanel } from './hub/MissionsAchievementsPanel';
 import { SettingsPanel } from './hub/SettingsPanel';
 import { WeaponsUpgradesPanel } from './hub/WeaponsUpgradesPanel';
@@ -75,6 +76,10 @@ const INITIAL_HUD: HudSnapshot = {
   bossRushTotal: 5,
 };
 
+type PendingStart =
+  | { kind: 'level'; levelNumber: number }
+  | { kind: 'mode'; req: StartRunRequest };
+
 export const GameShell: React.FC = () => {
   const [sceneId, setSceneId] = useState<SceneId>('BootScene');
   const [routeStack, setRouteStack] = useState<AppRoute[]>(['menu']);
@@ -85,7 +90,13 @@ export const GameShell: React.FC = () => {
   const [levelResult, setLevelResult] = useState<LevelResultPayload | null>(null);
   const [gameOverData, setGameOverData] = useState<GameOverPayload | null>(null);
   const [victoryData, setVictoryData] = useState<VictoryPayload | null>(null);
+  const [inspectedShipId, setInspectedShipId] = useState<ShipId>(progress.selectedShip);
+  const [inspectedWeaponId, setInspectedWeaponId] = useState<WeaponId>(progress.selectedWeapon);
+
   const toastTimerRef = useRef<number | null>(null);
+  const engineReadyRef = useRef(false);
+  const pendingHangarRef = useRef(false);
+  const pendingStartRef = useRef<PendingStart | null>(null);
 
   const showFeedback = useCallback((res: ActionResult) => {
     setFeedback(res);
@@ -105,9 +116,16 @@ export const GameShell: React.FC = () => {
   const navigateTo = useCallback(
     (route: Exclude<AppRoute, 'menu'>) => {
       clearFeedback();
-      if (route === 'hangar_hub') {
-        setRouteStack(['menu', 'hangar_hub']);
-        EventBus.emit('ui:open-hangar');
+      if (route === 'ships') {
+        const latest = StorageManager.load();
+        setInspectedShipId(latest.selectedShip);
+        setInspectedWeaponId(latest.selectedWeapon);
+        setRouteStack(['menu', 'ships']);
+        if (engineReadyRef.current) {
+          EventBus.emit('ui:open-hangar');
+        } else {
+          pendingHangarRef.current = true;
+        }
         return;
       }
       setRouteStack((prev) => {
@@ -118,15 +136,27 @@ export const GameShell: React.FC = () => {
     [clearFeedback]
   );
 
+  const replaceHangarTab = useCallback(
+    (tab: HangarTabRoute) => {
+      clearFeedback();
+      setRouteStack((prev) => {
+        const top = prev[prev.length - 1];
+        if (top === tab) return prev;
+        if (top === 'ships' || top === 'weapons' || top === 'armory') {
+          return [...prev.slice(0, -1), tab];
+        }
+        return [...prev, tab];
+      });
+    },
+    [clearFeedback]
+  );
+
   const popRoute = useCallback(() => {
     clearFeedback();
+    pendingHangarRef.current = false;
+    pendingStartRef.current = null;
     setRouteStack((prev) => {
       if (prev.length <= 1) return ['menu'];
-      const current = prev[prev.length - 1];
-      if (current === 'hangar_hub' && sceneId === 'HangarScene') {
-        EventBus.emit('ui:open-menu');
-        return ['menu'];
-      }
       const next = prev.slice(0, -1);
       if (next.length === 1 && next[0] === 'menu' && sceneId === 'HangarScene') {
         EventBus.emit('ui:open-menu');
@@ -135,52 +165,71 @@ export const GameShell: React.FC = () => {
     });
   }, [clearFeedback, sceneId]);
 
-  const returnToMainMenu = useCallback(() => {
-    clearFeedback();
-    setRouteStack(['menu']);
-    if (sceneId === 'HangarScene') {
-      EventBus.emit('ui:open-menu');
-    }
-  }, [clearFeedback, sceneId]);
-
   useEffect(() => {
-    const game: Phaser.Game = createPhaserGame('phaser-root');
+    let destroyed = false;
+    let game: Phaser.Game | null = null;
+    let flushingPendingStart = false;
 
     const syncProgress = () => setProgress({ ...StorageManager.load() });
 
     const unsubs = [
+      EventBus.on('ui:start-level', (levelNumber) => {
+        if (!engineReadyRef.current && !flushingPendingStart) {
+          pendingStartRef.current = { kind: 'level', levelNumber };
+        }
+      }),
+      EventBus.on('ui:start-mode', (req) => {
+        if (!engineReadyRef.current && !flushingPendingStart) {
+          pendingStartRef.current = { kind: 'mode', req };
+        }
+      }),
       EventBus.on('scene:changed', (next) => {
         setSceneId(next);
         if (next === 'MainMenuScene') {
+          engineReadyRef.current = true;
           syncProgress();
+
+          const queuedStart = pendingStartRef.current;
+          if (queuedStart) {
+            pendingStartRef.current = null;
+            pendingHangarRef.current = false;
+            flushingPendingStart = true;
+            try {
+              if (queuedStart.kind === 'level') {
+                EventBus.emit('ui:start-level', queuedStart.levelNumber);
+              } else {
+                EventBus.emit('ui:start-mode', queuedStart.req);
+              }
+            } finally {
+              flushingPendingStart = false;
+            }
+            return;
+          }
+
+          if (pendingHangarRef.current) {
+            pendingHangarRef.current = false;
+            EventBus.emit('ui:open-hangar');
+            return;
+          }
+
           setRouteStack((prev) => {
             const top = prev[prev.length - 1];
-            if (
-              top === 'hangar_hub' ||
-              top === 'ships' ||
-              top === 'weapons' ||
-              top === 'codex'
-            ) {
+            if (top === 'ships' || top === 'weapons' || top === 'armory') {
               return ['menu'];
             }
             return prev.length > 0 ? prev : ['menu'];
           });
         } else if (next === 'HangarScene') {
+          engineReadyRef.current = true;
           syncProgress();
           setRouteStack((prev) => {
             const top = prev[prev.length - 1];
-            if (
-              top === 'hangar_hub' ||
-              top === 'ships' ||
-              top === 'weapons' ||
-              top === 'armory' ||
-              top === 'codex'
-            ) {
+            if (top === 'ships' || top === 'weapons' || top === 'armory') {
               return prev;
             }
-            return ['menu', 'hangar_hub'];
+            return ['menu', 'ships'];
           });
-        } else {
+        } else if (next !== 'BootScene' && next !== 'PreloadScene') {
           setRouteStack(['menu']);
         }
       }),
@@ -189,8 +238,8 @@ export const GameShell: React.FC = () => {
           setRouteStack(['menu']);
           return;
         }
-        if (route === 'hangar_hub') {
-          setRouteStack(['menu', 'hangar_hub']);
+        if (route === 'ships') {
+          setRouteStack(['menu', 'ships']);
           return;
         }
         setRouteStack((prev) => (prev[prev.length - 1] === route ? prev : [...prev, route]));
@@ -205,17 +254,38 @@ export const GameShell: React.FC = () => {
       EventBus.on('campaign:victory', (res) => setVictoryData(res)),
     ];
 
+    // Load Phaser asynchronously after React paints Main Menu UI so Preview never hangs on heavy bundle eval
+    import('../game/PhaserGame')
+      .then(({ createPhaserGame }) => {
+        if (destroyed) return;
+        game = createPhaserGame('phaser-root');
+      })
+      .catch(() => {
+        // React UI remains responsive even if canvas/WebGL backend fails to initialize
+      });
+
     return () => {
+      destroyed = true;
       unsubs.forEach((u) => u());
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-      game.destroy(true);
+      SoundManager.playMusic('none');
+      game?.destroy(true);
     };
   }, []);
 
   const activeRoute: AppRoute = routeStack[routeStack.length - 1] ?? 'menu';
   const prevRoute: AppRoute = routeStack[routeStack.length - 2] ?? 'menu';
-  const isMenuOrHangarScene = sceneId === 'MainMenuScene' || sceneId === 'HangarScene';
-  const backTargetLabel = prevRoute === 'hangar_hub' ? 'Hangar Hub' : prevRoute === 'modes' ? 'Game Modes' : 'Main Menu';
+  const isNonCombatUiScene =
+    sceneId === 'MainMenuScene' ||
+    sceneId === 'HangarScene' ||
+    sceneId === 'BootScene' ||
+    sceneId === 'PreloadScene';
+  const backTargetLabel =
+    prevRoute === 'modes'
+      ? 'Game Modes'
+      : prevRoute === 'missions'
+      ? 'Missions'
+      : 'Main Menu';
 
   const activeShip = SHIPS[progress.selectedShip] ?? SHIPS.falcon_x;
   const computed = computePlayerStats(progress);
@@ -227,70 +297,72 @@ export const GameShell: React.FC = () => {
       <div id="phaser-root" className="absolute inset-0 h-full w-full" />
 
       {/* Dedicated Non-Combat Screens (Stack-Driven Navigation) */}
-      {isMenuOrHangarScene && activeRoute === 'menu' && (
+      {isNonCombatUiScene && activeRoute === 'menu' && (
         <TitleOverlay
           progress={progress}
-          isActive={sceneId === 'MainMenuScene' && activeRoute === 'menu'}
+          isActive={isNonCombatUiScene && activeRoute === 'menu'}
           onNavigate={navigateTo}
         />
       )}
 
-      {isMenuOrHangarScene && activeRoute === 'modes' && (
+      {isNonCombatUiScene && activeRoute === 'modes' && (
         <ModeSelectorOverlay
           progress={progress}
           onBack={popRoute}
-          onOpenArmory={() => navigateTo('armory')}
         />
       )}
 
-      {isMenuOrHangarScene && activeRoute === 'hangar_hub' && (
-        <HangarHubScreen
-          progress={progress}
-          onBackToMenu={returnToMainMenu}
-          onSelectSection={(section) => navigateTo(section)}
-        />
-      )}
-
-      {isMenuOrHangarScene && activeRoute === 'ships' && (
+      {isNonCombatUiScene && activeRoute === 'ships' && (
         <DedicatedScreenShell
-          title="Hangar & Ships"
+          title="Hangar & Upgrades"
           subtitle={shipSummary}
           backLabel={backTargetLabel}
           onBack={popRoute}
           credits={progress.credits}
           crystals={progress.crystals}
-          onCurrencyClick={() => navigateTo('armory')}
+          subNav={<HangarSubNav activeTab="ships" onSelectTab={replaceHangarTab} />}
           feedback={feedback}
           translucent={sceneId === 'HangarScene'}
         >
-          <HangarShipsPanel progress={progress} onFeedback={showFeedback} />
+          <HangarShipsPanel
+            progress={progress}
+            onFeedback={showFeedback}
+            inspectedShipId={inspectedShipId}
+            onInspectShip={setInspectedShipId}
+          />
         </DedicatedScreenShell>
       )}
 
-      {isMenuOrHangarScene && activeRoute === 'weapons' && (
+      {isNonCombatUiScene && activeRoute === 'weapons' && (
         <DedicatedScreenShell
-          title="Weapons & Upgrades"
+          title="Hangar & Upgrades"
           subtitle={shipSummary}
           backLabel={backTargetLabel}
           onBack={popRoute}
           credits={progress.credits}
           crystals={progress.crystals}
-          onCurrencyClick={() => navigateTo('armory')}
+          subNav={<HangarSubNav activeTab="weapons" onSelectTab={replaceHangarTab} />}
           feedback={feedback}
           translucent={sceneId === 'HangarScene'}
         >
-          <WeaponsUpgradesPanel progress={progress} onFeedback={showFeedback} />
+          <WeaponsUpgradesPanel
+            progress={progress}
+            onFeedback={showFeedback}
+            inspectedWeaponId={inspectedWeaponId}
+            onInspectWeapon={setInspectedWeaponId}
+          />
         </DedicatedScreenShell>
       )}
 
-      {isMenuOrHangarScene && activeRoute === 'armory' && (
+      {isNonCombatUiScene && activeRoute === 'armory' && (
         <DedicatedScreenShell
-          title="Armory & Supply"
-          subtitle="Companion Drones · Equipment Slots · Crystal Supply Exchange"
+          title="Hangar & Upgrades"
+          subtitle="Equipment Gear · Companion Drones"
           backLabel={backTargetLabel}
           onBack={popRoute}
           credits={progress.credits}
           crystals={progress.crystals}
+          subNav={<HangarSubNav activeTab="armory" onSelectTab={replaceHangarTab} />}
           feedback={feedback}
           translucent={sceneId === 'HangarScene'}
         >
@@ -298,22 +370,7 @@ export const GameShell: React.FC = () => {
         </DedicatedScreenShell>
       )}
 
-      {isMenuOrHangarScene && activeRoute === 'codex' && (
-        <DedicatedScreenShell
-          title="Galactic Codex"
-          subtitle="Enemy Telemetry · Void Commanders · Fleet & Campaign Records"
-          backLabel={backTargetLabel}
-          onBack={popRoute}
-          credits={progress.credits}
-          crystals={progress.crystals}
-          onCurrencyClick={() => navigateTo('armory')}
-          translucent={sceneId === 'HangarScene'}
-        >
-          <CodexPanel progress={progress} />
-        </DedicatedScreenShell>
-      )}
-
-      {isMenuOrHangarScene && activeRoute === 'missions' && (
+      {isNonCombatUiScene && activeRoute === 'missions' && (
         <DedicatedScreenShell
           title="Missions & Medals"
           subtitle="Daily Directives · Weekly Challenges · Achievements & Medals"
@@ -321,14 +378,13 @@ export const GameShell: React.FC = () => {
           onBack={popRoute}
           credits={progress.credits}
           crystals={progress.crystals}
-          onCurrencyClick={() => navigateTo('armory')}
           feedback={feedback}
         >
           <MissionsAchievementsPanel progress={progress} onFeedback={showFeedback} />
         </DedicatedScreenShell>
       )}
 
-      {isMenuOrHangarScene && activeRoute === 'settings' && (
+      {isNonCombatUiScene && activeRoute === 'settings' && (
         <DedicatedScreenShell
           title="Settings"
           subtitle="Audio Mixer · Touch Flight Controls · Visual Quality & Display"

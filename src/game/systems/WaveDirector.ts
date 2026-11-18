@@ -58,6 +58,10 @@ export class WaveDirector {
     return this.enemyPool.getActiveItems();
   }
 
+  fillActiveEnemies(out: EnemyEntity[]): EnemyEntity[] {
+    return this.enemyPool.fillActive(out);
+  }
+
   spawnDirectMinion(enemyClass: EnemyClass, x: number, y: number): void {
     const e = this.enemyPool.acquire();
     if (!e) return;
@@ -107,7 +111,7 @@ export class WaveDirector {
     }
 
     // Check if wave cleared
-    if (this.spawnQueue.length === 0 && this.enemyPool.getActiveItems().length === 0) {
+    if (this.spawnQueue.length === 0 && !this.enemyPool.hasActive()) {
       this.onWaveCleared?.(this.currentWaveIdx + 1);
       if (this.mode === 'endless' || this.currentWaveIdx < this.totalWaves - 1) {
         this.currentWaveIdx++;

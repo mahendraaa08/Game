@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { ChevronRight, Play, Settings, Trophy, Wrench } from 'lucide-react';
+import titleKeyArt from '../assets/images/title_key_art_1794922504898.jpg';
 import { SHIPS } from '../game/config/ShipConfig';
 import { SoundManager } from '../game/audio/SoundManager';
-import { AppRoute, EventBus } from '../game/utils/EventBus';
-import { PlayerProgress, StorageManager } from '../game/utils/StorageManager';
-import { StoryBriefingModal } from './StoryBriefingModal';
+import { AppRoute } from '../game/utils/EventBus';
+import { PlayerProgress } from '../game/utils/StorageManager';
 import { CreditCoinIcon, CrystalGemIcon } from './ui/CurrencyBadges';
 
 interface TitleOverlayProps {
@@ -18,28 +18,16 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
   isActive,
   onNavigate,
 }) => {
-  const [showStory, setShowStory] = useState(!progress.introSeen);
-
   const activeShip = SHIPS[progress.selectedShip] ?? SHIPS.falcon_x;
 
   const navigateTo = (route: Exclude<AppRoute, 'menu'>) => {
     SoundManager.unlock();
     SoundManager.playButtonClick();
-    if (!progress.introSeen) {
-      StorageManager.setIntroSeen();
-      EventBus.emit('progress:updated');
-    }
     onNavigate(route);
   };
 
-  const closeStory = () => {
-    StorageManager.setIntroSeen();
-    EventBus.emit('progress:updated');
-    setShowStory(false);
-  };
-
   useEffect(() => {
-    if (!isActive || showStory) return;
+    if (!isActive) return;
     const onKey = (e: KeyboardEvent) => {
       const targetTag = (e.target as HTMLElement | null)?.tagName;
       if (targetTag === 'BUTTON' || targetTag === 'A' || targetTag === 'INPUT') {
@@ -52,13 +40,13 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isActive, showStory]);
+  }, [isActive]);
 
   return (
     <div className="scroll-panel absolute inset-0 z-20 overflow-y-auto overflow-x-hidden">
       {/* Preserved Space & Starfighter Key Art Backdrop */}
       <img
-        src="/src/assets/images/title_key_art_1794922504898.jpg"
+        src={titleKeyArt}
         alt="Galactic War Starfighter Squadron defending Earth"
         referrerPolicy="no-referrer"
         className="fixed inset-0 h-full w-full object-cover opacity-85"
@@ -205,10 +193,10 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
               <ChevronRight className="h-5 w-5 shrink-0 text-slate-950/80 transition-transform duration-150 group-hover:translate-x-0.5" />
             </button>
 
-            {/* 2. HANGAR & UPGRADES -> Dedicated Hangar & Upgrades Hub */}
+            {/* 2. HANGAR & UPGRADES -> Direct 3-Tab Hangar (Ships | Weapons | Armory) */}
             <button
               type="button"
-              onClick={() => navigateTo('hangar_hub')}
+              onClick={() => navigateTo('ships')}
               className="group flex min-h-[54px] w-full items-center justify-between rounded-2xl border border-slate-700/70 bg-[#081122]/86 px-5 py-3 text-left text-slate-100 backdrop-blur-sm transition-[border-color,background-color,transform] duration-150 hover:border-cyan-300/45 hover:bg-[#0d1930]/92 active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400"
             >
               <div className="flex items-center gap-3.5 min-w-0">
@@ -241,17 +229,6 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
           </nav>
         </section>
       </div>
-
-      {/* First-Time Story Briefing Modal */}
-      <StoryBriefingModal
-        open={showStory}
-        onClose={closeStory}
-        launchLabel="Select Game Mode"
-        onLaunch={() => {
-          closeStory();
-          navigateTo('modes');
-        }}
-      />
     </div>
   );
 };
