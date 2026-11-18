@@ -1,0 +1,532 @@
+import Phaser from 'phaser';
+import { POWERUP_LIST, PowerUpType } from '../config/PowerUpConfig';
+import { SoundManager } from '../audio/SoundManager';
+import { BossEntity } from '../entities/Boss';
+import { EnemyEntity } from '../entities/Enemy';
+import { Player } from '../entities/Player';
+import { PowerUpEntity } from '../entities/PowerUp';
+import { ProjectileManager } from '../entities/ProjectileManager';
+import { Targetable } from '../entities/Targetable';
+import { ObjectPool } from '../utils/ObjectPool';
+import { GAME_CONSTANTS } from '../config/GameConfig';
+import { FxQuality } from '../utils/StorageManager';
+
+interface SparkParticle {
+  sprite: Phaser.GameObjects.Sprite;
+  active: boolean;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  setActive(v: boolean): this;
+  setVisible(v: boolean): this;
+}
+
+interface FloatingDamageText {
+  text: Phaser.GameObjects.Text;
+  active: boolean;
+  vy: number;
+  life: number;
+  maxLife: number;
+  setActive(v: boolean): this;
+  setVisible(v: boolean): this;
+}
+
+export class CombatSystem {
+  private scene: Phaser.Scene;
+  private particlePool: ObjectPool<SparkParticle>;
+  private textPool: ObjectPool<FloatingDamageText>;
+  private powerUpPool: ObjectPool<PowerUpEntity & { setActive(v: boolean): any; setVisible(v: boolean): any }>;
+  private fxQuality: FxQuality = 'high';
+
+  hitstopMs = 0;
+
+  constructor(scene: Phaser.Scene, fxQuality: FxQuality = 'high') {
+    this.scene = scene;
+    this.fxQuality = fxQuality;
+
+    this.particlePool = new ObjectPool<SparkParticle>(
+      () => {
+        const sprite = scene.add.sprite(-100, -100, 'particle_spark').setDepth(16);
+        const obj: SparkParticle = {
+          sprite,
+          active: false,
+          vx: 0,
+          vy: 0,
+          life: 0,
+          maxLife: 0.3,
+          setActive(v: boolean) {
+            this.active = v;
+            sprite.setActive(v);
+            return this;
+          },
+          setVisible(v: boolean) {
+            sprite.setVisible(v);
+            return this;
+          },
+        };
+        return obj;
+      },
+      60,
+      260
+    );
+
+    this.textPool = new ObjectPool<FloatingDamageText>(
+      () => {
+        const text = scene.add
+          .text(-100, -100, '', {
+            fontFamily: 'Chakra Petch, sans-serif',
+            fontSize: '13px',
+            fontStyle: 'bold',
+            color: '#F8FAFC',
+            stroke: '#040711',
+            strokeThickness: 3,
+          })
+          .setOrigin(0.5)
+          .setDepth(19);
+        const obj: FloatingDamageText = {
+          text,
+          active: false,
+          vy: -48,
+          life: 0,
+          maxLife: 0.45,
+          setActive(v: boolean) {
+            this.active = v;
+            text.setActive(v);
+            return this;
+          },
+          setVisible(v: boolean) {
+            text.setVisible(v);
+            return this;
+          },
+        };
+        return obj;
+      },
+      16,
+      48
+    );
+
+    this.powerUpPool = new ObjectPool(
+      () => {
+        const p = new PowerUpEntity(scene) as PowerUpEntity & {
+          setActive(v: boolean): any;
+          setVisible(v: boolean): any;
+        };
+        p.setActive = function (v: boolean) {
+          this.active = v;
+          this.sprite.setActive(v);
+          return this;
+        };
+        p.setVisible = function (v: boolean) {
+          this.sprite.setVisible(v);
+          return this;
+        };
+        return p;
+      },
+      8,
+      24
+    );
+  }
+
+  setFxQuality(q: FxQuality): void {
+    this.fxQuality = q;
+  }
+
+  spawnDamageNumber(x: number, y: number, amount: number, isCrit: boolean): void {
+    if (this.fxQuality === 'low' && !isCrit) return;
+    const item = this.textPool.acquire();
+    if (!item) return;
+    item.setActive(true).setVisible(true);
+    item.text.setPosition(x + (Math.random() - 0.5) * 16, y - 10);
+    item.text.setText(isCrit ? `${amount}!` : `${amount}`);
+    item.text.setFontSize(isCrit ? 16 : 12);
+    item.text.setColor(isCrit ? '#FACC15' : '#E2E8F0');
+    item.text.setAlpha(1);
+    item.vy = isCrit ? -64 : -42;
+    item.maxLife = isCrit ? 0.56 : 0.36;
+    item.life = item.maxLife;
+  }
+
+  spawnFloatingLabel(x: number, y: number, label: string, colorHex: string): void {
+    const item = this.textPool.acquire();
+    if (!item) return;
+    item.setActive(true).setVisible(true);
+    item.text.setPosition(x, y - 24);
+    item.text.setText(label);
+    item.text.setFontSize(14);
+    item.text.setColor(colorHex);
+    item.text.setAlpha(1);
+    item.vy = -52;
+    item.maxLife = 0.78;
+    item.life = item.maxLife;
+  }
+
+  private spawnPowerUpPickupEffect(
+    x: number,
+    y: number,
+    type: PowerUpType,
+    amountRestored: number,
+    isFull: boolean
+  ): void {
+    const qualityMult = this.fxQuality === 'low' ? 0.45 : this.fxQuality === 'medium' ? 0.75 : 1;
+
+    let ringColor = 0x38bdf8;
+    let particleColor = 0x38bdf8;
+    let label = '';
+    let labelColor = '#38BDF8';
+    let driftUp = false;
+
+    switch (type) {
+      case 'health':
+        ringColor = 0x22c55e;
+        particleColor = 0x4ade80;
+        label = amountRestored > 0 ? `+${amountRestored} HP` : 'FULL HP';
+        labelColor = '#4ADE80';
+        driftUp = true;
+        break;
+      case 'shield':
+        ringColor = 0x38bdf8;
+        particleColor = 0x67e8f9;
+        label = amountRestored > 0 ? `+${amountRestored} SHD` : isFull ? 'MAX SHIELD' : 'SHIELD';
+        labelColor = '#67E8F9';
+        break;
+      case 'rapid_fire':
+        ringColor = 0xf59e0b;
+        particleColor = 0xfef08a;
+        label = 'RAPID FIRE';
+        labelColor = '#FBBF24';
+        break;
+      case 'double_damage':
+        ringColor = 0xef4444;
+        particleColor = 0xf97316;
+        label = '2X DAMAGE';
+        labelColor = '#F87171';
+        break;
+      case 'invulnerability':
+        ringColor = 0xa855f7;
+        particleColor = 0x67e8f9;
+        label = 'INVULNERABLE';
+        labelColor = '#C4B5FD';
+        break;
+      case 'mega_bomb':
+        ringColor = 0xa855f7;
+        particleColor = 0xe879f9;
+        label = 'MEGA BOMB';
+        labelColor = '#E879F9';
+        break;
+    }
+
+    // Subtle themed energy ring pulse around the ship
+    if (this.fxQuality !== 'low') {
+      const pulseRing = this.scene.add.circle(x, y, 16, ringColor, 0.14).setDepth(16);
+      pulseRing.setStrokeStyle(2.5, ringColor, 0.9);
+      this.scene.tweens.add({
+        targets: pulseRing,
+        scaleX: type === 'shield' || type === 'invulnerability' ? 3.1 : 2.6,
+        scaleY: type === 'shield' || type === 'invulnerability' ? 3.1 : 2.6,
+        alpha: 0,
+        duration: 320,
+        ease: 'Cubic.easeOut',
+        onComplete: () => pulseRing.destroy(),
+      });
+    }
+
+    // Pooled themed particles
+    const count = Math.max(3, Math.round(10 * qualityMult));
+    for (let i = 0; i < count; i++) {
+      const p = this.particlePool.acquire();
+      if (!p) break;
+      const ang = driftUp
+        ? -Math.PI / 2 + (Math.random() - 0.5) * 1.4
+        : (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.35;
+      const spd = driftUp ? 75 + Math.random() * 85 : 105 + Math.random() * 90;
+      p.setActive(true).setVisible(true);
+      p.sprite.setPosition(
+        x + (driftUp ? (Math.random() - 0.5) * 26 : 0),
+        y + (driftUp ? (Math.random() - 0.5) * 14 : 0)
+      );
+      p.sprite.setTint(particleColor);
+      p.sprite.setScale(0.75 + Math.random() * 0.55);
+      p.sprite.setAlpha(1);
+      p.vx = Math.cos(ang) * spd;
+      p.vy = Math.sin(ang) * spd;
+      p.maxLife = driftUp ? 0.42 + Math.random() * 0.22 : 0.28 + Math.random() * 0.18;
+      p.life = p.maxLife;
+    }
+
+    // Accurate floating label using pooled text
+    this.spawnFloatingLabel(x, y, label, labelColor);
+  }
+
+  spawnExplosion(x: number, y: number, color: number, count = 14, speed = 220, scale = 1): void {
+    const qualityMult = this.fxQuality === 'low' ? 0.4 : this.fxQuality === 'medium' ? 0.7 : 1;
+    const finalCount = Math.max(2, Math.round(count * qualityMult));
+
+    const flash = this.scene.add.sprite(x, y, 'particle_glow').setDepth(16).setTint(color).setScale(scale * 1.4);
+    this.scene.tweens.add({
+      targets: flash,
+      scaleX: scale * 2.8,
+      scaleY: scale * 2.8,
+      alpha: 0,
+      duration: 210,
+      onComplete: () => flash.destroy(),
+    });
+
+    for (let i = 0; i < finalCount; i++) {
+      const p = this.particlePool.acquire();
+      if (!p) break;
+      const ang = Math.random() * Math.PI * 2;
+      const spd = speed * (0.35 + Math.random() * 0.85);
+      p.setActive(true).setVisible(true);
+      p.sprite.setPosition(x, y);
+      p.sprite.setTint(color);
+      p.sprite.setScale(0.7 + Math.random() * 0.9 * scale);
+      p.sprite.setAlpha(1);
+      p.vx = Math.cos(ang) * spd;
+      p.vy = Math.sin(ang) * spd;
+      p.maxLife = 0.24 + Math.random() * 0.26;
+      p.life = p.maxLife;
+    }
+  }
+
+  maybeDropPowerUp(x: number, y: number, guaranteed = false): void {
+    if (!guaranteed && Math.random() > 0.16) return;
+    const totalWeight = POWERUP_LIST.reduce((acc, p) => acc + p.weight, 0);
+    let roll = Math.random() * totalWeight;
+    let chosen: PowerUpType = 'health';
+    for (let i = 0; i < POWERUP_LIST.length; i++) {
+      roll -= POWERUP_LIST[i].weight;
+      if (roll <= 0) {
+        chosen = POWERUP_LIST[i].id;
+        break;
+      }
+    }
+    const entity = this.powerUpPool.acquire();
+    if (entity) {
+      entity.spawn(x, y, chosen);
+    }
+  }
+
+  triggerMegaBomb(
+    player: Player,
+    projectiles: ProjectileManager,
+    targets: Targetable[],
+    onKillTarget: (t: Targetable) => void
+  ): void {
+    projectiles.clearEnemyBullets();
+    SoundManager.playExplosion('boss');
+    this.hitstopMs = GAME_CONSTANTS.HITSTOP_HEAVY_MS;
+
+    const wave = this.scene.add.circle(player.x, player.y, 20, 0xa855f7, 0.22).setDepth(17);
+    wave.setStrokeStyle(5, 0xe879f9, 1);
+    this.scene.tweens.add({
+      targets: wave,
+      scaleX: 28,
+      scaleY: 28,
+      alpha: 0,
+      duration: 520,
+      onComplete: () => wave.destroy(),
+    });
+
+    targets.forEach((t) => {
+      if (!t.active) return;
+      const killed = t.takeDamage(220);
+      this.spawnExplosion(t.x, t.y, 0xa855f7, 10, 180, 0.9);
+      this.spawnDamageNumber(t.x, t.y, 220, true);
+      if (killed) onKillTarget(t);
+    });
+  }
+
+  updateParticlesAndPowerUps(
+    dt: number,
+    player: Player,
+    projectiles: ProjectileManager,
+    targets: Targetable[],
+    onPowerUpCollected: (
+      type: PowerUpType,
+      info: { amountRestored: number; durationSec: number; isFull: boolean }
+    ) => void,
+    onKillTarget: (t: Targetable) => void
+  ): void {
+    // Update particles
+    this.particlePool.forEachActive((p) => {
+      p.life -= dt;
+      if (p.life <= 0) {
+        p.setActive(false).setVisible(false);
+        return;
+      }
+      p.sprite.x += p.vx * dt;
+      p.sprite.y += p.vy * dt;
+      p.vx *= 0.96;
+      p.vy *= 0.96;
+      p.sprite.setAlpha(p.life / p.maxLife);
+    });
+
+    // Update floating damage & pickup text
+    this.textPool.forEachActive((item) => {
+      item.life -= dt;
+      if (item.life <= 0) {
+        item.setActive(false).setVisible(false);
+        return;
+      }
+      item.text.y += item.vy * dt;
+      item.text.setAlpha(Math.min(1, (item.life / item.maxLife) * 1.3));
+    });
+
+    // Update power-ups & pickup collisions
+    const h = this.scene.scale.height;
+    const magnetBonus = player.stats.pickupRadiusBonus;
+    this.powerUpPool.forEachActive((pu) => {
+      pu.update(dt, player.x, player.y, h, magnetBonus);
+      if (!pu.active) return;
+      const dist = Math.hypot(pu.sprite.x - player.x, pu.sprite.y - player.y);
+      if (dist < player.radius + 22) {
+        const type = pu.type;
+        pu.deactivate();
+        SoundManager.playPowerUp();
+        let result = { amountRestored: 0, durationSec: 0, isFull: false };
+        if (type === 'mega_bomb') {
+          this.triggerMegaBomb(player, projectiles, targets, onKillTarget);
+        } else {
+          result = player.applyPowerUp(type);
+        }
+        this.spawnPowerUpPickupEffect(
+          player.x,
+          player.y,
+          type,
+          result.amountRestored,
+          result.isFull
+        );
+        onPowerUpCollected(type, result);
+      }
+    });
+  }
+
+  resolveCollisions(
+    player: Player,
+    projectiles: ProjectileManager,
+    enemies: EnemyEntity[],
+    boss: BossEntity | null,
+    onEnemyKilled: (enemy: EnemyEntity) => void,
+    onBossHit: (dmg: number, isCrit: boolean) => void,
+    onPlayerDamaged: () => void,
+    onCritLanded?: () => void
+  ): void {
+    // 1. Player Bullets vs Enemies & Boss
+    projectiles.forEachPlayerBullet((b) => {
+      if (!b.active) return;
+
+      // Check Boss
+      if (boss && boss.active && !boss.entering) {
+        const dBoss = Math.hypot(b.sprite.x - boss.x, b.sprite.y - boss.y);
+        if (dBoss < boss.radius + b.radius) {
+          this.spawnExplosion(
+            b.sprite.x,
+            b.sprite.y,
+            b.isCrit ? 0xfacc15 : boss.def.primaryColor,
+            b.isCrit ? 8 : 5,
+            110,
+            b.isCrit ? 0.8 : 0.55
+          );
+          b.setActive(false).setVisible(false);
+          if (!boss.invulnerable) {
+            boss.takeDamage(b.damage);
+            this.spawnDamageNumber(b.sprite.x, b.sprite.y, b.damage, b.isCrit);
+            if (b.isCrit) {
+              SoundManager.playCritHit();
+              onCritLanded?.();
+            } else {
+              SoundManager.playBossDamage();
+            }
+            onBossHit(b.damage, b.isCrit);
+          }
+          return;
+        }
+      }
+
+      // Check Enemies
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e.active) continue;
+        const dist = Math.hypot(b.sprite.x - e.x, b.sprite.y - e.y);
+        if (dist < e.radius + b.radius) {
+          this.spawnExplosion(
+            b.sprite.x,
+            b.sprite.y,
+            b.isCrit ? 0xfacc15 : e.def.accentColor,
+            b.isCrit ? 8 : 5,
+            120,
+            b.isCrit ? 0.78 : 0.55
+          );
+          if (!b.piercing) {
+            b.setActive(false).setVisible(false);
+          }
+          this.spawnDamageNumber(e.x, e.y, b.damage, b.isCrit);
+          const killed = e.takeDamage(b.damage);
+          if (b.isCrit) {
+            SoundManager.playCritHit();
+            onCritLanded?.();
+          } else if (!killed) {
+            SoundManager.playHit();
+          }
+          if (killed) {
+            onEnemyKilled(e);
+          }
+          if (!b.piercing) break;
+        }
+      }
+    });
+
+    // 2. Enemy Bullets vs Player
+    projectiles.forEachEnemyBullet((b) => {
+      if (!b.active) return;
+      const dist = Math.hypot(b.sprite.x - player.x, b.sprite.y - player.y);
+      if (dist < player.radius + b.radius - 2) {
+        b.setActive(false).setVisible(false);
+        if (player.takeDamage(b.damage)) {
+          this.spawnExplosion(player.x, player.y, 0xef4444, 10, 170, 0.8);
+          onPlayerDamaged();
+        }
+      }
+    });
+
+    // 3. Enemy Ship Body vs Player
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i];
+      if (!e.active) continue;
+      const dist = Math.hypot(e.x - player.x, e.y - player.y);
+      if (dist < player.radius + e.radius - 4) {
+        if (player.isSuperInvulnerable()) {
+          const killed = e.takeDamage(999);
+          if (killed) onEnemyKilled(e);
+        } else {
+          if (player.takeDamage(e.damage + 6)) {
+            onPlayerDamaged();
+          }
+          const killed = e.takeDamage(45);
+          if (killed) onEnemyKilled(e);
+        }
+      }
+    }
+
+    // 4. Boss Body Collision vs Player
+    if (boss && boss.active && !boss.entering) {
+      const dist = Math.hypot(boss.x - player.x, boss.y - player.y);
+      if (dist < player.radius + boss.radius - 8) {
+        if (player.takeDamage(25)) {
+          onPlayerDamaged();
+        }
+      }
+    }
+  }
+
+  clearAll(): void {
+    this.particlePool.releaseAll();
+    this.textPool.releaseAll();
+    this.powerUpPool.releaseAll();
+  }
+
+  destroy(): void {
+    this.clearAll();
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Galactic War: The Last Defender",
+  "description": "A 2D arcade space shooter set in 3099 where humanity's last starfighter defends Earth and the galaxy across 10 campaign sectors and 5 Void Empire bosses.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
