@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Cpu, Lock, Plus, Sword } from 'lucide-react';
+import { Cpu, Sword } from 'lucide-react';
 import {
   DRONE_LIST,
+  DRONE_SLOT_IDS,
   DRONES,
   DroneDefinition,
   DroneId,
-  getDronePowerAtLevel,
+  DroneSlotId,
+  getDroneModifierTags,
   getDroneUpgradeCost,
+  isDroneCompatibleWithSlot,
 } from '../../game/config/DroneConfig';
 import {
   EQUIPMENT_BY_ID,
@@ -18,18 +21,21 @@ import {
   scaleEquipmentBonuses,
 } from '../../game/config/EquipmentConfig';
 import { SoundManager } from '../../game/audio/SoundManager';
+import { evaluateGlobalNotifications } from '../../game/systems/NotificationStatus';
 import { ActionResult, ProgressionManager } from '../../game/systems/ProgressionManager';
 import { PlayerProgress } from '../../game/utils/StorageManager';
+import { NotificationDot } from '../ui/NotificationDot';
 import { ActionConfirmDialog, PendingHangarAction } from './ActionConfirmDialog';
 import { DroneArtBadge } from './ShipArtBadge';
 import {
+  DRONE_SLOT_ICON,
+  DRONE_SLOTS,
   EQUIPMENT_SLOTS,
   SLOT_ICON,
   formatBonusTags,
-  formatDronePower,
 } from './armory/armoryUtils';
 import { EquipmentGearModal } from './armory/EquipmentGearModal';
-import { DroneInfoModal, DroneSlotPickerModal } from './armory/DroneModals';
+import { DroneSlotModal } from './armory/DroneModals';
 
 interface ArmoryDronesPanelProps {
   progress: PlayerProgress;
@@ -39,25 +45,20 @@ interface ArmoryDronesPanelProps {
 export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, onFeedback }) => {
   const [armoryTab, setArmoryTab] = useState<'gear' | 'drones'>('gear');
 
-  // Equipment Gear Popup State (Slot -> Compatible Items Selection Popup)
+  // Equipment Gear Popup State (Slot -> Compatible Items Selection & Details Popup)
   const [activeGearSlotModal, setActiveGearSlotModal] = useState<EquipmentSlot | null>(null);
   const [selectedGearId, setSelectedGearId] = useState<string>(EQUIPMENT_LIST[0].id);
 
-  // Companion Drones Popup State (Slot Selection Popup OR Drone Info Popup — zero stacking)
-  const [dronePickerSlotIndex, setDronePickerSlotIndex] = useState<0 | 1 | null>(null);
-  const [inspectedDronePopup, setInspectedDronePopup] = useState<{
-    droneId: DroneId;
-    fromSlotIndex: 0 | 1 | null;
-  } | null>(null);
+  // Companion Drones Popup State (Slot -> Compatible Drones Selection & Details Popup — identical mechanism)
+  const [activeDroneSlotModal, setActiveDroneSlotModal] = useState<DroneSlotId | null>(null);
+  const [selectedDroneId, setSelectedDroneId] = useState<DroneId>(DRONE_LIST[0].id);
 
   const [pendingAction, setPendingAction] = useState<PendingHangarAction | null>(null);
+  const notifications = useMemo(() => evaluateGlobalNotifications(progress), [progress]);
 
   // Escape key support for Armory popups when confirm dialog is closed
   useEffect(() => {
-    const hasPopup =
-      activeGearSlotModal !== null ||
-      dronePickerSlotIndex !== null ||
-      inspectedDronePopup !== null;
+    const hasPopup = activeGearSlotModal !== null || activeDroneSlotModal !== null;
     if (!hasPopup || pendingAction !== null) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -65,25 +66,23 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
         e.preventDefault();
         SoundManager.playButtonClick();
         setActiveGearSlotModal(null);
-        setDronePickerSlotIndex(null);
-        setInspectedDronePopup(null);
+        setActiveDroneSlotModal(null);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeGearSlotModal, dronePickerSlotIndex, inspectedDronePopup, pendingAction]);
+  }, [activeGearSlotModal, activeDroneSlotModal, pendingAction]);
 
   // Clear popups cleanly when switching Armory tabs
   const switchArmoryTab = (tab: 'gear' | 'drones') => {
     SoundManager.playButtonClick();
     setActiveGearSlotModal(null);
-    setDronePickerSlotIndex(null);
-    setInspectedDronePopup(null);
+    setActiveDroneSlotModal(null);
     setArmoryTab(tab);
   };
 
   // Equipment items compatible with the currently opened Equipment Slot popup
-  const modalSlotItems = useMemo(() => {
+  const modalGearSlotItems = useMemo(() => {
     if (!activeGearSlotModal) return [];
     return EQUIPMENT_LIST.filter((item) => item.slot === activeGearSlotModal);
   }, [activeGearSlotModal]);
@@ -94,15 +93,36 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
     if (picked && picked.slot === activeGearSlotModal) return picked;
     const equippedId = progress.equippedGear[activeGearSlotModal];
     if (equippedId && EQUIPMENT_BY_ID[equippedId]) return EQUIPMENT_BY_ID[equippedId];
-    return modalSlotItems[0] ?? null;
-  }, [activeGearSlotModal, selectedGearId, progress.equippedGear, modalSlotItems]);
+    return modalGearSlotItems[0] ?? null;
+  }, [activeGearSlotModal, selectedGearId, progress.equippedGear, modalGearSlotItems]);
 
   const equippedGearCount = useMemo(
     () => EQUIPMENT_SLOTS.filter((slot) => Boolean(progress.equippedGear[slot.id])).length,
     [progress.equippedGear]
   );
 
-  // Open Equipment Gear Slot Selection Popup
+  // Companion drones compatible with the currently opened Drone Slot popup
+  const modalDroneSlotItems = useMemo(() => {
+    if (!activeDroneSlotModal) return [];
+    return DRONE_LIST.filter((d) => isDroneCompatibleWithSlot(d, activeDroneSlotModal));
+  }, [activeDroneSlotModal]);
+
+  const activeDroneItem: DroneDefinition | null = useMemo(() => {
+    if (!activeDroneSlotModal) return null;
+    const picked = DRONES[selectedDroneId];
+    if (picked && isDroneCompatibleWithSlot(picked, activeDroneSlotModal)) return picked;
+    const equippedId = progress.equippedDroneSlots[activeDroneSlotModal];
+    if (equippedId && DRONES[equippedId]) return DRONES[equippedId];
+    return modalDroneSlotItems[0] ?? null;
+  }, [activeDroneSlotModal, selectedDroneId, progress.equippedDroneSlots, modalDroneSlotItems]);
+
+  const equippedDronesCount = useMemo(
+    () =>
+      DRONE_SLOT_IDS.filter((slotId) => Boolean(progress.equippedDroneSlots[slotId])).length,
+    [progress.equippedDroneSlots]
+  );
+
+  // Open Equipment Gear Slot Popup
   const openGearSlotPopup = (slot: EquipmentSlot) => {
     SoundManager.unlock();
     SoundManager.playButtonClick();
@@ -112,23 +132,17 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
     setActiveGearSlotModal(slot);
   };
 
-  // Open Drone Slot Selection Popup
-  const openDroneSlotPopup = (slotIndex: 0 | 1) => {
+  // Open Companion Drone Slot Popup (identical to openGearSlotPopup)
+  const openDroneSlotPopup = (slotId: DroneSlotId) => {
     SoundManager.unlock();
     SoundManager.playButtonClick();
-    setInspectedDronePopup(null);
-    setDronePickerSlotIndex(slotIndex);
+    const equippedId = progress.equippedDroneSlots[slotId];
+    const firstSlotItem = DRONE_LIST.find((d) => isDroneCompatibleWithSlot(d, slotId));
+    setSelectedDroneId(equippedId ?? firstSlotItem?.id ?? DRONE_LIST[0].id);
+    setActiveDroneSlotModal(slotId);
   };
 
-  // Open Drone Information Popup (either directly from grid OR from inside Slot Selection Popup)
-  const openDroneInfoPopup = (droneId: DroneId, fromSlotIndex: 0 | 1 | null = null) => {
-    SoundManager.unlock();
-    SoundManager.playButtonClick();
-    setDronePickerSlotIndex(null);
-    setInspectedDronePopup({ droneId, fromSlotIndex });
-  };
-
-  // ---- UNIVERSAL CONFIRMATION DIALOG TRIGGERS ----
+  // ---- UNIVERSAL CONFIRMATION DIALOG TRIGGERS (GEAR) ----
 
   const openGearBuyOrEnhanceConfirm = (item: EquipmentDefinition) => {
     const lvl = progress.ownedEquipment[item.id] ?? 0;
@@ -213,120 +227,105 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
     });
   };
 
-  const openDroneBuyOrUpgradeConfirm = (d: DroneDefinition) => {
+  // ---- UNIVERSAL CONFIRMATION DIALOG TRIGGERS (COMPANION DRONES) ----
+
+  const openDroneBuyOrUpgradeConfirm = (d: DroneDefinition, slotId: DroneSlotId) => {
     const lvl = progress.ownedDrones[d.id] ?? 0;
     const owned = lvl > 0;
     if (lvl >= d.maxLevel) return;
 
+    const rarity = RARITY_CONFIG[d.rarity];
+    const slotLabel = slotId === 'slot1' ? 'SLOT 01' : 'SLOT 02';
     const upgCost = getDroneUpgradeCost(d, Math.max(1, lvl));
     const creditsCost = owned ? upgCost.credits : d.costCredits;
     const crystalsCost = owned ? upgCost.crystals : d.costCrystals;
-    const curPower = getDronePowerAtLevel(d, Math.max(1, lvl));
-    const nextPower = owned ? getDronePowerAtLevel(d, lvl + 1) : curPower;
+    const curModifiers = getDroneModifierTags(d, Math.max(1, lvl));
+    const nextModifiers = owned ? getDroneModifierTags(d, lvl + 1) : [];
 
     SoundManager.unlock();
     SoundManager.playButtonClick();
 
     setPendingAction({
-      id: `drone-tx-${d.id}-${lvl}`,
+      id: `drone-tx-${d.id}-${lvl}-${slotId}`,
       category: owned ? 'upgrade' : 'purchase',
-      title: owned ? 'Confirm Upgrade' : 'Confirm Unlock',
+      title: owned ? 'Confirm Enhancement' : 'Confirm Purchase',
       itemName: d.name,
-      itemSubtitle: `${d.role} Wingman Drone`,
+      itemSubtitle: `${rarity.label} · ${slotLabel} · ${d.role}`,
       description: d.description,
       icon: <DroneArtBadge droneId={d.id} colorHex={d.colorHex} size={34} />,
       statDeltas: owned
         ? [
             { label: 'Drone Level', before: `Lv.${lvl}`, after: `Lv.${lvl + 1}` },
-            {
-              label: 'Wingman Output',
-              before: formatDronePower(d, curPower),
-              after: formatDronePower(d, nextPower),
-            },
+            ...curModifiers.map((m, idx) => ({
+              label: `Modifier ${idx + 1}`,
+              before: m,
+              after: nextModifiers[idx],
+            })),
           ]
-        : [{ label: 'Wingman Output (Lv.1)', before: formatDronePower(d, curPower) }],
+        : curModifiers.map((m, idx) => ({
+            label: `Base Effect ${idx + 1}`,
+            before: m,
+          })),
       creditsCost,
       crystalsCost,
-      execute: () => ProgressionManager.buyOrUpgradeDrone(d.id),
+      execute: () => ProgressionManager.buyOrUpgradeDrone(d.id, slotId),
     });
   };
 
-  const openDroneEquipConfirm = (d: DroneDefinition, targetSlotIndex?: 0 | 1) => {
+  const openDroneEquipConfirm = (d: DroneDefinition, slotId: DroneSlotId) => {
     const lvl = progress.ownedDrones[d.id] ?? 0;
-    if (lvl <= 0 || progress.equippedDrones.includes(d.id)) return;
+    if (lvl <= 0) return;
 
-    const equippedCount = progress.equippedDrones.length;
-    const isReplacing = equippedCount >= 2;
-    const replaceIdx: 0 | 1 = isReplacing
-      ? targetSlotIndex === 1
-        ? 1
-        : 0
-      : (equippedCount as 0 | 1);
-    const slotLabel = `Equipment Slot 0${replaceIdx + 1}`;
-    const currentSlotDroneId = isReplacing ? progress.equippedDrones[replaceIdx] : null;
-    const currentSlotDrone = currentSlotDroneId ? DRONES[currentSlotDroneId] : null;
-    const curPower = getDronePowerAtLevel(d, lvl);
+    const rarity = RARITY_CONFIG[d.rarity];
+    const slotLabel = slotId === 'slot1' ? 'SLOT 01' : 'SLOT 02';
+    const currentSlotDroneId = progress.equippedDroneSlots[slotId];
+    const currentSlotDroneName = currentSlotDroneId
+      ? DRONES[currentSlotDroneId]?.name ?? 'Occupied'
+      : 'Empty Slot';
 
     SoundManager.unlock();
     SoundManager.playButtonClick();
 
     setPendingAction({
-      id: `drone-equip-${d.id}-s${replaceIdx}`,
+      id: `drone-equip-${d.id}-${slotId}`,
       category: 'equip',
-      title: isReplacing ? 'Confirm Replace Drone' : 'Confirm Equip Drone',
+      title: 'Confirm Equip',
       itemName: d.name,
-      itemSubtitle: `${d.role} · Lv.${lvl}/${d.maxLevel}`,
-      description:
-        isReplacing && currentSlotDrone
-          ? `Replace ${currentSlotDrone.name} in ${slotLabel} with ${d.name}?`
-          : `Equip ${d.name} into ${slotLabel} for combat and passive wingman bonuses.`,
+      itemSubtitle: `${rarity.label} · ${slotLabel} · Lv.${lvl}`,
+      description: `Install ${d.name} into Companion Drone ${slotLabel}.`,
       note:
-        isReplacing && currentSlotDrone
-          ? `${currentSlotDrone.name} will return to reserve and its wingman bonus will deactivate.`
+        currentSlotDroneId && currentSlotDroneId !== d.id
+          ? `Replaces currently equipped ${currentSlotDroneName}.`
           : undefined,
       icon: <DroneArtBadge droneId={d.id} colorHex={d.colorHex} size={34} />,
       statDeltas: [
         {
           label: slotLabel,
-          before: currentSlotDrone ? currentSlotDrone.name : 'Empty Slot',
+          before: currentSlotDroneName,
           after: d.name,
         },
-        {
-          label: 'Wingman Output',
-          before: currentSlotDrone
-            ? formatDronePower(
-                currentSlotDrone,
-                getDronePowerAtLevel(
-                  currentSlotDrone,
-                  Math.max(1, progress.ownedDrones[currentSlotDrone.id] ?? 1)
-                )
-              )
-            : 'None',
-          after: formatDronePower(d, curPower),
-        },
       ],
-      execute: () => ProgressionManager.equipDrone(d.id, isReplacing ? replaceIdx : undefined),
+      execute: () => ProgressionManager.equipDroneToSlot(d.id, slotId),
     });
   };
 
-  const openDroneUnequipConfirm = (d: DroneDefinition) => {
+  const openDroneUnequipConfirm = (d: DroneDefinition, slotId: DroneSlotId) => {
     const lvl = progress.ownedDrones[d.id] ?? 0;
-    const slotIdx = progress.equippedDrones.indexOf(d.id);
-    if (lvl <= 0 || slotIdx === -1) return;
+    if (lvl <= 0 || progress.equippedDroneSlots[slotId] !== d.id) return;
 
-    const slotLabel = `Equipment Slot 0${slotIdx + 1}`;
-    const curPower = getDronePowerAtLevel(d, lvl);
+    const rarity = RARITY_CONFIG[d.rarity];
+    const slotLabel = slotId === 'slot1' ? 'SLOT 01' : 'SLOT 02';
 
     SoundManager.unlock();
     SoundManager.playButtonClick();
 
     setPendingAction({
-      id: `drone-unequip-${d.id}`,
+      id: `drone-unequip-${d.id}-${slotId}`,
       category: 'equip',
-      title: 'Confirm Unequip Drone',
+      title: 'Confirm Unequip',
       itemName: d.name,
-      itemSubtitle: `${slotLabel} · Lv.${lvl}/${d.maxLevel}`,
-      description: `Unequip ${d.name} from ${slotLabel}? Active wingman combat support and passive effects will stop until re-equipped.`,
+      itemSubtitle: `${rarity.label} · ${slotLabel} · Lv.${lvl}`,
+      description: `Remove ${d.name} from Companion Drone ${slotLabel}?`,
       icon: <DroneArtBadge droneId={d.id} colorHex={d.colorHex} size={34} />,
       statDeltas: [
         {
@@ -334,13 +333,8 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
           before: d.name,
           after: 'Empty Slot',
         },
-        {
-          label: 'Active Wingman',
-          before: formatDronePower(d, curPower),
-          after: 'Inactive',
-        },
       ],
-      execute: () => ProgressionManager.unequipDrone(d.id),
+      execute: () => ProgressionManager.unequipDroneFromSlot(slotId),
     });
   };
 
@@ -348,7 +342,9 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
     ? EQUIPMENT_SLOTS.find((s) => s.id === activeGearSlotModal) ?? EQUIPMENT_SLOTS[0]
     : null;
 
-  const inspectedDroneDef = inspectedDronePopup ? DRONES[inspectedDronePopup.droneId] : null;
+  const activeDroneSlotMeta = activeDroneSlotModal
+    ? DRONE_SLOTS.find((s) => s.id === activeDroneSlotModal) ?? DRONE_SLOTS[0]
+    : null;
 
   return (
     <>
@@ -364,12 +360,17 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
             role="tab"
             aria-selected={armoryTab === 'gear'}
             onClick={() => switchArmoryTab('gear')}
-            className={`flex min-h-[42px] items-center justify-center gap-2 rounded-lg px-4 sm:px-5 text-xs font-bold transition-colors ${
+            className={`relative flex min-h-[42px] items-center justify-center gap-2 rounded-lg px-4 sm:px-5 text-xs font-bold transition-colors ${
               armoryTab === 'gear'
                 ? 'border border-cyan-300/50 bg-cyan-400/16 text-cyan-100'
                 : 'border border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
+            <NotificationDot
+              visible={notifications.gearSubTab}
+              position="corner"
+              label="Equipment gear action available"
+            />
             <Sword className="h-3.5 w-3.5 text-cyan-300" />
             <span>Equipment Gear ({equippedGearCount}/4)</span>
           </button>
@@ -379,14 +380,19 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
             role="tab"
             aria-selected={armoryTab === 'drones'}
             onClick={() => switchArmoryTab('drones')}
-            className={`flex min-h-[42px] items-center justify-center gap-2 rounded-lg px-4 sm:px-5 text-xs font-bold transition-colors ${
+            className={`relative flex min-h-[42px] items-center justify-center gap-2 rounded-lg px-4 sm:px-5 text-xs font-bold transition-colors ${
               armoryTab === 'drones'
-                ? 'border border-purple-300/50 bg-purple-400/16 text-purple-100'
+                ? 'border border-cyan-300/50 bg-cyan-400/16 text-cyan-100'
                 : 'border border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Cpu className="h-3.5 w-3.5 text-purple-300" />
-            <span>Companion Drones ({progress.equippedDrones.length}/2)</span>
+            <NotificationDot
+              visible={notifications.dronesSubTab}
+              position="corner"
+              label="Companion drone action available"
+            />
+            <Cpu className="h-3.5 w-3.5 text-cyan-300" />
+            <span>Companion Drones ({equippedDronesCount}/2)</span>
           </button>
         </div>
 
@@ -429,14 +435,23 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
                       key={slotMeta.id}
                       type="button"
                       onClick={() => openGearSlotPopup(slotMeta.id)}
-                      className={`group flex min-h-[188px] sm:min-h-[204px] flex-col justify-between rounded-2xl border p-4 text-left touch-pan-y transition-[border-color,background-color,transform] duration-150 active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-cyan-400 ${
+                      className={`group relative flex min-h-[188px] sm:min-h-[204px] flex-col justify-between rounded-2xl border p-4 text-left touch-pan-y transition-[border-color,background-color,transform] duration-150 active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-cyan-400 ${
                         equippedItem
                           ? 'border-emerald-400/50 bg-[#07191b]/90 hover:border-cyan-300/75 hover:bg-[#092127]'
                           : 'border-dashed border-slate-700/80 bg-[#060c1a]/88 hover:border-cyan-300/60 hover:bg-[#081326]'
                       }`}
                     >
+                      <NotificationDot
+                        visible={notifications.gearSlots[slotMeta.id]}
+                        position="corner-inset"
+                        label={`${slotMeta.title} slot action available`}
+                      />
                       {/* Top Row: Slot Type + Status */}
-                      <div className="flex w-full items-center justify-between gap-2 font-mono-num text-[10.5px]">
+                      <div
+                        className={`flex w-full items-center justify-between gap-2 font-mono-num text-[10.5px] ${
+                          notifications.gearSlots[slotMeta.id] ? 'pr-2.5' : ''
+                        }`}
+                      >
                         <span className={`font-bold uppercase tracking-wider ${slotMeta.accentClass}`}>
                           {slotMeta.title}
                         </span>
@@ -504,11 +519,10 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
         )}
 
         {/* ===================================================================== */}
-        {/* 2. COMPANION DRONES — SLOT-FIRST + DRONE GRID (NO PERMANENT INFO BOX) */}
+        {/* 2. COMPANION DRONES — SLOT-ONLY ARCHITECTURE (IDENTICAL TO GEAR UI)   */}
         {/* ===================================================================== */}
         {armoryTab === 'drones' && (
-          <div className="panel-swap flex flex-col gap-6">
-            {/* Area 1: Active Equipment Slots */}
+          <div className="panel-swap flex flex-col gap-5">
             <section aria-label="Companion Drone Equipment Slots">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <div>
@@ -516,37 +530,56 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
                     EQUIPMENT SLOTS
                   </h2>
                   <p className="mt-0.5 text-xs text-slate-400">
-                    Tap a wingman slot to choose, replace, or unequip an active companion drone.
+                    Select any wingman slot to equip, replace, or upgrade compatible companion drones.
                   </p>
                 </div>
-                <span className="font-mono-num text-[11px] font-semibold text-purple-300">
-                  {progress.equippedDrones.length}/2 Active Wingmen
+                <span className="font-mono-num text-[11px] font-semibold text-cyan-300">
+                  {equippedDronesCount}/2 Equipped · {Object.keys(progress.ownedDrones).length}/
+                  {DRONE_LIST.length} Owned
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-3.5 sm:max-w-2xl">
-                {([0, 1] as const).map((slotIndex) => {
-                  const slotDroneId = progress.equippedDrones[slotIndex];
+              <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+                {DRONE_SLOTS.map((slotMeta) => {
+                  const SlotIcon = DRONE_SLOT_ICON[slotMeta.id];
+                  const slotDroneId = progress.equippedDroneSlots[slotMeta.id];
                   const slotDrone = slotDroneId ? DRONES[slotDroneId] : null;
                   const slotLvl = slotDrone ? progress.ownedDrones[slotDrone.id] ?? 1 : 0;
-                  const slotPower = slotDrone
-                    ? getDronePowerAtLevel(slotDrone, Math.max(1, slotLvl))
-                    : 0;
+                  const rarity = slotDrone ? RARITY_CONFIG[slotDrone.rarity] : null;
+                  const primaryStat = slotDrone
+                    ? getDroneModifierTags(slotDrone, Math.max(1, slotLvl))[0]
+                    : null;
+                  const compatibleList = DRONE_LIST.filter((d) =>
+                    isDroneCompatibleWithSlot(d, slotMeta.id)
+                  );
+                  const ownedInSlot = compatibleList.filter(
+                    (d) => (progress.ownedDrones[d.id] ?? 0) > 0
+                  ).length;
 
                   return (
                     <button
-                      key={`drone-slot-${slotIndex}`}
+                      key={slotMeta.id}
                       type="button"
-                      onClick={() => openDroneSlotPopup(slotIndex)}
-                      className={`group flex min-h-[188px] sm:min-h-[196px] flex-col justify-between rounded-2xl border p-4 text-left touch-pan-y transition-[border-color,background-color,transform] duration-150 active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-cyan-400 ${
+                      onClick={() => openDroneSlotPopup(slotMeta.id)}
+                      className={`group relative flex min-h-[188px] sm:min-h-[204px] flex-col justify-between rounded-2xl border p-4 text-left touch-pan-y transition-[border-color,background-color,transform] duration-150 active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-cyan-400 ${
                         slotDrone
                           ? 'border-emerald-400/50 bg-[#07191b]/90 hover:border-cyan-300/75 hover:bg-[#092127]'
-                          : 'border-dashed border-slate-700/80 bg-[#060c1a]/88 hover:border-purple-300/60 hover:bg-[#0c1229]'
+                          : 'border-dashed border-slate-700/80 bg-[#060c1a]/88 hover:border-cyan-300/60 hover:bg-[#081326]'
                       }`}
                     >
-                      <div className="flex w-full items-center justify-between gap-2 font-mono-num text-[10.5px]">
-                        <span className="font-bold uppercase tracking-wider text-purple-300">
-                          Slot 0{slotIndex + 1}
+                      <NotificationDot
+                        visible={notifications.droneSlots[slotMeta.id]}
+                        position="corner-inset"
+                        label={`${slotMeta.title} drone slot action available`}
+                      />
+                      {/* Top Row: Slot Type + Status */}
+                      <div
+                        className={`flex w-full items-center justify-between gap-2 font-mono-num text-[10.5px] ${
+                          notifications.droneSlots[slotMeta.id] ? 'pr-2.5' : ''
+                        }`}
+                      >
+                        <span className={`font-bold uppercase tracking-wider ${slotMeta.accentClass}`}>
+                          {slotMeta.title}
                         </span>
                         {slotDrone ? (
                           <span className="font-bold text-emerald-300">EQUIPPED</span>
@@ -555,142 +588,58 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
                         )}
                       </div>
 
-                      {slotDrone ? (
+                      {/* Center Visual & Identity */}
+                      {slotDrone && rarity ? (
                         <div className="my-3 flex flex-col gap-2.5">
                           <div className="flex items-center gap-3">
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-700/75 bg-[#050b18]">
+                            <span
+                              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border bg-[#050b18]"
+                              style={{ borderColor: `${rarity.colorHex}60` }}
+                            >
                               <DroneArtBadge
                                 droneId={slotDrone.id}
                                 colorHex={slotDrone.colorHex}
-                                size={36}
+                                size={30}
                               />
-                            </div>
+                            </span>
                             <div className="min-w-0">
-                              <div className="font-mono-num text-[10.5px] font-semibold text-slate-400">
-                                {slotDrone.role} · Lv.{slotLvl}/{slotDrone.maxLevel}
+                              <div className={`font-mono-num text-[10.5px] font-bold ${rarity.textClass}`}>
+                                {rarity.label} · Lv.{slotLvl}/{slotDrone.maxLevel}
                               </div>
-                              <div className="mt-0.5 truncate font-display text-xs sm:text-sm font-bold text-white">
+                              <div className="mt-0.5 line-clamp-2 font-display text-xs sm:text-sm font-bold leading-snug text-white">
                                 {slotDrone.name}
                               </div>
                             </div>
                           </div>
-                          <div
-                            className="font-mono-num text-xs font-bold"
-                            style={{ color: slotDrone.colorHex }}
-                          >
-                            {formatDronePower(slotDrone, slotPower)}
-                          </div>
+                          {primaryStat && (
+                            <div className="truncate font-mono-num text-[11px] font-semibold text-sky-300">
+                              {primaryStat}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="my-3 flex flex-col items-center justify-center gap-2 text-center">
-                          <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-800 bg-[#081122] text-slate-500 transition-colors group-hover:border-purple-400/45 group-hover:text-purple-300">
-                            <Plus className="h-5 w-5" />
+                          <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-800 bg-[#081122] text-slate-500 transition-colors group-hover:border-cyan-400/40 group-hover:text-cyan-300">
+                            <SlotIcon className="h-5 w-5" />
                           </span>
                           <div>
                             <div className="font-display text-xs sm:text-sm font-bold text-slate-200">
                               Select Drone
                             </div>
                             <div className="mt-0.5 font-mono-num text-[10.5px] text-slate-500">
-                              Wingman Slot 0{slotIndex + 1}
+                              {slotMeta.emptyHint}
                             </div>
                           </div>
                         </div>
                       )}
 
+                      {/* Footer Meta */}
                       <div className="flex w-full items-center justify-between gap-2 border-t border-slate-800/80 pt-2.5 font-mono-num text-[10.5px] text-slate-400">
-                        <span>{slotDrone ? `Lv.${slotLvl}/${slotDrone.maxLevel}` : 'Empty Slot'}</span>
-                        <span className="text-purple-300/90 group-hover:text-purple-200">
-                          {slotDrone ? 'Change / Unequip' : 'Equip'}
+                        <span>
+                          {ownedInSlot}/{compatibleList.length} Owned
                         </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
-            {/* Area 2: Companion Drones Grid (Zero Permanent Info Panel Below) */}
-            <section aria-label="Companion Drones Roster">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div>
-                  <h3 className="font-display text-sm sm:text-base font-bold tracking-wide text-white">
-                    COMPANION DRONES
-                  </h3>
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    Tap any drone to inspect specifications, unlock, equip, or upgrade.
-                  </p>
-                </div>
-                <span className="font-mono-num text-[11px] text-slate-400">
-                  {Object.keys(progress.ownedDrones).length}/{DRONE_LIST.length} Owned
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-4">
-                {DRONE_LIST.map((d) => {
-                  const lvl = progress.ownedDrones[d.id] ?? 0;
-                  const owned = lvl > 0;
-                  const slotIdx = progress.equippedDrones.indexOf(d.id);
-                  const equipped = slotIdx !== -1;
-                  const maxed = lvl >= d.maxLevel;
-                  const upgCost = getDroneUpgradeCost(d, Math.max(1, lvl));
-                  const power = getDronePowerAtLevel(d, Math.max(1, lvl));
-
-                  return (
-                    <button
-                      key={d.id}
-                      type="button"
-                      onClick={() => openDroneInfoPopup(d.id, null)}
-                      className={`group flex min-h-[172px] flex-col justify-between rounded-2xl border p-4 text-left touch-pan-y transition-[border-color,background-color,transform] duration-150 active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-cyan-400 ${
-                        equipped
-                          ? 'border-emerald-400/55 bg-[#07191b]/90 hover:border-emerald-300/80'
-                          : owned
-                          ? 'border-slate-700/85 bg-[#081225]/92 hover:border-purple-300/55 hover:bg-[#0c1830]'
-                          : 'border-slate-800/90 bg-[#060c1a]/88 opacity-90 hover:opacity-100 hover:border-slate-600/80'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-700/75 bg-[#050b18]">
-                          <DroneArtBadge droneId={d.id} colorHex={d.colorHex} size={34} />
-                        </div>
-                        <span
-                          className={`flex items-center gap-1 font-mono-num text-[10px] font-bold tracking-wide ${
-                            equipped
-                              ? 'text-emerald-300'
-                              : owned
-                              ? 'text-sky-300'
-                              : 'text-slate-500'
-                          }`}
-                        >
-                          {!owned && <Lock className="h-3 w-3" />}
-                          <span>
-                            {equipped
-                              ? `EQUIPPED · S${slotIdx + 1}`
-                              : owned
-                              ? `OWNED · Lv.${lvl}`
-                              : 'LOCKED'}
-                          </span>
-                        </span>
-                      </div>
-
-                      <div className="my-2.5 min-w-0">
-                        <div className="truncate font-display text-xs sm:text-sm font-bold text-white">
-                          {d.name}
-                        </div>
-                        <div className="mt-1 truncate font-mono-num text-[11px] text-purple-300">
-                          {d.role}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-1.5 border-t border-slate-800/75 pt-2 font-mono-num text-[11px] font-semibold">
-                        <span className="truncate" style={{ color: d.colorHex }}>
-                          {formatDronePower(d, power)}
-                        </span>
-                        <span className="shrink-0 text-slate-400">
-                          {maxed
-                            ? 'MAX'
-                            : owned
-                            ? `${upgCost.credits} CR`
-                            : `${d.costCredits} CR`}
+                        <span className="text-cyan-300/90 group-hover:text-cyan-200">
+                          {slotDrone ? 'Manage' : 'Browse'}
                         </span>
                       </div>
                     </button>
@@ -705,7 +654,7 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
       {activeGearSlotModal && activeGearSlotMeta && activeGearItem && (
         <EquipmentGearModal
           slotMeta={activeGearSlotMeta}
-          slotItems={modalSlotItems}
+          slotItems={modalGearSlotItems}
           activeItem={activeGearItem}
           progress={progress}
           onSelectItem={setSelectedGearId}
@@ -715,25 +664,16 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
         />
       )}
 
-      {dronePickerSlotIndex !== null && (
-        <DroneSlotPickerModal
-          slotIndex={dronePickerSlotIndex}
+      {activeDroneSlotModal && activeDroneSlotMeta && activeDroneItem && (
+        <DroneSlotModal
+          slotMeta={activeDroneSlotMeta}
+          slotItems={modalDroneSlotItems}
+          activeDrone={activeDroneItem}
           progress={progress}
-          onClose={() => setDronePickerSlotIndex(null)}
-          onSelectDroneInfo={(droneId, slotIndex) => openDroneInfoPopup(droneId, slotIndex)}
-          onUnequipConfirm={openDroneUnequipConfirm}
-        />
-      )}
-
-      {inspectedDronePopup && inspectedDroneDef && (
-        <DroneInfoModal
-          drone={inspectedDroneDef}
-          fromSlotIndex={inspectedDronePopup.fromSlotIndex}
-          progress={progress}
-          onBackToSlotPicker={openDroneSlotPopup}
-          onClose={() => setInspectedDronePopup(null)}
-          onUnequipConfirm={openDroneUnequipConfirm}
+          onSelectDrone={setSelectedDroneId}
+          onClose={() => setActiveDroneSlotModal(null)}
           onEquipConfirm={openDroneEquipConfirm}
+          onUnequipConfirm={openDroneUnequipConfirm}
           onBuyOrUpgradeConfirm={openDroneBuyOrUpgradeConfirm}
         />
       )}

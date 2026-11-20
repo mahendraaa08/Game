@@ -70,6 +70,10 @@ export interface HudSnapshot {
   bossHp: number;
   bossMaxHp: number;
   bossPhase: 1 | 2 | 3;
+  bossWidth: number;
+  bossHeight: number;
+  bossAgeSec: number;
+  bossEntering: boolean;
   bossWarningText: string | null;
   creditsEarnedRun: number;
   crystalsEarnedRun: number;

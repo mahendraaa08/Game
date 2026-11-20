@@ -1,3 +1,5 @@
+import { WEAPON_ECONOMY } from './EconomyConfig';
+
 export type WeaponId =
   | 'plasma'
   | 'dual_laser'
@@ -55,9 +57,9 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     colorHex: '#38BDF8',
     colorNum: 0x38bdf8,
     glowNum: 0x0284c7,
-    unlockLevel: 1,
-    unlockCredits: 0,
-    unlockCrystals: 0,
+    unlockLevel: WEAPON_ECONOMY.plasma.unlockLevel,
+    unlockCredits: WEAPON_ECONOMY.plasma.unlockCredits,
+    unlockCrystals: WEAPON_ECONOMY.plasma.unlockCrystals,
     maxWeaponLevel: 5,
   },
   dual_laser: {
@@ -75,9 +77,9 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     colorHex: '#22D3EE',
     colorNum: 0x22d3ee,
     glowNum: 0x06b6d4,
-    unlockLevel: 1,
-    unlockCredits: 0,
-    unlockCrystals: 0,
+    unlockLevel: WEAPON_ECONOMY.dual_laser.unlockLevel,
+    unlockCredits: WEAPON_ECONOMY.dual_laser.unlockCredits,
+    unlockCrystals: WEAPON_ECONOMY.dual_laser.unlockCrystals,
     maxWeaponLevel: 5,
   },
   spread: {
@@ -95,9 +97,9 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     colorHex: '#A855F7',
     colorNum: 0xa855f7,
     glowNum: 0x7e22ce,
-    unlockLevel: 1,
-    unlockCredits: 0,
-    unlockCrystals: 0,
+    unlockLevel: WEAPON_ECONOMY.spread.unlockLevel,
+    unlockCredits: WEAPON_ECONOMY.spread.unlockCredits,
+    unlockCrystals: WEAPON_ECONOMY.spread.unlockCrystals,
     maxWeaponLevel: 5,
   },
   homing: {
@@ -115,9 +117,9 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     colorHex: '#F59E0B',
     colorNum: 0xf59e0b,
     glowNum: 0xd97706,
-    unlockLevel: 1,
-    unlockCredits: 550,
-    unlockCrystals: 0,
+    unlockLevel: WEAPON_ECONOMY.homing.unlockLevel,
+    unlockCredits: WEAPON_ECONOMY.homing.unlockCredits,
+    unlockCrystals: WEAPON_ECONOMY.homing.unlockCrystals,
     maxWeaponLevel: 5,
   },
   beam: {
@@ -135,9 +137,9 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     colorHex: '#60A5FA',
     colorNum: 0x60a5fa,
     glowNum: 0x3b82f6,
-    unlockLevel: 2,
-    unlockCredits: 950,
-    unlockCrystals: 2,
+    unlockLevel: WEAPON_ECONOMY.beam.unlockLevel,
+    unlockCredits: WEAPON_ECONOMY.beam.unlockCredits,
+    unlockCrystals: WEAPON_ECONOMY.beam.unlockCrystals,
     maxWeaponLevel: 5,
   },
   lightning: {
@@ -155,9 +157,9 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     colorHex: '#67E8F9',
     colorNum: 0x67e8f9,
     glowNum: 0x0ea5e9,
-    unlockLevel: 3,
-    unlockCredits: 1400,
-    unlockCrystals: 4,
+    unlockLevel: WEAPON_ECONOMY.lightning.unlockLevel,
+    unlockCredits: WEAPON_ECONOMY.lightning.unlockCredits,
+    unlockCrystals: WEAPON_ECONOMY.lightning.unlockCrystals,
     maxWeaponLevel: 5,
   },
 };

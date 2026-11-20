@@ -1,6 +1,6 @@
 import React from 'react';
-import { Compass, Shield, Sword, Zap } from 'lucide-react';
-import { DroneDefinition } from '../../../game/config/DroneConfig';
+import { Compass, Cpu, Shield, Sword, Zap } from 'lucide-react';
+import { DroneDefinition, DroneSlotId } from '../../../game/config/DroneConfig';
 import { EquipmentSlot, EquipmentStatsBonus } from '../../../game/config/EquipmentConfig';
 
 export interface EquipmentSlotMeta {
@@ -50,6 +50,39 @@ export const SLOT_ICON: Record<
   defensive: Shield,
   utility: Compass,
   special: Zap,
+};
+
+export interface DroneSlotMeta {
+  id: DroneSlotId;
+  title: string;
+  emptyHint: string;
+  accentClass: string;
+  accentHex: string;
+}
+
+export const DRONE_SLOTS: DroneSlotMeta[] = [
+  {
+    id: 'slot1',
+    title: 'Slot 01',
+    emptyHint: 'Port Wingman',
+    accentClass: 'text-sky-300',
+    accentHex: '#38BDF8',
+  },
+  {
+    id: 'slot2',
+    title: 'Slot 02',
+    emptyHint: 'Starboard Wingman',
+    accentClass: 'text-cyan-300',
+    accentHex: '#22D3EE',
+  },
+];
+
+export const DRONE_SLOT_ICON: Record<
+  DroneSlotId,
+  React.FC<{ className?: string; style?: React.CSSProperties }>
+> = {
+  slot1: Cpu,
+  slot2: Cpu,
 };
 
 export function formatBonusTags(scaled: EquipmentStatsBonus): string[] {

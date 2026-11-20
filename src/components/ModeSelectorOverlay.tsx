@@ -10,6 +10,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { BOSS_CONFIGS } from '../game/config/BossConfig';
+import { BOSS_RUSH_CLEAR_REWARD, getChallengePayout } from '../game/config/EconomyConfig';
 import { BOSS_RUSH_ORDER, CHALLENGES, GameMode } from '../game/config/GameModeConfig';
 import { CAMPAIGN_LEVELS } from '../game/config/LevelConfig';
 import { SoundManager } from '../game/audio/SoundManager';
@@ -40,6 +41,12 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
   const selectedChallenge = useMemo(
     () => CHALLENGES.find((c) => c.id === selectedChallengeId) ?? CHALLENGES[0],
     [selectedChallengeId]
+  );
+  const selectedChallengeCompleted = progress.stats.completedChallenges.includes(selectedChallenge.id);
+  const selectedChallengePayout = getChallengePayout(
+    selectedChallenge.rewardCredits,
+    selectedChallenge.rewardCrystals,
+    selectedChallengeCompleted
   );
 
   const selectMode = (mode: GameMode) => {
@@ -394,8 +401,11 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
                     </p>
                     <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono-num text-xs text-slate-400">
                       <span>{selectedChallenge.constraintsLabel}</span>
-                      <span className="text-amber-300">+{selectedChallenge.rewardCredits} CR</span>
-                      <span className="text-cyan-300">+{selectedChallenge.rewardCrystals} Gems</span>
+                      <span className="text-slate-300">
+                        {selectedChallengePayout.isReplay ? 'Replay:' : 'First Clear:'}
+                      </span>
+                      <span className="text-amber-300">+{selectedChallengePayout.credits} CR</span>
+                      <span className="text-cyan-300">+{selectedChallengePayout.crystals} Gems</span>
                     </div>
                   </div>
 
@@ -403,6 +413,7 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
                     {CHALLENGES.map((c) => {
                       const done = progress.stats.completedChallenges.includes(c.id);
                       const isPicked = selectedChallenge.id === c.id;
+                      const payout = getChallengePayout(c.rewardCredits, c.rewardCrystals, done);
 
                       return (
                         <button
@@ -439,9 +450,10 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
                           </div>
 
                           <div className="font-mono-num text-[11px] text-slate-400">
-                            <span className="text-amber-300">+{c.rewardCredits} CR</span>
+                            {payout.isReplay && <span className="mr-1.5 text-slate-400">Replay</span>}
+                            <span className="text-amber-300">+{payout.credits} CR</span>
                             <span className="mx-1.5 text-slate-600">·</span>
-                            <span className="text-cyan-300">+{c.rewardCrystals} Gems</span>
+                            <span className="text-cyan-300">+{payout.crystals} Gems</span>
                           </div>
                         </button>
                       );
@@ -481,7 +493,7 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
                       Void Commander Boss Rush
                     </h2>
                     <p className="mt-2 max-w-2xl text-xs sm:text-sm leading-relaxed text-slate-300">
-                      Engage all {BOSS_RUSH_ORDER.length} Void Empire dreadnought commanders back-to-back in a single gauntlet. Clearing the full sequence awards +1,400 CR and +10 Gems.
+                      Engage all {BOSS_RUSH_ORDER.length} Void Empire dreadnought commanders back-to-back in a single gauntlet. Clearing the full sequence awards +{BOSS_RUSH_CLEAR_REWARD.credits.toLocaleString()} CR and +{BOSS_RUSH_CLEAR_REWARD.crystals} Gems.
                     </p>
                   </div>
 

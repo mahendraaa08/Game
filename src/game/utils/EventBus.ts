@@ -54,6 +54,25 @@ export interface VictoryPayload {
   crystalsEarned: number;
 }
 
+export interface BossWarningPayload {
+  name: string;
+  title: string;
+  accentHex?: string;
+  durationMs?: number;
+}
+
+export interface BossPosePayload {
+  active: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  ageSec: number;
+  entering: boolean;
+  viewportW: number;
+  viewportH: number;
+}
+
 export type AppRoute =
   | 'menu'
   | 'modes'
@@ -61,6 +80,7 @@ export type AppRoute =
   | 'weapons'
   | 'armory'
   | 'missions'
+  | 'codex'
   | 'settings';
 
 type EventMap = {
@@ -70,7 +90,8 @@ type EventMap = {
   'level:result': LevelResultPayload;
   'game:over': GameOverPayload;
   'campaign:victory': VictoryPayload;
-  'boss:warning': { name: string; title: string } | null;
+  'boss:warning': BossWarningPayload | null;
+  'boss:pose': BossPosePayload;
   'ui:start-level': number;
   'ui:start-mode': StartRunRequest;
   'ui:open-hangar': void;

@@ -117,7 +117,7 @@ export const WeaponSelector = memo<WeaponSelectorProps>(
         ref={containerRef}
         data-hud-control="true"
         data-weapon-selector="true"
-        className="pointer-events-auto relative"
+        className="pointer-events-auto relative z-30"
       >
         {/* Expandable Dynamic Scrollable Weapon Panel */}
         {open && !isPaused && (
@@ -126,11 +126,11 @@ export const WeaponSelector = memo<WeaponSelectorProps>(
             data-weapon-selector="true"
             role="dialog"
             aria-label="Weapon Selector"
-            className={`menu-enter absolute bottom-full left-0 mb-2 ${panelWidthClass} max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border border-cyan-400/35 bg-[#060e20]/94 shadow-[0_12px_32px_rgba(2,6,18,0.85)] backdrop-blur-sm`}
+            onPointerDown={(e) => e.stopPropagation()}
+            className={`menu-enter absolute bottom-full left-0 z-40 mb-2 ${panelWidthClass} max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border border-cyan-400/45 bg-[#060e20]/96 shadow-[0_14px_36px_rgba(2,6,18,0.92)] backdrop-blur-md`}
           >
             <div className="flex items-center justify-between border-b border-cyan-400/15 pl-3 pr-1.5 py-1.5">
               <div className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
                 <span className="font-display text-[11px] font-bold tracking-[0.14em] text-cyan-200">
                   SELECT WEAPON
                 </span>

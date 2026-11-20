@@ -1,27 +1,48 @@
 import { ACHIEVEMENTS } from '../config/AchievementConfig';
-import { BossId } from '../config/BossConfig';
-import { DroneId, DRONES, getDroneUpgradeCost } from '../config/DroneConfig';
-import { EnemyClass } from '../config/EnemyConfig';
+import type { BossId } from '../config/BossConfig';
+import {
+  DRONE_SLOT_IDS,
+  type DroneId,
+  DRONES,
+  type DroneSlotId,
+  getCollectorCreditBonus,
+  getDroneUpgradeCost,
+  isDroneCompatibleWithSlot,
+} from '../config/DroneConfig';
+import {
+  BOSS_RUSH_CLEAR_REWARD,
+  ECONOMY_CAPS,
+  getCampaignClearReward,
+  getChallengePayout,
+} from '../config/EconomyConfig';
+import type { EnemyClass } from '../config/EnemyConfig';
 import {
   EQUIPMENT_BY_ID,
-  EquipmentSlot,
+  type EquipmentSlot,
   getEquipmentUpgradeCost,
   scaleEquipmentBonuses,
 } from '../config/EquipmentConfig';
-import { ChallengeRule, GameMode } from '../config/GameModeConfig';
+import { CHALLENGE_BY_ID, type ChallengeRule, type GameMode } from '../config/GameModeConfig';
+import { CAMPAIGN_LEVELS } from '../config/LevelConfig';
 import {
   selectDailyMissions,
   selectWeeklyChallenges,
 } from '../config/MissionConfig';
-import { ShipId, SHIPS } from '../config/ShipConfig';
-import { getUpgradeCost, getWeaponUpgradeCost, UpgradeId, UPGRADES } from '../config/UpgradeConfig';
-import { WeaponId, WEAPONS } from '../config/WeaponConfig';
+import { type ShipId, SHIPS } from '../config/ShipConfig';
+import { getUpgradeCost, getWeaponUpgradeCost, type UpgradeId, UPGRADES } from '../config/UpgradeConfig';
+import { type WeaponId, WEAPONS } from '../config/WeaponConfig';
 import { EventBus } from '../utils/EventBus';
-import { PlayerProgress, StorageManager } from '../utils/StorageManager';
+import { type PlayerProgress, StorageManager } from '../utils/StorageManager';
 
 export interface ActionResult {
   ok: boolean;
   message: string;
+}
+
+export interface ClaimAllResult extends ActionResult {
+  claimedCount: number;
+  creditsGranted: number;
+  crystalsGranted: number;
 }
 
 export interface ComputedPlayerStats {
@@ -101,7 +122,9 @@ export function computePlayerStats(
 
   // Apply Drone passive stat boosts (Shield & Collector drones)
   if (!challengeRule?.disableDrones) {
-    progress.equippedDrones.forEach((dId) => {
+    DRONE_SLOT_IDS.forEach((slotId) => {
+      const dId = progress.equippedDroneSlots?.[slotId];
+      if (!dId) return;
       const lvl = progress.ownedDrones[dId] ?? 0;
       if (lvl <= 0) return;
       if (dId === 'shield') {
@@ -109,7 +132,7 @@ export function computePlayerStats(
         shieldRegenMult += 0.2 + (lvl - 1) * 0.08;
       } else if (dId === 'collector') {
         pickupRadiusBonus += 110 + (lvl - 1) * 24;
-        creditBonusMult += 0.18 + (lvl - 1) * 0.05;
+        creditBonusMult += getCollectorCreditBonus(lvl);
       }
     });
   }
@@ -139,7 +162,7 @@ export function computePlayerStats(
     evasionChance,
     shieldRegenMult,
     pickupRadiusBonus,
-    creditBonusMult,
+    creditBonusMult: Math.min(ECONOMY_CAPS.maxCreditBonusMult, Math.max(1, creditBonusMult)),
     shieldOnKill: ship.id === 'aegis' ? 4 : 0,
     extraChainTargets: ship.id === 'thunderbolt' ? 1 : 0,
     hasAstralWingBolts: ship.id === 'celestial',
@@ -299,7 +322,7 @@ class ProgressionManagerImpl {
     if (cur >= def.maxWeaponLevel) {
       return { ok: false, message: `${def.name} is already at Max Level.` };
     }
-    const cost = getWeaponUpgradeCost(cur);
+    const cost = getWeaponUpgradeCost(cur, weaponId);
     const err = this.trySpend(p, cost.credits, cost.crystals);
     if (err) return err;
     p.weaponLevels[weaponId] = cur + 1;
@@ -357,8 +380,9 @@ class ProgressionManagerImpl {
     };
   }
 
-  buyOrUpgradeDrone(droneId: DroneId): ActionResult {
+  buyOrUpgradeDrone(droneId: DroneId, targetSlotId?: DroneSlotId): ActionResult {
     const def = DRONES[droneId];
+    if (!def) return { ok: false, message: 'Invalid drone module.' };
     const p = StorageManager.load();
     const cur = p.ownedDrones[droneId] ?? 0;
 
@@ -366,12 +390,26 @@ class ProgressionManagerImpl {
       const err = this.trySpend(p, def.costCredits, def.costCrystals);
       if (err) return err;
       p.ownedDrones[droneId] = 1;
-      if (p.equippedDrones.length < 2 && !p.equippedDrones.includes(droneId)) {
-        p.equippedDrones = [...p.equippedDrones, droneId];
+
+      const alreadyInOtherSlot = DRONE_SLOT_IDS.some(
+        (sId) => p.equippedDroneSlots[sId] === droneId
+      );
+      if (
+        targetSlotId &&
+        isDroneCompatibleWithSlot(def, targetSlotId) &&
+        !p.equippedDroneSlots[targetSlotId] &&
+        !alreadyInOtherSlot
+      ) {
+        p.equippedDroneSlots = { ...p.equippedDroneSlots, [targetSlotId]: droneId };
+        StorageManager.save(p);
+        this.emitChanged();
+        const slotNum = targetSlotId === 'slot1' ? '01' : '02';
+        return { ok: true, message: `Acquired & equipped ${def.name} in Slot ${slotNum}!` };
       }
+
       StorageManager.save(p);
       this.emitChanged();
-      return { ok: true, message: `${def.name} deployed!` };
+      return { ok: true, message: `Acquired ${def.name}!` };
     }
 
     if (cur >= def.maxLevel) {
@@ -387,69 +425,72 @@ class ProgressionManagerImpl {
     return { ok: true, message: `${def.name} upgraded to Lv.${cur + 1}!` };
   }
 
-  equipDrone(droneId: DroneId, targetSlotIndex?: 0 | 1): ActionResult {
+  equipDroneToSlot(droneId: DroneId, slotId: DroneSlotId): ActionResult {
     const def = DRONES[droneId];
     if (!def) return { ok: false, message: 'Invalid drone module.' };
+    if (!isDroneCompatibleWithSlot(def, slotId)) {
+      return { ok: false, message: `${def.name} is not compatible with this slot.` };
+    }
+
     const p = StorageManager.load();
     if (!p.ownedDrones[droneId] || p.ownedDrones[droneId]! <= 0) {
-      return { ok: false, message: `Unlock ${def.name} first.` };
+      return { ok: false, message: `Purchase ${def.name} first.` };
     }
 
-    const existingIdx = p.equippedDrones.indexOf(droneId);
-    if (existingIdx !== -1) {
-      if (targetSlotIndex !== undefined && existingIdx !== targetSlotIndex && p.equippedDrones.length === 2) {
-        const swapped = [...p.equippedDrones];
-        const other = swapped[targetSlotIndex];
-        swapped[targetSlotIndex] = droneId;
-        swapped[existingIdx] = other;
-        p.equippedDrones = swapped.slice(0, 2);
-        StorageManager.save(p);
-        this.emitChanged();
-        return {
-          ok: true,
-          message: `${def.name} moved to Equipment Slot 0${targetSlotIndex + 1}.`,
-        };
-      }
-      return { ok: true, message: `${def.name} is already equipped.` };
+    const slotLabel = slotId === 'slot1' ? 'Slot 01' : 'Slot 02';
+    const otherSlotId: DroneSlotId = slotId === 'slot1' ? 'slot2' : 'slot1';
+    const otherSlotLabel = otherSlotId === 'slot1' ? 'Slot 01' : 'Slot 02';
+
+    if (p.equippedDroneSlots[slotId] === droneId) {
+      return { ok: true, message: `${def.name} is already equipped in ${slotLabel}.` };
     }
 
-    if (p.equippedDrones.length < 2) {
-      p.equippedDrones = [...p.equippedDrones, droneId];
-    } else {
-      const replaceIdx = targetSlotIndex === 1 ? 1 : 0;
-      const next = [...p.equippedDrones];
-      next[replaceIdx] = droneId;
-      p.equippedDrones = next.slice(0, 2);
+    if (p.equippedDroneSlots[otherSlotId] === droneId) {
+      return {
+        ok: false,
+        message: `${def.name} is active in ${otherSlotLabel}. Unequip it from ${otherSlotLabel} first.`,
+      };
     }
 
+    p.equippedDroneSlots = { ...p.equippedDroneSlots, [slotId]: droneId };
     StorageManager.save(p);
     this.emitChanged();
-    const assignedSlot = p.equippedDrones.indexOf(droneId) + 1;
     return {
       ok: true,
-      message: `${def.name} equipped to Slot 0${assignedSlot} (${p.equippedDrones.length}/2).`,
+      message: `${def.name} equipped to ${slotLabel}.`,
     };
   }
 
-  unequipDrone(droneId: DroneId): ActionResult {
-    const def = DRONES[droneId];
-    if (!def) return { ok: false, message: 'Invalid drone module.' };
+  unequipDroneFromSlot(slotId: DroneSlotId): ActionResult {
     const p = StorageManager.load();
-    if (!p.equippedDrones.includes(droneId)) {
-      return { ok: false, message: `${def.name} is not currently equipped.` };
+    const currentId = p.equippedDroneSlots[slotId];
+    if (!currentId) {
+      return { ok: false, message: 'This slot is already empty.' };
     }
-    p.equippedDrones = p.equippedDrones.filter((id) => id !== droneId);
+    const def = DRONES[currentId];
+    p.equippedDroneSlots = { ...p.equippedDroneSlots, [slotId]: null };
     StorageManager.save(p);
     this.emitChanged();
-    return { ok: true, message: `${def.name} unequipped to reserve bay.` };
+    const slotLabel = slotId === 'slot1' ? 'Slot 01' : 'Slot 02';
+    return {
+      ok: true,
+      message: `Unequipped ${def?.name ?? currentId} from ${slotLabel}.`,
+    };
   }
 
-  toggleEquipDrone(droneId: DroneId): ActionResult {
+  equipDrone(droneId: DroneId, targetSlotIndex?: 0 | 1): ActionResult {
+    const slotId: DroneSlotId = targetSlotIndex === 1 ? 'slot2' : 'slot1';
+    return this.equipDroneToSlot(droneId, slotId);
+  }
+
+  unequipDrone(droneId: DroneId): ActionResult {
     const p = StorageManager.load();
-    if (p.equippedDrones.includes(droneId)) {
-      return this.unequipDrone(droneId);
+    const foundSlot = DRONE_SLOT_IDS.find((sId) => p.equippedDroneSlots[sId] === droneId);
+    if (!foundSlot) {
+      const def = DRONES[droneId];
+      return { ok: false, message: `${def?.name ?? droneId} is not currently equipped.` };
     }
-    return this.equipDrone(droneId);
+    return this.unequipDroneFromSlot(foundSlot);
   }
 
   claimDailyMission(missionId: string): ActionResult {
@@ -506,6 +547,147 @@ class ProgressionManagerImpl {
     StorageManager.save(p);
     this.emitChanged();
     return { ok: true, message: `Achievement claimed: +${def.rewardCredits} Credits, +${def.rewardCrystals} Crystals!` };
+  }
+
+  claimAllDirectives(): ClaimAllResult {
+    const p = StorageManager.load();
+    const dailyTemplates = selectDailyMissions(p.dailyMissions.resetKey);
+    const weeklyTemplates = selectWeeklyChallenges(p.weeklyChallenges.resetKey);
+
+    const dailyClaimedSet = new Set(p.dailyMissions.claimedIds);
+    const weeklyClaimedSet = new Set(p.weeklyChallenges.claimedIds);
+
+    const newlyClaimedDailyIds: string[] = [];
+    let dailyCredits = 0;
+    let dailyCrystals = 0;
+    for (const tpl of dailyTemplates) {
+      if (dailyClaimedSet.has(tpl.id)) continue;
+      const cur = p.dailyMissions.progress[tpl.id] ?? 0;
+      if (cur >= tpl.target) {
+        dailyClaimedSet.add(tpl.id);
+        newlyClaimedDailyIds.push(tpl.id);
+        dailyCredits += tpl.rewardCredits;
+        dailyCrystals += tpl.rewardCrystals;
+      }
+    }
+
+    const newlyClaimedWeeklyIds: string[] = [];
+    let weeklyCredits = 0;
+    let weeklyCrystals = 0;
+    for (const tpl of weeklyTemplates) {
+      if (weeklyClaimedSet.has(tpl.id)) continue;
+      const cur = p.weeklyChallenges.progress[tpl.id] ?? 0;
+      if (cur >= tpl.target) {
+        weeklyClaimedSet.add(tpl.id);
+        newlyClaimedWeeklyIds.push(tpl.id);
+        weeklyCredits += tpl.rewardCredits;
+        weeklyCrystals += tpl.rewardCrystals;
+      }
+    }
+
+    const claimedCount = newlyClaimedDailyIds.length + newlyClaimedWeeklyIds.length;
+    if (claimedCount === 0) {
+      return {
+        ok: false,
+        message: 'No completed directives ready to claim.',
+        claimedCount: 0,
+        creditsGranted: 0,
+        crystalsGranted: 0,
+      };
+    }
+
+    if (newlyClaimedDailyIds.length > 0) {
+      p.dailyMissions.claimedIds = [...p.dailyMissions.claimedIds, ...newlyClaimedDailyIds];
+      this.addRewardHistory(
+        p,
+        `Daily Batch (${newlyClaimedDailyIds.length})`,
+        dailyCredits,
+        dailyCrystals
+      );
+    }
+
+    if (newlyClaimedWeeklyIds.length > 0) {
+      p.weeklyChallenges.claimedIds = [...p.weeklyChallenges.claimedIds, ...newlyClaimedWeeklyIds];
+      this.addRewardHistory(
+        p,
+        `Weekly Batch (${newlyClaimedWeeklyIds.length})`,
+        weeklyCredits,
+        weeklyCrystals
+      );
+    }
+
+    const creditsGranted = dailyCredits + weeklyCredits;
+    const crystalsGranted = dailyCrystals + weeklyCrystals;
+    StorageManager.save(p);
+    this.emitChanged();
+
+    const rewardParts: string[] = [];
+    if (creditsGranted > 0) rewardParts.push(`+${creditsGranted.toLocaleString()} Credits`);
+    if (crystalsGranted > 0) rewardParts.push(`+${crystalsGranted.toLocaleString()} Crystals`);
+
+    return {
+      ok: true,
+      message: `Claimed ${claimedCount} directive${claimedCount > 1 ? 's' : ''}${
+        rewardParts.length > 0 ? `: ${rewardParts.join(', ')}` : ''
+      }.`,
+      claimedCount,
+      creditsGranted,
+      crystalsGranted,
+    };
+  }
+
+  claimAllAchievements(): ClaimAllResult {
+    const p = StorageManager.load();
+    const claimedSet = new Set(p.claimedAchievements);
+    const newlyClaimedIds: string[] = [];
+    let creditsGranted = 0;
+    let crystalsGranted = 0;
+
+    for (const def of ACHIEVEMENTS) {
+      if (claimedSet.has(def.id)) continue;
+      const val = this.getAchievementMetricValue(p, def.metric);
+      if (val >= def.target) {
+        claimedSet.add(def.id);
+        newlyClaimedIds.push(def.id);
+        creditsGranted += def.rewardCredits;
+        crystalsGranted += def.rewardCrystals;
+      }
+    }
+
+    const claimedCount = newlyClaimedIds.length;
+    if (claimedCount === 0) {
+      return {
+        ok: false,
+        message: 'No medals ready to claim.',
+        claimedCount: 0,
+        creditsGranted: 0,
+        crystalsGranted: 0,
+      };
+    }
+
+    p.claimedAchievements = [...p.claimedAchievements, ...newlyClaimedIds];
+    this.addRewardHistory(
+      p,
+      `Medals Batch (${claimedCount})`,
+      creditsGranted,
+      crystalsGranted
+    );
+    StorageManager.save(p);
+    this.emitChanged();
+
+    const rewardParts: string[] = [];
+    if (creditsGranted > 0) rewardParts.push(`+${creditsGranted.toLocaleString()} Credits`);
+    if (crystalsGranted > 0) rewardParts.push(`+${crystalsGranted.toLocaleString()} Crystals`);
+
+    return {
+      ok: true,
+      message: `Claimed ${claimedCount} medal${claimedCount > 1 ? 's' : ''}${
+        rewardParts.length > 0 ? `: ${rewardParts.join(', ')}` : ''
+      }.`,
+      claimedCount,
+      creditsGranted,
+      crystalsGranted,
+    };
   }
 
   // ---- REAL GAMEPLAY EVENT RECORDING ----
@@ -630,11 +812,14 @@ class ProgressionManagerImpl {
 
     if (params.mode === 'campaign' && params.levelNumber) {
       const lvl = params.levelNumber;
+      const levelDef = CAMPAIGN_LEVELS[lvl - 1];
+      const hasBoss = Boolean(levelDef?.bossId);
       const isFirstClear = !p.completedLevels.includes(lvl);
+      const campaignBonus = getCampaignClearReward(lvl, hasBoss, isFirstClear, 1);
       if (isFirstClear) {
         p.completedLevels = [...p.completedLevels, lvl];
-        totalCredits += 180 + lvl * 75;
-        totalCrystals += lvl % 2 === 0 ? 3 : 2;
+        totalCredits += campaignBonus.firstClearCredits;
+        totalCrystals += campaignBonus.firstClearCrystals;
       }
       p.highestUnlockedLevel = Math.min(10, Math.max(p.highestUnlockedLevel, lvl + 1));
       p.levelScores[lvl] = Math.max(p.levelScores[lvl] ?? 0, params.score);
@@ -647,9 +832,18 @@ class ProgressionManagerImpl {
       p.stats.bestBossRushScore = Math.max(p.stats.bestBossRushScore, params.score);
       if (params.bossRushCleared) {
         p.stats.bossRushClears += 1;
+        totalCredits += BOSS_RUSH_CLEAR_REWARD.credits;
+        totalCrystals += BOSS_RUSH_CLEAR_REWARD.crystals;
       }
     } else if (params.mode === 'challenge' && params.challengeCompleted && params.challengeId) {
-      if (!p.stats.completedChallenges.includes(params.challengeId)) {
+      const chal = CHALLENGE_BY_ID[params.challengeId];
+      const alreadyCompleted = p.stats.completedChallenges.includes(params.challengeId);
+      if (chal) {
+        const payout = getChallengePayout(chal.rewardCredits, chal.rewardCrystals, alreadyCompleted);
+        totalCredits += payout.credits;
+        totalCrystals += payout.crystals;
+      }
+      if (!alreadyCompleted) {
         p.stats.completedChallenges = [...p.stats.completedChallenges, params.challengeId];
       }
     }

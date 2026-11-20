@@ -118,11 +118,7 @@
 @keyframes powerup-pop {
   0% {
     opacity: 0;
-    transform: scale(0.72) translateY(6px);
-  }
-  65% {
-    opacity: 1;
-    transform: scale(1.08) translateY(0);
+    transform: scale(0.7) translateY(4px);
   }
   100% {
     opacity: 1;
@@ -179,9 +175,149 @@
   animation: panel-swap-in 175ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+@keyframes boss-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scaleX(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleX(1);
+  }
+}
+
+.boss-bar-enter {
+  animation: boss-bar-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes boss-intro-sweep {
+  0% {
+    transform: translateX(-120%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.9;
+  }
+  80% {
+    opacity: 0.65;
+  }
+  100% {
+    transform: translateX(220%);
+    opacity: 0;
+  }
+}
+
+.boss-intro-sweep {
+  animation: boss-intro-sweep 1150ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes boss-warning-atmosphere {
+  0% {
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.58;
+  }
+  22% {
+    opacity: 0.85;
+  }
+  30% {
+    opacity: 0.52;
+  }
+  38% {
+    opacity: 0.94;
+  }
+  44% {
+    opacity: 0.78;
+  }
+  50% {
+    opacity: 1;
+  }
+  72% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.boss-warning-atmosphere {
+  animation: boss-warning-atmosphere 2750ms cubic-bezier(0.33, 1, 0.68, 1) both;
+}
+
+@keyframes powerup-toast-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(-10px, 2px, 0) scale(0.93);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.powerup-toast-enter {
+  animation: powerup-toast-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes powerup-toast-out {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-4px, -4px, 0) scale(0.93);
+  }
+}
+
+.powerup-toast-exit {
+  animation: powerup-toast-out 260ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes powerup-toast-icon-pop {
+  0% {
+    transform: scale(0.84);
+    filter: brightness(1.3);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+.powerup-toast-icon {
+  animation: powerup-toast-icon-pop 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes powerup-toast-shine {
+  0% {
+    transform: translateX(-110%);
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translateX(210%);
+    opacity: 0;
+  }
+}
+
+.powerup-toast-shine {
+  animation: powerup-toast-shine 540ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .menu-enter,
   .panel-swap,
+  .boss-bar-enter,
+  .boss-intro-sweep,
+  .boss-warning-atmosphere,
+  .powerup-toast-enter,
+  .powerup-toast-exit,
+  .powerup-toast-icon,
+  .powerup-toast-shine,
   .animate-scanline,
   .powerup-enter,
   .hud-confirm-flash,

@@ -1,18 +1,41 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pause } from 'lucide-react';
 import { HudSnapshot } from '../game/config/GameConfig';
 import { SoundManager } from '../game/audio/SoundManager';
-import { EventBus } from '../game/utils/EventBus';
+import { BossPosePayload, BossWarningPayload, EventBus } from '../game/utils/EventBus';
 import { StorageManager } from '../game/utils/StorageManager';
 import { AbilityCircleButton } from './hud/AbilityCircleButton';
-import { BossHealthBar, TelemetryCard } from './hud/HudStatusCards';
-import { ActivePowerUpsBar, PowerUpToastFeed } from './hud/PowerUpIndicators';
+import { BossHealthBar, ScoreHudCard, TelemetryCard } from './hud/HudStatusCards';
+import { PowerUpToastFeed } from './hud/PowerUpIndicators';
 import { WeaponSelector } from './hud/WeaponSelector';
 
 interface HudOverlayProps {
   hud: HudSnapshot;
-  bossWarning: { name: string; title: string } | null;
+  bossWarning: BossWarningPayload | null;
   isPaused?: boolean;
+}
+
+interface BossDisplaySnapshot {
+  name: string;
+  title: string;
+  hp: number;
+  maxHp: number;
+  phase: 1 | 2 | 3;
+}
+
+const INTRO_HOLD_SEC = 1.25;
+const GLIDE_DUR_SEC = 0.78;
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v));
+}
+
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
 }
 
 export const HudOverlay: React.FC<HudOverlayProps> = ({
@@ -23,11 +46,85 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   const [dashActivated, setDashActivated] = useState(false);
   const [specialActivated, setSpecialActivated] = useState(false);
   const [bossDamageFlash, setBossDamageFlash] = useState(false);
+  const [bossBarClosing, setBossBarClosing] = useState(false);
+  const [closingBossData, setClosingBossData] = useState<BossDisplaySnapshot | null>(null);
+  const [bossIntroKey, setBossIntroKey] = useState(0);
+  const [warningKey, setWarningKey] = useState(0);
   const [savedProgress, setSavedProgress] = useState(() => StorageManager.load());
+
   const prevBossActiveRef = useRef<boolean>(hud.bossActive);
   const prevBossHpRef = useRef<number>(hud.bossHp);
+  const lastBossSnapshotRef = useRef<BossDisplaySnapshot | null>(null);
+  const bossCloseTimerRef = useRef<number | null>(null);
   const dashFlashTimerRef = useRef<number | null>(null);
   const specialFlashTimerRef = useRef<number | null>(null);
+
+  const bossBarWrapperRef = useRef<HTMLDivElement | null>(null);
+  const bossIntroHeaderRef = useRef<HTMLDivElement | null>(null);
+  const bossClosingRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    bossClosingRef.current = bossBarClosing;
+  }, [bossBarClosing]);
+
+  useEffect(() => {
+    if (bossWarning) {
+      setWarningKey((k) => k + 1);
+    }
+  }, [bossWarning]);
+
+  const applyBossPose = useCallback((pose: BossPosePayload) => {
+    const wrapper = bossBarWrapperRef.current;
+    if (!wrapper || !pose.active || bossClosingRef.current) return;
+
+    const vw = Math.max(320, pose.viewportW || window.innerWidth || 1280);
+    const vh = Math.max(240, pose.viewportH || window.innerHeight || 720);
+    const isNarrow = vw < 640;
+
+    const baseW = isNarrow ? Math.min(312, Math.round(vw * 0.84)) : 356;
+    const followScale = isNarrow ? 0.72 : 0.74;
+    if (wrapper.style.width !== `${baseW}px`) {
+      wrapper.style.width = `${baseW}px`;
+    }
+
+    const baseH = wrapper.offsetHeight || 62;
+
+    // Stage 1: Prominent Center-Screen Introduction Anchor
+    const centerX = vw * 0.5;
+    const centerY = clamp(vh * 0.43, baseH + 44, Math.max(baseH + 44, vh - 175));
+
+    // Stage 2 & 3: Clamped Real-Time Target Anchor Above Boss
+    const visualHalfW = baseW * followScale * 0.5;
+    const visualHalfH = baseH * followScale * 0.5;
+    const minFollowX = visualHalfW + 10;
+    const maxFollowX = Math.max(minFollowX, vw - visualHalfW - 10);
+    const followX = clamp(pose.x, minFollowX, maxFollowX);
+
+    const bossTopY = pose.y - pose.height * 0.5;
+    const idealFollowY = bossTopY - 12 - visualHalfH;
+    const minFollowY = visualHalfH + 10;
+    const maxFollowY = Math.max(minFollowY, vh - visualHalfH - 92);
+    const followY = clamp(idealFollowY, minFollowY, maxFollowY);
+
+    const rawGlide = clamp((pose.ageSec - INTRO_HOLD_SEC) / GLIDE_DUR_SEC, 0, 1);
+    const easeT = easeInOutCubic(rawGlide);
+    const introPop = 0.9 + 0.1 * easeOutCubic(clamp(pose.ageSec / 0.22, 0, 1));
+
+    const curX = centerX + (followX - centerX) * easeT;
+    const curY = centerY + (followY - centerY) * easeT;
+    const curScale = (1 + (followScale - 1) * easeT) * introPop;
+
+    const tx = curX - baseW * 0.5;
+    const ty = curY - baseH * 0.5;
+    wrapper.style.transform = `translate3d(${tx.toFixed(2)}px, ${ty.toFixed(2)}px, 0) scale(${curScale.toFixed(4)})`;
+
+    const header = bossIntroHeaderRef.current;
+    if (header) {
+      const headerAlpha = 1 - clamp((easeT - 0.02) / 0.44, 0, 1);
+      header.style.opacity = headerAlpha.toFixed(3);
+      header.style.transform = `translate3d(0, ${((1 - headerAlpha) * 6).toFixed(2)}px, 0)`;
+    }
+  }, []);
 
   useEffect(() => {
     const unsubProgress = EventBus.on('progress:updated', () => {
@@ -36,11 +133,13 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
     const unsubSettings = EventBus.on('settings:updated', (settings) => {
       setSavedProgress((prev) => ({ ...prev, settings }));
     });
+    const unsubPose = EventBus.on('boss:pose', applyBossPose);
     return () => {
       unsubProgress();
       unsubSettings();
+      unsubPose();
     };
-  }, []);
+  }, [applyBossPose]);
 
   const unlockedWeapons = savedProgress.unlockedWeapons;
   const weaponLevels = savedProgress.weaponLevels;
@@ -50,10 +149,41 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
     return () => {
       if (dashFlashTimerRef.current) window.clearTimeout(dashFlashTimerRef.current);
       if (specialFlashTimerRef.current) window.clearTimeout(specialFlashTimerRef.current);
+      if (bossCloseTimerRef.current) window.clearTimeout(bossCloseTimerRef.current);
     };
   }, []);
 
   useEffect(() => {
+    if (hud.bossActive) {
+      if (bossCloseTimerRef.current) {
+        window.clearTimeout(bossCloseTimerRef.current);
+        bossCloseTimerRef.current = null;
+      }
+      if (!prevBossActiveRef.current) {
+        setBossIntroKey((k) => k + 1);
+      }
+      setBossBarClosing(false);
+      setClosingBossData(null);
+      lastBossSnapshotRef.current = {
+        name: hud.bossName,
+        title: hud.bossTitle,
+        hp: hud.bossHp,
+        maxHp: hud.bossMaxHp,
+        phase: hud.bossPhase,
+      };
+    } else if (prevBossActiveRef.current && lastBossSnapshotRef.current) {
+      // Smoothly drain and close the Boss Health Bar right above the defeated Boss
+      setClosingBossData({ ...lastBossSnapshotRef.current, hp: 0 });
+      setBossBarClosing(true);
+      if (bossCloseTimerRef.current) window.clearTimeout(bossCloseTimerRef.current);
+      bossCloseTimerRef.current = window.setTimeout(() => {
+        setBossBarClosing(false);
+        setClosingBossData(null);
+        lastBossSnapshotRef.current = null;
+        bossCloseTimerRef.current = null;
+      }, 320);
+    }
+
     const tookRealDamage =
       hud.bossActive && prevBossActiveRef.current && hud.bossHp < prevBossHpRef.current;
     prevBossActiveRef.current = hud.bossActive;
@@ -64,7 +194,34 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
       const t = window.setTimeout(() => setBossDamageFlash(false), 110);
       return () => window.clearTimeout(t);
     }
-  }, [hud.bossActive, hud.bossHp]);
+  }, [hud.bossActive, hud.bossHp, hud.bossName, hud.bossTitle, hud.bossMaxHp, hud.bossPhase]);
+
+  const activeBossDisplay: BossDisplaySnapshot | null = hud.bossActive
+    ? {
+        name: hud.bossName,
+        title: hud.bossTitle,
+        hp: hud.bossHp,
+        maxHp: hud.bossMaxHp,
+        phase: hud.bossPhase,
+      }
+    : closingBossData;
+
+  // Apply deterministic initial frame pose when Boss Health Bar mounts
+  useEffect(() => {
+    if (hud.bossActive) {
+      applyBossPose({
+        active: true,
+        x: window.innerWidth * 0.5,
+        y: -130,
+        width: hud.bossWidth,
+        height: hud.bossHeight,
+        ageSec: hud.bossAgeSec,
+        entering: hud.bossEntering,
+        viewportW: window.innerWidth,
+        viewportH: window.innerHeight,
+      });
+    }
+  }, [hud.bossActive, bossIntroKey, applyBossPose, hud.bossWidth, hud.bossHeight, hud.bossAgeSec, hud.bossEntering]);
 
   const triggerDash = () => {
     if (isPaused || hud.dashCooldownRatio < 1) return;
@@ -95,42 +252,53 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between px-3 pt-[max(0.625rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4">
-      {/* Top Telemetry Layer (Strictly Hull/Shield & Score/Pause) */}
-      <div className="flex items-start justify-between gap-2 sm:gap-3">
-        <TelemetryCard
-          shipName={hud.shipName}
-          creditsEarnedRun={hud.creditsEarnedRun}
-          hp={hud.hp}
-          maxHp={hud.maxHp}
-          shield={hud.shield}
-          maxShield={hud.maxShield}
-        />
+      {/* Cinematic Red Screen-Edge Boss Warning Atmosphere */}
+      {bossWarning && (
+        <div
+          key={warningKey}
+          aria-hidden="true"
+          style={{
+            animationPlayState: isPaused ? 'paused' : 'running',
+            background: lowFx
+              ? 'radial-gradient(ellipse at 50% 48%, transparent 62%, rgba(225, 29, 72, 0.18) 100%)'
+              : 'radial-gradient(ellipse at 50% 48%, transparent 52%, rgba(190, 18, 60, 0.14) 78%, rgba(244, 63, 94, 0.36) 100%)',
+            boxShadow: lowFx
+              ? 'inset 0 0 42px rgba(244, 63, 94, 0.22)'
+              : 'inset 0 0 88px rgba(244, 63, 94, 0.34)',
+          }}
+          className="boss-warning-atmosphere pointer-events-none fixed inset-0 z-10"
+        >
+          <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-rose-500/24 via-rose-500/8 to-transparent" />
+          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-rose-500/24 via-rose-500/8 to-transparent" />
+        </div>
+      )}
+
+      {/* Top Telemetry Layer (Integrated Power-Up Circles + Pickup Popups on Left; Score/Mode + Pause on Right) */}
+      <div className="relative z-20 flex items-start justify-between gap-2 sm:gap-3">
+        <div className="flex flex-col items-start">
+          <TelemetryCard
+            shipName={hud.shipName}
+            creditsEarnedRun={hud.creditsEarnedRun}
+            hp={hud.hp}
+            maxHp={hud.maxHp}
+            shield={hud.shield}
+            maxShield={hud.maxShield}
+            rapidFireLeftSec={hud.rapidFireLeftSec}
+            doubleDamageLeftSec={hud.doubleDamageLeftSec}
+            invulnLeftSec={hud.invulnLeftSec}
+          />
+          <PowerUpToastFeed />
+        </div>
 
         <div className="flex items-start gap-2">
-          <div className="rounded-xl border border-cyan-400/22 bg-[#050b1a]/80 px-2.5 py-2 backdrop-blur-sm sm:px-3 text-right">
-            <div className="max-w-[130px] sm:max-w-none truncate text-[10px] sm:text-[11px] font-medium text-slate-400">
-              {hud.modeLabel} · {hud.levelName}
-            </div>
-            <div className="mt-0.5 flex items-center justify-end gap-1.5 sm:gap-2.5">
-              <span className="font-mono-num text-[11px] sm:text-xs font-semibold text-cyan-300">
-                {waveLabel}
-              </span>
-              <span className="text-slate-600">·</span>
-              <span className="font-mono-num text-sm sm:text-base font-bold text-white">
-                {hud.score.toLocaleString()}
-              </span>
-              {hud.combo > 1 && (
-                <span className="font-mono-num text-[11px] font-bold text-amber-300">
-                  x{hud.combo}
-                </span>
-              )}
-            </div>
-            {hud.challengeProgressText && (
-              <div className="mt-0.5 font-mono-num text-[10px] font-semibold text-amber-300">
-                {hud.challengeProgressText}
-              </div>
-            )}
-          </div>
+          <ScoreHudCard
+            modeLabel={hud.modeLabel}
+            levelName={hud.levelName}
+            waveLabel={waveLabel}
+            score={hud.score}
+            combo={hud.combo}
+            challengeProgressText={hud.challengeProgressText}
+          />
 
           <button
             type="button"
@@ -144,72 +312,52 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             }}
             title="Pause Game (Esc)"
             aria-label="Pause Game"
-            className="pointer-events-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cyan-400/30 bg-[#060d20]/86 text-cyan-200 shadow-[0_0_12px_rgba(34,211,238,0.14)] backdrop-blur-sm transition-[border-color,background-color,transform] duration-150 hover:border-cyan-300 hover:bg-[#0c1b3a] hover:text-white active:scale-90 touch-none focus-visible:outline-2 focus-visible:outline-cyan-300"
+            className="pointer-events-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-700/65 bg-[#060c1a]/86 text-cyan-200 shadow-lg shadow-black/30 backdrop-blur-sm transition-[border-color,background-color,transform] duration-150 hover:border-cyan-300/55 hover:bg-[#0d1932] hover:text-white active:scale-90 touch-none focus-visible:outline-2 focus-visible:outline-cyan-300"
           >
             <Pause className="pointer-events-none h-[18px] w-[18px]" />
           </button>
         </div>
       </div>
 
-      {/* Independent Locked Boss Health Bar Layer (Zero Layout Coupling with Power-Ups) */}
-      {hud.bossActive && (
+      {/* Cinematic Two-Stage Center-to-Boss Health Bar (GPU-Composited 60fps Follow) */}
+      {activeBossDisplay && (
         <div
+          ref={bossBarWrapperRef}
           aria-label="Boss Health"
-          className="pointer-events-none absolute inset-x-3 top-[calc(max(0.625rem,env(safe-area-inset-top))+92px)] mx-auto w-auto max-w-md sm:top-[calc(max(0.625rem,env(safe-area-inset-top))+100px)] lg:inset-x-auto lg:left-1/2 lg:top-4 lg:w-full lg:-translate-x-1/2"
+          style={{
+            transformOrigin: 'center center',
+            willChange: 'transform',
+          }}
+          className="pointer-events-none absolute left-0 top-0 z-[25]"
         >
           <BossHealthBar
-            name={hud.bossName}
-            hp={hud.bossHp}
-            maxHp={hud.bossMaxHp}
-            phase={hud.bossPhase}
+            name={activeBossDisplay.name}
+            title={activeBossDisplay.title}
+            hp={activeBossDisplay.hp}
+            maxHp={activeBossDisplay.maxHp}
+            phase={activeBossDisplay.phase}
             damageFlash={bossDamageFlash}
+            closing={bossBarClosing}
+            introKey={bossIntroKey}
+            introHeaderRef={bossIntroHeaderRef}
           />
         </div>
       )}
 
-      {/* Independent Power-Up Notification & Active Buff Layer (Zero Reflow Impact on Boss HP) */}
-      <div
-        className={`pointer-events-none absolute left-3 sm:left-4 flex flex-col items-start ${
-          hud.bossActive
-            ? 'top-[calc(max(0.625rem,env(safe-area-inset-top))+156px)] sm:top-[calc(max(0.625rem,env(safe-area-inset-top))+168px)] lg:top-[110px]'
-            : 'top-[calc(max(0.625rem,env(safe-area-inset-top))+92px)] sm:top-[calc(max(0.625rem,env(safe-area-inset-top))+100px)] lg:top-[110px]'
-        }`}
-      >
-        <ActivePowerUpsBar
-          rapidFireLeftSec={hud.rapidFireLeftSec}
-          doubleDamageLeftSec={hud.doubleDamageLeftSec}
-          invulnLeftSec={hud.invulnLeftSec}
-        />
-        <PowerUpToastFeed />
-      </div>
-
-      {/* Transient Boss Arrival Alert Banner */}
-      {bossWarning && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
-          <div className="flex flex-col items-center rounded-2xl border border-rose-500/70 bg-[#13040b]/92 px-6 py-4 text-center shadow-[0_0_28px_rgba(244,63,94,0.3)] sm:px-8">
-            <span className="font-mono-num text-xs font-bold tracking-widest text-rose-400">
-              HOSTILE COMMANDER DETECTED
-            </span>
-            <span className="mt-1 font-display text-2xl sm:text-3xl font-bold text-white">
-              {bossWarning.name}
-            </span>
-            <span className="text-xs text-slate-300">{bossWarning.title}</span>
-          </div>
-        </div>
-      )}
-
       {/* Bottom Perimeter: Compact Dynamic Weapon Selector (Left) + Single-Circle Ability Controls (Right) */}
-      <div className="relative flex items-end justify-between gap-2 pb-1">
-        <WeaponSelector
-          activeWeaponId={hud.weaponId}
-          allowedWeapons={hud.allowedWeapons}
-          unlockedWeapons={unlockedWeapons}
-          weaponLevels={weaponLevels}
-          isPaused={isPaused}
-        />
+      <div className="relative z-20 flex items-end justify-between gap-2 pb-1">
+        <div className="relative z-30 min-w-0">
+          <WeaponSelector
+            activeWeaponId={hud.weaponId}
+            allowedWeapons={hud.allowedWeapons}
+            unlockedWeapons={unlockedWeapons}
+            weaponLevels={weaponLevels}
+            isPaused={isPaused}
+          />
+        </div>
 
         {/* Bottom-Right: Single-Circle SPECIAL & DASH Controls */}
-        <div className="mb-1 mr-0.5 flex items-end gap-3 sm:mb-1.5 sm:mr-1 sm:gap-3.5">
+        <div className="relative z-10 mb-1 mr-0.5 flex items-end gap-3 sm:mb-1.5 sm:mr-1 sm:gap-3.5">
           <div className="-translate-y-3.5">
             <AbilityCircleButton
               variant="special"

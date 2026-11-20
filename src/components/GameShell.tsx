@@ -7,6 +7,7 @@ import { SoundManager } from '../game/audio/SoundManager';
 import { ActionResult, computePlayerStats } from '../game/systems/ProgressionManager';
 import {
   AppRoute,
+  BossWarningPayload,
   EventBus,
   GameOverPayload,
   LevelResultPayload,
@@ -24,6 +25,7 @@ import {
   VictoryModal,
 } from './ModalOverlays';
 import { TitleOverlay } from './TitleOverlay';
+import { CodexPanel } from './codex/CodexPanel';
 import { ArmoryDronesPanel } from './hub/ArmoryDronesPanel';
 import { HangarShipsPanel } from './hub/HangarShipsPanel';
 import { HangarSubNav, HangarTabRoute } from './hub/HangarSubNav';
@@ -67,6 +69,10 @@ const INITIAL_HUD: HudSnapshot = {
   bossHp: 0,
   bossMaxHp: 1,
   bossPhase: 1,
+  bossWidth: 160,
+  bossHeight: 120,
+  bossAgeSec: 0,
+  bossEntering: false,
   bossWarningText: null,
   creditsEarnedRun: 0,
   crystalsEarnedRun: 0,
@@ -86,7 +92,7 @@ export const GameShell: React.FC = () => {
   const [progress, setProgress] = useState<PlayerProgress>(() => ({ ...StorageManager.load() }));
   const [feedback, setFeedback] = useState<ActionResult | null>(null);
   const [hud, setHud] = useState<HudSnapshot>(INITIAL_HUD);
-  const [bossWarning, setBossWarning] = useState<{ name: string; title: string } | null>(null);
+  const [bossWarning, setBossWarning] = useState<BossWarningPayload | null>(null);
   const [levelResult, setLevelResult] = useState<LevelResultPayload | null>(null);
   const [gameOverData, setGameOverData] = useState<GameOverPayload | null>(null);
   const [victoryData, setVictoryData] = useState<VictoryPayload | null>(null);
@@ -285,6 +291,8 @@ export const GameShell: React.FC = () => {
       ? 'Game Modes'
       : prevRoute === 'missions'
       ? 'Missions'
+      : prevRoute === 'codex'
+      ? 'Codex'
       : 'Main Menu';
 
   const activeShip = SHIPS[progress.selectedShip] ?? SHIPS.falcon_x;
@@ -320,7 +328,9 @@ export const GameShell: React.FC = () => {
           onBack={popRoute}
           credits={progress.credits}
           crystals={progress.crystals}
-          subNav={<HangarSubNav activeTab="ships" onSelectTab={replaceHangarTab} />}
+          subNav={
+            <HangarSubNav activeTab="ships" onSelectTab={replaceHangarTab} progress={progress} />
+          }
           feedback={feedback}
           translucent={sceneId === 'HangarScene'}
         >
@@ -341,7 +351,9 @@ export const GameShell: React.FC = () => {
           onBack={popRoute}
           credits={progress.credits}
           crystals={progress.crystals}
-          subNav={<HangarSubNav activeTab="weapons" onSelectTab={replaceHangarTab} />}
+          subNav={
+            <HangarSubNav activeTab="weapons" onSelectTab={replaceHangarTab} progress={progress} />
+          }
           feedback={feedback}
           translucent={sceneId === 'HangarScene'}
         >
@@ -362,7 +374,9 @@ export const GameShell: React.FC = () => {
           onBack={popRoute}
           credits={progress.credits}
           crystals={progress.crystals}
-          subNav={<HangarSubNav activeTab="armory" onSelectTab={replaceHangarTab} />}
+          subNav={
+            <HangarSubNav activeTab="armory" onSelectTab={replaceHangarTab} progress={progress} />
+          }
           feedback={feedback}
           translucent={sceneId === 'HangarScene'}
         >
@@ -384,6 +398,19 @@ export const GameShell: React.FC = () => {
         </DedicatedScreenShell>
       )}
 
+      {isNonCombatUiScene && activeRoute === 'codex' && (
+        <DedicatedScreenShell
+          title="Codex"
+          subtitle="Galactic Encyclopedia · Aircraft, Arsenal & Hostile Intel"
+          backLabel={backTargetLabel}
+          onBack={popRoute}
+          showCurrencies={false}
+          maxWidthClass="max-w-6xl"
+        >
+          <CodexPanel />
+        </DedicatedScreenShell>
+      )}
+
       {isNonCombatUiScene && activeRoute === 'settings' && (
         <DedicatedScreenShell
           title="Settings"
@@ -399,15 +426,14 @@ export const GameShell: React.FC = () => {
       )}
 
       {/* Active Gameplay HUD & Combat Modals */}
-      {(sceneId === 'GameScene' || sceneId === 'BossScene') && (
-        <HudOverlay hud={hud} bossWarning={bossWarning} />
+      {(sceneId === 'GameScene' || sceneId === 'BossScene' || sceneId === 'PauseMenuScene') && (
+        <HudOverlay
+          hud={hud}
+          bossWarning={bossWarning}
+          isPaused={sceneId === 'PauseMenuScene'}
+        />
       )}
-      {sceneId === 'PauseMenuScene' && (
-        <>
-          <HudOverlay hud={hud} bossWarning={null} isPaused />
-          <PauseModal />
-        </>
-      )}
+      {sceneId === 'PauseMenuScene' && <PauseModal />}
       {sceneId === 'LevelResultScene' && levelResult && (
         <LevelResultModal data={levelResult} />
       )}

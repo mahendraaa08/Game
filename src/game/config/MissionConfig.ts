@@ -1,5 +1,6 @@
-import { ShipId } from './ShipConfig';
-import { WeaponId } from './WeaponConfig';
+import { MISSION_REWARDS } from './EconomyConfig';
+import type { ShipId } from './ShipConfig';
+import type { WeaponId } from './WeaponConfig';
 
 export type MissionMetric =
   | 'kills'
@@ -35,8 +36,8 @@ export const DAILY_MISSION_POOL: MissionTemplate[] = [
     description: 'Destroy 40 hostile ships in any mode.',
     metric: 'kills',
     target: 40,
-    rewardCredits: 320,
-    rewardCrystals: 1,
+    rewardCredits: MISSION_REWARDS.daily_kills_40.credits,
+    rewardCrystals: MISSION_REWARDS.daily_kills_40.crystals,
   },
   {
     id: 'daily_elite_6',
@@ -45,8 +46,8 @@ export const DAILY_MISSION_POOL: MissionTemplate[] = [
     description: 'Eliminate 6 Elite Fighters or Heavy Tanks.',
     metric: 'elite_kills',
     target: 6,
-    rewardCredits: 380,
-    rewardCrystals: 2,
+    rewardCredits: MISSION_REWARDS.daily_elite_6.credits,
+    rewardCrystals: MISSION_REWARDS.daily_elite_6.crystals,
   },
   {
     id: 'daily_powerups_6',
@@ -55,8 +56,8 @@ export const DAILY_MISSION_POOL: MissionTemplate[] = [
     description: 'Collect 6 combat power-ups during missions.',
     metric: 'powerups_collected',
     target: 6,
-    rewardCredits: 260,
-    rewardCrystals: 1,
+    rewardCredits: MISSION_REWARDS.daily_powerups_6.credits,
+    rewardCrystals: MISSION_REWARDS.daily_powerups_6.crystals,
   },
   {
     id: 'daily_sector_1',
@@ -65,8 +66,8 @@ export const DAILY_MISSION_POOL: MissionTemplate[] = [
     description: 'Complete 1 Campaign sector.',
     metric: 'levels_completed',
     target: 1,
-    rewardCredits: 400,
-    rewardCrystals: 2,
+    rewardCredits: MISSION_REWARDS.daily_sector_1.credits,
+    rewardCrystals: MISSION_REWARDS.daily_sector_1.crystals,
   },
   {
     id: 'daily_boss_1',
@@ -75,8 +76,8 @@ export const DAILY_MISSION_POOL: MissionTemplate[] = [
     description: 'Defeat 1 Void Commander Boss.',
     metric: 'boss_kills',
     target: 1,
-    rewardCredits: 520,
-    rewardCrystals: 3,
+    rewardCredits: MISSION_REWARDS.daily_boss_1.credits,
+    rewardCrystals: MISSION_REWARDS.daily_boss_1.crystals,
   },
   {
     id: 'daily_survive_120',
@@ -85,8 +86,8 @@ export const DAILY_MISSION_POOL: MissionTemplate[] = [
     description: 'Survive 120 seconds of active combat.',
     metric: 'survival_seconds',
     target: 120,
-    rewardCredits: 300,
-    rewardCrystals: 1,
+    rewardCredits: MISSION_REWARDS.daily_survive_120.credits,
+    rewardCrystals: MISSION_REWARDS.daily_survive_120.crystals,
   },
   {
     id: 'daily_plasma_25',
@@ -96,8 +97,8 @@ export const DAILY_MISSION_POOL: MissionTemplate[] = [
     metric: 'weapon_kills',
     weaponFilter: 'plasma',
     target: 25,
-    rewardCredits: 340,
-    rewardCrystals: 2,
+    rewardCredits: MISSION_REWARDS.daily_plasma_25.credits,
+    rewardCrystals: MISSION_REWARDS.daily_plasma_25.crystals,
   },
   {
     id: 'daily_falcon_clear',
@@ -107,8 +108,8 @@ export const DAILY_MISSION_POOL: MissionTemplate[] = [
     metric: 'ship_clears',
     shipFilter: 'falcon_x',
     target: 1,
-    rewardCredits: 380,
-    rewardCrystals: 2,
+    rewardCredits: MISSION_REWARDS.daily_falcon_clear.credits,
+    rewardCrystals: MISSION_REWARDS.daily_falcon_clear.crystals,
   },
 ];
 
@@ -120,8 +121,8 @@ export const WEEKLY_CHALLENGE_POOL: MissionTemplate[] = [
     description: 'Complete 5 Campaign sectors this week.',
     metric: 'levels_completed',
     target: 5,
-    rewardCredits: 1800,
-    rewardCrystals: 10,
+    rewardCredits: MISSION_REWARDS.weekly_levels_5.credits,
+    rewardCrystals: MISSION_REWARDS.weekly_levels_5.crystals,
   },
   {
     id: 'weekly_bosses_4',
@@ -130,8 +131,8 @@ export const WEEKLY_CHALLENGE_POOL: MissionTemplate[] = [
     description: 'Defeat 4 Bosses across Campaign or Boss Rush.',
     metric: 'boss_kills',
     target: 4,
-    rewardCredits: 2400,
-    rewardCrystals: 14,
+    rewardCredits: MISSION_REWARDS.weekly_bosses_4.credits,
+    rewardCrystals: MISSION_REWARDS.weekly_bosses_4.crystals,
   },
   {
     id: 'weekly_endless_8',
@@ -140,8 +141,8 @@ export const WEEKLY_CHALLENGE_POOL: MissionTemplate[] = [
     description: 'Clear 8 cumulative waves in Endless Survival.',
     metric: 'survival_waves',
     target: 8,
-    rewardCredits: 2100,
-    rewardCrystals: 12,
+    rewardCredits: MISSION_REWARDS.weekly_endless_8.credits,
+    rewardCrystals: MISSION_REWARDS.weekly_endless_8.crystals,
   },
   {
     id: 'weekly_score_18000',
@@ -150,8 +151,8 @@ export const WEEKLY_CHALLENGE_POOL: MissionTemplate[] = [
     description: 'Achieve at least 18,000 points in a single run.',
     metric: 'high_score_run',
     target: 18000,
-    rewardCredits: 2200,
-    rewardCrystals: 12,
+    rewardCredits: MISSION_REWARDS.weekly_score_18000.credits,
+    rewardCrystals: MISSION_REWARDS.weekly_score_18000.crystals,
   },
   {
     id: 'weekly_kills_250',
@@ -160,8 +161,8 @@ export const WEEKLY_CHALLENGE_POOL: MissionTemplate[] = [
     description: 'Destroy 250 Void Empire ships.',
     metric: 'kills',
     target: 250,
-    rewardCredits: 1950,
-    rewardCrystals: 10,
+    rewardCredits: MISSION_REWARDS.weekly_kills_250.credits,
+    rewardCrystals: MISSION_REWARDS.weekly_kills_250.crystals,
   },
 ];
 

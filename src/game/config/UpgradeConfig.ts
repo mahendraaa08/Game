@@ -1,3 +1,10 @@
+import {
+  calculateFleetUpgradeCost,
+  calculateWeaponUpgradeCost,
+  FLEET_UPGRADE_ECONOMY,
+} from './EconomyConfig';
+import type { WeaponId } from './WeaponConfig';
+
 export type UpgradeId =
   | 'weapon_damage'
   | 'fire_rate'
@@ -30,10 +37,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDefinition> = {
     name: 'Weapon Damage',
     description: 'Increases primary weapon output across all six weapon modules.',
     maxLevel: 10,
-    baseCost: 220,
-    costMultiplier: 1.48,
-    crystalCostAtLevel: 7,
-    baseCrystalCost: 3,
+    ...FLEET_UPGRADE_ECONOMY.weapon_damage,
     perLevelBonus: 0.08,
     unitLabel: '% DMG',
     formatValue: (lvl) => `+${lvl * 8}%`,
@@ -43,10 +47,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDefinition> = {
     name: 'Fire Rate',
     description: 'Reduces weapon cycle delay for faster sustained fire.',
     maxLevel: 10,
-    baseCost: 240,
-    costMultiplier: 1.5,
-    crystalCostAtLevel: 7,
-    baseCrystalCost: 3,
+    ...FLEET_UPGRADE_ECONOMY.fire_rate,
     perLevelBonus: 0.06,
     unitLabel: '% Rate',
     formatValue: (lvl) => `+${lvl * 6}%`,
@@ -56,8 +57,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDefinition> = {
     name: 'Maximum Health',
     description: 'Reinforces titanium hull plating to survive heavier impacts.',
     maxLevel: 10,
-    baseCost: 180,
-    costMultiplier: 1.44,
+    ...FLEET_UPGRADE_ECONOMY.max_health,
     perLevelBonus: 14,
     unitLabel: 'HP',
     formatValue: (lvl) => `+${lvl * 14} HP`,
@@ -67,8 +67,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDefinition> = {
     name: 'Shield Capacity',
     description: 'Expands energy barrier reserve and passive recharge strength.',
     maxLevel: 10,
-    baseCost: 200,
-    costMultiplier: 1.45,
+    ...FLEET_UPGRADE_ECONOMY.shield_capacity,
     perLevelBonus: 12,
     unitLabel: 'SHD',
     formatValue: (lvl) => `+${lvl * 12} SHD`,
@@ -78,8 +77,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDefinition> = {
     name: 'Movement Speed',
     description: 'Boosts thruster response and top maneuver speed.',
     maxLevel: 8,
-    baseCost: 210,
-    costMultiplier: 1.46,
+    ...FLEET_UPGRADE_ECONOMY.movement_speed,
     perLevelBonus: 16,
     unitLabel: 'SPD',
     formatValue: (lvl) => `+${lvl * 16} SPD`,
@@ -89,10 +87,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDefinition> = {
     name: 'Critical Chance',
     description: 'Improves targeting telemetry for high-multiplier critical strikes.',
     maxLevel: 10,
-    baseCost: 280,
-    costMultiplier: 1.52,
-    crystalCostAtLevel: 6,
-    baseCrystalCost: 3,
+    ...FLEET_UPGRADE_ECONOMY.critical_chance,
     perLevelBonus: 0.025,
     unitLabel: '% Crit',
     formatValue: (lvl) => `+${(lvl * 2.5).toFixed(1)}%`,
@@ -102,10 +97,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDefinition> = {
     name: 'Missile Power',
     description: 'Amplifies Homing Missile and Photon Barrage warhead damage.',
     maxLevel: 8,
-    baseCost: 260,
-    costMultiplier: 1.5,
-    crystalCostAtLevel: 6,
-    baseCrystalCost: 3,
+    ...FLEET_UPGRADE_ECONOMY.missile_power,
     perLevelBonus: 0.1,
     unitLabel: '% Warhead',
     formatValue: (lvl) => `+${lvl * 10}%`,
@@ -115,10 +107,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDefinition> = {
     name: 'Special Attack Power',
     description: 'Boosts Special damage and shaves cooldown duration.',
     maxLevel: 8,
-    baseCost: 300,
-    costMultiplier: 1.54,
-    crystalCostAtLevel: 5,
-    baseCrystalCost: 4,
+    ...FLEET_UPGRADE_ECONOMY.special_power,
     perLevelBonus: 0.1,
     unitLabel: '% Special',
     formatValue: (lvl) => `+${lvl * 10}%`,
@@ -137,21 +126,12 @@ export const UPGRADE_LIST: UpgradeDefinition[] = [
 ];
 
 export function getUpgradeCost(def: UpgradeDefinition, currentLevel: number): { credits: number; crystals: number } {
-  if (currentLevel >= def.maxLevel) {
-    return { credits: 0, crystals: 0 };
-  }
-  const credits = Math.round(def.baseCost * Math.pow(def.costMultiplier, currentLevel));
-  let crystals = 0;
-  if (def.crystalCostAtLevel !== undefined && currentLevel + 1 >= def.crystalCostAtLevel) {
-    const tier = currentLevel + 1 - def.crystalCostAtLevel;
-    crystals = (def.baseCrystalCost ?? 2) + tier * 2;
-  }
-  return { credits, crystals };
+  return calculateFleetUpgradeCost(def.id, currentLevel, def.maxLevel);
 }
 
-export function getWeaponUpgradeCost(currentLevel: number): { credits: number; crystals: number } {
-  // Weapon levels 1..5
-  const credits = Math.round(350 * Math.pow(1.65, currentLevel - 1));
-  const crystals = currentLevel >= 3 ? (currentLevel - 2) * 4 : 0;
-  return { credits, crystals };
+export function getWeaponUpgradeCost(
+  currentLevel: number,
+  weaponId: WeaponId = 'plasma'
+): { credits: number; crystals: number } {
+  return calculateWeaponUpgradeCost(currentLevel, weaponId);
 }

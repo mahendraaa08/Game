@@ -1,7 +1,8 @@
-import { BossId } from '../config/BossConfig';
-import { DroneId } from '../config/DroneConfig';
-import { EnemyClass } from '../config/EnemyConfig';
-import { EquipmentSlot } from '../config/EquipmentConfig';
+import type { BossId } from '../config/BossConfig';
+import { DRONE_SLOT_IDS, type DroneId, type DroneSlotId } from '../config/DroneConfig';
+import { ECONOMY_START, getMigrationBonus } from '../config/EconomyConfig';
+import type { EnemyClass } from '../config/EnemyConfig';
+import type { EquipmentSlot } from '../config/EquipmentConfig';
 import { getDailyResetKey, getWeeklyResetKey } from '../config/MissionConfig';
 import { ShipId, SHIPS } from '../config/ShipConfig';
 import { UpgradeId, UPGRADES } from '../config/UpgradeConfig';
@@ -71,6 +72,7 @@ export interface PlayerProgress {
   equippedGear: Record<EquipmentSlot, string | null>;
   ownedDrones: Partial<Record<DroneId, number>>; // droneId -> level (1..5)
   equippedDrones: DroneId[];
+  equippedDroneSlots: Record<DroneSlotId, DroneId | null>;
   credits: number;
   crystals: number;
   dailyMissions: MissionProgressBucket;
@@ -125,6 +127,11 @@ const DEFAULT_EQUIPPED_GEAR: Record<EquipmentSlot, string | null> = {
   special: null,
 };
 
+const DEFAULT_EQUIPPED_DRONE_SLOTS: Record<DroneSlotId, DroneId | null> = {
+  slot1: null,
+  slot2: null,
+};
+
 export function createDefaultProgress(): PlayerProgress {
   return {
     version: 2,
@@ -143,8 +150,9 @@ export function createDefaultProgress(): PlayerProgress {
     equippedGear: { ...DEFAULT_EQUIPPED_GEAR },
     ownedDrones: {},
     equippedDrones: [],
-    credits: 450,
-    crystals: 3,
+    equippedDroneSlots: { ...DEFAULT_EQUIPPED_DRONE_SLOTS },
+    credits: ECONOMY_START.credits,
+    crystals: ECONOMY_START.crystals,
     dailyMissions: {
       resetKey: getDailyResetKey(),
       progress: {},
@@ -214,7 +222,13 @@ class StorageManagerImpl {
 
       const isMigratingV1 = parsed.version === undefined || parsed.version < 2;
       const completedLevels = Array.isArray(parsed.completedLevels)
-        ? parsed.completedLevels.filter((n): n is number => typeof n === 'number' && n >= 1 && n <= 10)
+        ? Array.from(
+            new Set(
+              parsed.completedLevels.filter(
+                (n): n is number => typeof n === 'number' && n >= 1 && n <= 10
+              )
+            )
+          )
         : [];
 
       const unlockedWeaponsRaw = Array.isArray(parsed.unlockedWeapons)
@@ -280,9 +294,39 @@ class StorageManagerImpl {
         });
       }
 
-      const equippedDrones = Array.isArray(parsed.equippedDrones)
-        ? parsed.equippedDrones.filter((d): d is DroneId => Boolean(ownedDrones[d as DroneId])).slice(0, 2)
-        : [];
+      const equippedDroneSlots: Record<DroneSlotId, DroneId | null> = {
+        ...DEFAULT_EQUIPPED_DRONE_SLOTS,
+      };
+      const seenDrones = new Set<DroneId>();
+      const rawSlots = (parsed as Partial<PlayerProgress>).equippedDroneSlots;
+      if (rawSlots && typeof rawSlots === 'object') {
+        DRONE_SLOT_IDS.forEach((slotId) => {
+          const dId = (rawSlots as Record<string, unknown>)[slotId];
+          if (
+            typeof dId === 'string' &&
+            ownedDrones[dId as DroneId] &&
+            !seenDrones.has(dId as DroneId)
+          ) {
+            equippedDroneSlots[slotId] = dId as DroneId;
+            seenDrones.add(dId as DroneId);
+          }
+        });
+      } else if (Array.isArray(parsed.equippedDrones)) {
+        const legacyValid = parsed.equippedDrones.filter((d): d is DroneId =>
+          Boolean(ownedDrones[d as DroneId])
+        );
+        DRONE_SLOT_IDS.forEach((slotId, idx) => {
+          const dId = legacyValid[idx];
+          if (dId && !seenDrones.has(dId)) {
+            equippedDroneSlots[slotId] = dId;
+            seenDrones.add(dId);
+          }
+        });
+      }
+
+      const equippedDrones = DRONE_SLOT_IDS.map((slotId) => equippedDroneSlots[slotId]).filter(
+        (d): d is DroneId => d !== null
+      );
 
       const muted = Boolean(parsed.settings?.muted ?? parsed.muted ?? false);
       const settings: GameSettings = {
@@ -303,8 +347,9 @@ class StorageManagerImpl {
           parsed.settings?.performanceQuality === 'balanced' ? 'balanced' : 'high',
       };
 
-      const migrationBonusCredits = isMigratingV1 ? 450 + completedLevels.length * 250 : 0;
-      const migrationBonusCrystals = isMigratingV1 ? 3 + completedLevels.length * 2 : 0;
+      const migrationBonus = isMigratingV1 ? getMigrationBonus(completedLevels.length) : null;
+      const migrationBonusCredits = migrationBonus ? migrationBonus.credits : 0;
+      const migrationBonusCrystals = migrationBonus ? migrationBonus.crystals : 0;
 
       const dailyKey = getDailyResetKey();
       const weeklyKey = getWeeklyResetKey();
@@ -344,6 +389,7 @@ class StorageManagerImpl {
         equippedGear,
         ownedDrones,
         equippedDrones,
+        equippedDroneSlots,
         credits: isMigratingV1 ? migrationBonusCredits : safeInt(parsed.credits, base.credits, 0),
         crystals: isMigratingV1 ? migrationBonusCrystals : safeInt(parsed.crystals, base.crystals, 0),
         dailyMissions,
@@ -359,7 +405,9 @@ class StorageManagerImpl {
           bestEndlessWave: safeInt(parsed.stats?.bestEndlessWave, 0, 0),
           bestBossRushScore: safeInt(parsed.stats?.bestBossRushScore, 0, 0),
           bossRushClears: safeInt(parsed.stats?.bossRushClears, 0, 0),
-          completedChallenges: Array.isArray(parsed.stats?.completedChallenges) ? parsed.stats.completedChallenges : [],
+          completedChallenges: Array.isArray(parsed.stats?.completedChallenges)
+            ? Array.from(new Set(parsed.stats.completedChallenges.filter((id): id is string => typeof id === 'string')))
+            : [],
         },
         codex: {
           discoveredEnemies: Array.isArray(parsed.codex?.discoveredEnemies) ? parsed.codex.discoveredEnemies : [],
@@ -402,9 +450,18 @@ class StorageManagerImpl {
   }
 
   save(next: PlayerProgress): void {
+    const slots: Record<DroneSlotId, DroneId | null> = {
+      slot1: next.equippedDroneSlots?.slot1 ?? null,
+      slot2: next.equippedDroneSlots?.slot2 ?? null,
+    };
+    const syncedDrones = DRONE_SLOT_IDS.map((id) => slots[id]).filter(
+      (d): d is DroneId => d !== null
+    );
     const sanitized: PlayerProgress = {
       ...next,
       version: 2,
+      equippedDroneSlots: slots,
+      equippedDrones: syncedDrones,
       credits: Math.max(0, Math.floor(next.credits)),
       crystals: Math.max(0, Math.floor(next.crystals)),
       muted: next.settings.muted,

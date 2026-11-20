@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowUpCircle, Check, Cpu, Crosshair, Lock } from 'lucide-react';
 import {
   getUpgradeCost,
@@ -14,9 +14,11 @@ import {
   WEAPONS,
 } from '../../game/config/WeaponConfig';
 import { SoundManager } from '../../game/audio/SoundManager';
+import { evaluateGlobalNotifications } from '../../game/systems/NotificationStatus';
 import { ActionResult, ProgressionManager } from '../../game/systems/ProgressionManager';
 import { PlayerProgress } from '../../game/utils/StorageManager';
 import { HorizontalSwipeStrip } from '../ui/HorizontalSwipeStrip';
+import { NotificationDot } from '../ui/NotificationDot';
 import { ActionConfirmDialog, PendingHangarAction } from './ActionConfirmDialog';
 
 interface WeaponsUpgradesPanelProps {
@@ -48,13 +50,14 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
     setPendingAction(null);
   }, [inspectWeapon, subTab]);
 
+  const notifications = useMemo(() => evaluateGlobalNotifications(progress), [progress]);
   const def = WEAPONS[inspectWeapon] ?? WEAPONS.plasma;
   const eqDef = WEAPONS[progress.selectedWeapon] ?? WEAPONS.plasma;
   const unlocked = progress.unlockedWeapons.includes(def.id);
   const wLvl = progress.weaponLevels[def.id] ?? 1;
   const eqLvl = progress.weaponLevels[eqDef.id] ?? 1;
   const isMaxWeapon = wLvl >= def.maxWeaponLevel;
-  const upgCost = getWeaponUpgradeCost(wLvl);
+  const upgCost = getWeaponUpgradeCost(wLvl, def.id);
 
   const curDmg = getWeaponDamageAtLevel(def, wLvl);
   const nextDmg = isMaxWeapon ? curDmg : getWeaponDamageAtLevel(def, wLvl + 1);
@@ -181,12 +184,17 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                 SoundManager.playButtonClick();
                 setSubTab('weapons');
               }}
-              className={`flex min-h-[42px] items-center justify-center gap-2 rounded-lg px-4 text-xs font-bold transition-colors ${
+              className={`relative flex min-h-[42px] items-center justify-center gap-2 rounded-lg px-4 text-xs font-bold transition-colors ${
                 subTab === 'weapons'
                   ? 'border border-cyan-300/50 bg-cyan-400/18 text-cyan-100'
                   : 'border border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
+              <NotificationDot
+                visible={notifications.primaryWeaponsSubTab}
+                position="corner"
+                label="Primary weapon unlock or upgrade available"
+              />
               <Crosshair className="h-3.5 w-3.5 text-cyan-300" />
               <span>Primary Weapons ({progress.unlockedWeapons.length}/{WEAPON_LIST.length})</span>
             </button>
@@ -199,12 +207,17 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                 SoundManager.playButtonClick();
                 setSubTab('systems');
               }}
-              className={`flex min-h-[42px] items-center justify-center gap-2 rounded-lg px-4 text-xs font-bold transition-colors ${
+              className={`relative flex min-h-[42px] items-center justify-center gap-2 rounded-lg px-4 text-xs font-bold transition-colors ${
                 subTab === 'systems'
                   ? 'border border-emerald-300/50 bg-emerald-400/16 text-emerald-100'
                   : 'border border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
+              <NotificationDot
+                visible={notifications.fleetSystemsSubTab}
+                position="corner"
+                label="Fleet system upgrade available"
+              />
               <Cpu className="h-3.5 w-3.5 text-emerald-300" />
               <span>Fleet Systems ({totalUpgradeLevels}/{maxUpgradeLevels})</span>
             </button>
@@ -242,13 +255,18 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                         SoundManager.playButtonClick();
                         setInspectWeapon(w.id);
                       }}
-                      className={`flex min-w-[164px] lg:min-w-0 shrink-0 flex-col justify-between rounded-xl border p-3.5 text-left transition-[border-color,background-color,transform] duration-150 active:scale-[0.985] ${
+                      className={`relative flex min-w-[164px] lg:min-w-0 shrink-0 flex-col justify-between rounded-xl border p-3.5 text-left transition-[border-color,background-color,transform] duration-150 active:scale-[0.985] ${
                         isSelected
                           ? 'border-cyan-300/75 bg-[#0c1b36]/95 text-white'
                           : 'border-slate-800/90 bg-[#081122]/85 text-slate-200 hover:border-slate-600'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-2">
+                      <NotificationDot
+                        visible={notifications.weaponIds[w.id]}
+                        position="corner-inset"
+                        label={`${w.name} action available`}
+                      />
+                      <div className={`flex items-center justify-between gap-2 ${notifications.weaponIds[w.id] ? 'pr-2.5' : ''}`}>
                         <span
                           className="truncate font-display text-xs sm:text-sm font-bold"
                           style={{ color: w.colorHex }}
@@ -366,8 +384,13 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                   <button
                     type="button"
                     onClick={() => openWeaponActionConfirm('unlock')}
-                    className="flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-amber-400 px-4 py-2 font-display text-sm font-bold text-slate-950 transition-[background-color,transform] duration-150 hover:bg-amber-300 active:scale-[0.98]"
+                    className="relative flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-amber-400 px-4 py-2 font-display text-sm font-bold text-slate-950 transition-[background-color,transform] duration-150 hover:bg-amber-300 active:scale-[0.98]"
                   >
+                    <NotificationDot
+                      visible={notifications.weaponIds[def.id]}
+                      position="corner"
+                      label={`Ready to unlock ${def.name}`}
+                    />
                     <span>
                       Unlock Weapon ({def.unlockCredits} CR
                       {def.unlockCrystals > 0 ? ` · ${def.unlockCrystals} Gems` : ''})
@@ -388,12 +411,17 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                       type="button"
                       disabled={isMaxWeapon}
                       onClick={() => openWeaponActionConfirm('upgrade')}
-                      className={`flex min-h-[46px] flex-1 items-center justify-center gap-1.5 rounded-xl px-4 py-2 font-display text-sm font-bold transition-[background-color,transform] duration-150 ${
+                      className={`relative flex min-h-[46px] flex-1 items-center justify-center gap-1.5 rounded-xl px-4 py-2 font-display text-sm font-bold transition-[background-color,transform] duration-150 ${
                         isMaxWeapon
                           ? 'cursor-not-allowed border border-slate-800 bg-slate-900/90 text-slate-500'
                           : 'bg-gradient-to-r from-sky-400 to-cyan-400 text-slate-950 hover:brightness-105 active:scale-[0.98]'
                       }`}
                     >
+                      <NotificationDot
+                        visible={notifications.weaponIds[def.id]}
+                        position="corner"
+                        label={`Ready to upgrade ${def.name}`}
+                      />
                       <ArrowUpCircle className="h-4 w-4" />
                       <span>
                         {isMaxWeapon
@@ -456,12 +484,17 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                       type="button"
                       disabled={maxed}
                       onClick={() => openSystemUpgradeConfirm(u)}
-                      className={`mt-3 flex min-h-[42px] w-full items-center justify-center rounded-xl px-3 font-mono-num text-xs font-bold transition-[background-color,transform] duration-150 ${
+                      className={`relative mt-3 flex min-h-[42px] w-full items-center justify-center rounded-xl px-3 font-mono-num text-xs font-bold transition-[background-color,transform] duration-150 ${
                         maxed
                           ? 'cursor-not-allowed border border-slate-800 bg-slate-950 text-slate-500'
                           : 'bg-sky-400 text-slate-950 hover:bg-sky-300 active:scale-[0.98]'
                       }`}
                     >
+                      <NotificationDot
+                        visible={!maxed && Boolean(notifications.upgradeIds[u.id])}
+                        position="corner"
+                        label={`${u.name} upgrade available`}
+                      />
                       {maxed
                         ? 'MAXED'
                         : `UPGRADE (${cost.credits.toLocaleString()} CR${

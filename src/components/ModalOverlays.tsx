@@ -6,6 +6,7 @@ import {
   Play,
   RotateCcw,
   Settings,
+  ShieldAlert,
   Trophy,
   Wrench,
 } from 'lucide-react';
@@ -30,6 +31,7 @@ export const PauseModal: React.FC = () => {
   const [feedback, setFeedback] = useState<ActionResult | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const escReadyRef = useRef(false);
+  const exitLockRef = useRef(false);
   const lowFx = StorageManager.load().settings.fxQuality === 'low';
 
   const showFeedback = useCallback((res: ActionResult) => {
@@ -92,31 +94,36 @@ export const PauseModal: React.FC = () => {
   if (view === 'confirm_exit') {
     return (
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-exit-title"
         style={backdropStyle}
         className={`scroll-panel absolute inset-0 z-30 flex items-center justify-center overflow-y-auto p-4 ${backdropBlurClass}`}
       >
-        <div className="pause-panel-enter relative my-auto w-full max-w-sm rounded-2xl border border-rose-400/30 bg-[#0b101d]/94 p-6 shadow-xl shadow-black/50">
-          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl border border-rose-400/25 bg-rose-500/10">
-            <AlertTriangle className="h-5 w-5 text-rose-400" />
+        <div className="pause-panel-enter relative my-auto w-full max-w-[328px] rounded-2xl border border-slate-700/70 bg-[#070e1c]/95 p-6 text-center shadow-2xl shadow-black/55">
+          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-rose-400/25 bg-rose-500/10 text-rose-400">
+            <AlertTriangle className="h-[18px] w-[18px]" />
           </div>
 
-          <h2 className="mt-4 text-center font-display text-xl font-bold tracking-wide text-white">
-            EXIT CURRENT MISSION?
+          <h2
+            id="confirm-exit-title"
+            className="mt-3.5 font-display text-lg sm:text-xl font-bold tracking-wider text-white"
+          >
+            EXIT CURRENT MISSION
           </h2>
-          <p className="mt-2 text-center text-xs sm:text-sm leading-relaxed text-slate-300">
-            Your current mission will end. Are you sure you want to return to the Main Menu?
-          </p>
-          <p className="mt-2 text-center text-[11px] text-slate-400">
-            Enemy kills and mission counters are saved without sector clear rewards.
+          <p className="mt-1.5 text-xs sm:text-sm text-slate-300">
+            Leave your current mission?
           </p>
 
           <ConfirmButtonPair
-            className="mt-6 grid grid-cols-2 gap-3"
+            className="mt-5 grid grid-cols-2 gap-3"
             onCancel={() => {
               SoundManager.playButtonClick();
               setView('pause');
             }}
             onConfirm={() => {
+              if (exitLockRef.current) return;
+              exitLockRef.current = true;
               SoundManager.playButtonClick();
               EventBus.emit('ui:abort-mission');
             }}
@@ -189,250 +196,372 @@ export const PauseModal: React.FC = () => {
   );
 };
 
-export const LevelResultModal: React.FC<{ data: LevelResultPayload }> = ({ data }) => (
-  <div className="scroll-panel absolute inset-0 z-30 flex items-center justify-center overflow-y-auto bg-[#040711]/82 p-4 backdrop-blur-sm">
-    <div className="scroll-panel menu-enter my-auto max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-sky-400/45 bg-[#081022]/96 p-6 sm:p-7 shadow-2xl">
-      <div className="text-xs font-semibold text-sky-400">
-        {data.mode === 'challenge'
-          ? 'Challenge Trial Cleared'
-          : `Sector ${String(data.levelNumber).padStart(2, '0')} Cleared`}
-      </div>
-      <h2 className="mt-1 font-display text-3xl font-bold text-white">{data.levelName}</h2>
-      {data.bossDefeatedName && (
-        <p className="mt-1 text-sm font-medium text-amber-300">
-          Boss Neutralized: {data.bossDefeatedName}
-        </p>
-      )}
+interface ResultMetric {
+  label: string;
+  value: string;
+  toneClass?: string;
+}
 
-      <div className="mt-5 grid grid-cols-3 gap-3 border-y border-slate-800 py-4">
-        <div>
-          <div className="text-xs text-slate-400">Total Score</div>
-          <div className="font-mono-num text-lg font-bold text-white">
-            {data.score.toLocaleString()}
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-400">Clear Bonus</div>
-          <div className="font-mono-num text-lg font-bold text-sky-300">
-            +{data.bonusScore.toLocaleString()}
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-400">Hostiles</div>
-          <div className="font-mono-num text-lg font-bold text-emerald-300">
-            {data.enemiesDefeated}
-          </div>
-        </div>
-      </div>
+interface ResultCardShellProps {
+  tone: 'victory_sector' | 'victory_grand' | 'defeat';
+  headline: 'VICTORY' | 'DEFEAT';
+  summaryLine: string;
+  metrics: ResultMetric[];
+  rewardLabel: string;
+  creditsEarned: number;
+  crystalsEarned: number;
+  primaryAction: {
+    label: string;
+    icon: React.ReactNode;
+    onClick: () => void;
+  };
+  secondaryActions: Array<{
+    label: string;
+    icon: React.ReactNode;
+    onClick: () => void;
+    accentHoverClass?: string;
+  }>;
+}
 
-      {/* Premium Currency Rewards Earned */}
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/75 px-3.5 py-2.5 text-xs">
-        <span className="font-medium text-slate-400">Mission Rewards</span>
-        <div className="flex items-center gap-2">
-          <CreditsBadge amount={data.creditsEarned} prefix="+" size="sm" />
-          {data.crystalsEarned > 0 && (
-            <CrystalsBadge amount={data.crystalsEarned} prefix="+" size="sm" />
-          )}
-        </div>
-      </div>
+const ResultCardShell: React.FC<ResultCardShellProps> = ({
+  tone,
+  headline,
+  summaryLine,
+  metrics,
+  rewardLabel,
+  creditsEarned,
+  crystalsEarned,
+  primaryAction,
+  secondaryActions,
+}) => {
+  const actionLockRef = useRef(false);
+  const isDefeat = tone === 'defeat';
+  const isGrandVictory = tone === 'victory_grand';
 
-      <p className="mt-3 text-xs text-slate-300">{data.rewardText}</p>
+  const cardSurfaceClass = isDefeat
+    ? 'border-rose-400/35 bg-[#0f0914]/94'
+    : isGrandVictory
+    ? 'border-amber-300/40 bg-[#081021]/95'
+    : 'border-cyan-400/35 bg-[#081021]/95';
 
-      <div className="mt-6 flex flex-col gap-2.5">
-        {data.nextLevelNumber && (
-          <button
-            type="button"
-            onClick={() => EventBus.emit('ui:next-level')}
-            className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-400 to-cyan-400 px-5 py-2.5 font-display text-base font-bold text-slate-950 transition-all hover:brightness-110 active:scale-[0.98]"
+  const iconBoxClass = isDefeat
+    ? 'border-rose-400/30 bg-rose-500/10 text-rose-300'
+    : isGrandVictory
+    ? 'border-amber-300/35 bg-amber-400/12 text-amber-300'
+    : 'border-cyan-300/35 bg-cyan-400/12 text-cyan-300';
+
+  const summaryClass = isDefeat
+    ? 'text-rose-200/85'
+    : isGrandVictory
+    ? 'text-amber-200/90'
+    : 'text-cyan-200/90';
+
+  const primaryButtonClass = isDefeat
+    ? 'border border-rose-300/35 bg-rose-500 text-white hover:bg-rose-400'
+    : 'border border-cyan-200/45 bg-sky-400 text-slate-950 hover:bg-sky-300';
+
+  const showRewards = creditsEarned > 0 || crystalsEarned > 0;
+  const secondaryGridClass = secondaryActions.length === 3 ? 'grid-cols-3' : 'grid-cols-2';
+
+  const triggerOnce = (fn: () => void) => {
+    if (actionLockRef.current) return;
+    actionLockRef.current = true;
+    SoundManager.playButtonClick();
+    fn();
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="result-card-title"
+      className={`scroll-panel absolute inset-0 z-30 flex items-center justify-center overflow-y-auto p-4 backdrop-blur-sm ${
+        isDefeat ? 'bg-[#08040b]/80' : 'bg-[#040814]/80'
+      }`}
+    >
+      <div
+        className={`scroll-panel menu-enter my-auto max-h-[calc(100dvh-2rem)] w-full max-w-[392px] overflow-y-auto rounded-2xl border p-6 shadow-2xl shadow-black/60 ${cardSurfaceClass}`}
+      >
+        {/* Centered Header Lockup */}
+        <div className="flex flex-col items-center text-center">
+          <div
+            className={`flex h-11 w-11 items-center justify-center rounded-xl border ${iconBoxClass}`}
           >
-            <Play className="h-4 w-4 fill-current" />
-            <span>Proceed to Sector {String(data.nextLevelNumber).padStart(2, '0')}</span>
-          </button>
-        )}
-        <div className="grid grid-cols-2 gap-2.5">
-          <button
-            type="button"
-            onClick={() => EventBus.emit('ui:restart-level')}
-            className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:border-slate-500"
-          >
-            <RotateCcw className="h-4 w-4" />
-            <span>Replay</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              EventBus.emit('ui:navigate-route', 'ships');
-              EventBus.emit('ui:open-hangar');
-            }}
-            className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:border-sky-400/70"
-          >
-            <Wrench className="h-4 w-4 text-sky-400" />
-            <span>Hangar</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-);
-
-export const GameOverModal: React.FC<{ data: GameOverPayload }> = ({ data }) => (
-  <div className="scroll-panel absolute inset-0 z-30 flex items-center justify-center overflow-y-auto bg-[#090308]/84 p-4 backdrop-blur-sm">
-    <div className="scroll-panel menu-enter my-auto max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-rose-500/45 bg-[#120710]/96 p-6 sm:p-7 shadow-2xl">
-      <div className="text-xs font-semibold text-rose-400">
-        Hull Critical ·{' '}
-        {data.mode === 'endless'
-          ? 'Endless Survival'
-          : data.mode === 'boss_rush'
-          ? 'Boss Rush'
-          : data.mode === 'challenge'
-          ? 'Challenge Trial'
-          : `Sector ${String(data.levelNumber).padStart(2, '0')}`}
-      </div>
-      <h2 className="mt-1 font-display text-3xl font-bold text-white">Mission Failed</h2>
-      <p className="mt-1 text-sm text-slate-300">
-        {data.levelName} · Reached Wave {data.waveReached}
-        {data.mode !== 'endless' ? `/${data.totalWaves}` : ''}
-      </p>
-
-      <div className="mt-5 grid grid-cols-2 gap-4 border-y border-rose-950/80 py-4">
-        <div>
-          <div className="text-xs text-slate-400">Final Score</div>
-          <div className="font-mono-num text-xl font-bold text-white">
-            {data.score.toLocaleString()}
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-400">Enemies Defeated</div>
-          <div className="font-mono-num text-xl font-bold text-rose-300">
-            {data.enemiesDefeated}
-          </div>
-        </div>
-      </div>
-
-      {(data.creditsEarned > 0 || data.crystalsEarned > 0) && (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-950/70 bg-black/35 px-3.5 py-2.5 text-xs">
-          <span className="text-slate-400">Salvage Recovered</span>
-          <div className="flex items-center gap-2">
-            <CreditsBadge amount={data.creditsEarned} prefix="+" size="sm" />
-            {data.crystalsEarned > 0 && (
-              <CrystalsBadge amount={data.crystalsEarned} prefix="+" size="sm" />
+            {isDefeat ? (
+              <ShieldAlert className="h-5 w-5" />
+            ) : (
+              <Trophy className="h-5 w-5" />
             )}
           </div>
-        </div>
-      )}
 
-      <div className="mt-6 flex flex-col gap-2.5">
-        <button
-          type="button"
-          onClick={() => EventBus.emit('ui:restart-level')}
-          className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-rose-500 px-5 py-2.5 font-display text-base font-bold text-white transition-colors hover:bg-rose-400 active:scale-[0.98]"
+          <h2
+            id="result-card-title"
+            className="mt-3 font-display text-3xl font-bold tracking-[0.14em] text-white"
+          >
+            {headline}
+          </h2>
+
+          <p className={`mt-1 text-xs sm:text-[13px] font-medium ${summaryClass}`}>
+            {summaryLine}
+          </p>
+        </div>
+
+        {/* Clean Single-Elevation Telemetry Row (Hairline Dividers) */}
+        <div
+          className={`mt-5 grid gap-3 border-y border-slate-800/80 py-4 text-center ${
+            metrics.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+          }`}
         >
-          <RotateCcw className="h-4 w-4" />
-          <span>Retry Mission</span>
-        </button>
-        <div className="grid grid-cols-2 gap-2.5">
+          {metrics.map((metric) => (
+            <div key={metric.label} className="min-w-0">
+              <div className="truncate font-mono-num text-[10px] uppercase tracking-wider text-slate-400">
+                {metric.label}
+              </div>
+              <div
+                className={`mt-1 truncate font-mono-num text-lg sm:text-xl font-bold ${
+                  metric.toneClass ?? 'text-white'
+                }`}
+              >
+                {metric.value}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Compact Rewards / Salvage Row */}
+        {showRewards && (
+          <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 py-3 text-xs">
+            <span className="font-mono-num text-[10.5px] font-medium uppercase tracking-wider text-slate-400">
+              {rewardLabel}
+            </span>
+            <div className="flex items-center gap-2">
+              {creditsEarned > 0 && (
+                <CreditsBadge amount={creditsEarned} prefix="+" size="sm" />
+              )}
+              {crystalsEarned > 0 && (
+                <CrystalsBadge amount={crystalsEarned} prefix="+" size="sm" />
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Unified Action Hierarchy */}
+        <div className="mt-5 flex flex-col gap-2.5">
           <button
             type="button"
-            onClick={() => {
-              EventBus.emit('ui:navigate-route', 'ships');
-              EventBus.emit('ui:open-hangar');
-            }}
-            className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:border-sky-400/70"
+            onClick={() => triggerOnce(primaryAction.onClick)}
+            className={`flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl px-5 py-2.5 font-display text-sm sm:text-base font-bold tracking-wider transition-[background-color,transform] duration-150 active:scale-[0.98] ${primaryButtonClass}`}
           >
-            <Wrench className="h-4 w-4 text-sky-400" />
-            <span>Hangar</span>
+            {primaryAction.icon}
+            <span>{primaryAction.label}</span>
           </button>
-          <button
-            type="button"
-            onClick={() => EventBus.emit('ui:open-menu')}
-            className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:border-slate-500"
-          >
-            <Home className="h-4 w-4" />
-            <span>Main Menu</span>
-          </button>
+
+          <div className={`grid ${secondaryGridClass} gap-2`}>
+            {secondaryActions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                onClick={() => triggerOnce(action.onClick)}
+                className={`flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-slate-700/75 bg-[#0b1324]/90 px-2.5 py-2 text-xs font-semibold text-slate-200 transition-[border-color,background-color,transform] duration-150 hover:bg-[#121e38] active:scale-[0.98] ${
+                  action.accentHoverClass ?? 'hover:border-slate-500'
+                }`}
+              >
+                {action.icon}
+                <span className="truncate">{action.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
+
+export const LevelResultModal: React.FC<{ data: LevelResultPayload }> = ({ data }) => {
+  const sectorLabel =
+    data.mode === 'challenge'
+      ? `Challenge · ${data.levelName}`
+      : `Sector ${String(data.levelNumber).padStart(2, '0')} · ${data.levelName}`;
+
+  const summaryLine = data.bossDefeatedName
+    ? `${sectorLabel} · ${data.bossDefeatedName} Defeated`
+    : sectorLabel;
+
+  const secondaryActions = data.nextLevelNumber
+    ? [
+        {
+          label: 'Replay',
+          icon: <RotateCcw className="h-3.5 w-3.5 shrink-0" />,
+          onClick: () => EventBus.emit('ui:restart-level'),
+        },
+        {
+          label: 'Hangar',
+          icon: <Wrench className="h-3.5 w-3.5 shrink-0 text-sky-400" />,
+          onClick: () => {
+            EventBus.emit('ui:navigate-route', 'ships');
+            EventBus.emit('ui:open-hangar');
+          },
+          accentHoverClass: 'hover:border-sky-400/60',
+        },
+        {
+          label: 'Main Menu',
+          icon: <Home className="h-3.5 w-3.5 shrink-0" />,
+          onClick: () => EventBus.emit('ui:open-menu'),
+        },
+      ]
+    : [
+        {
+          label: 'Hangar',
+          icon: <Wrench className="h-3.5 w-3.5 shrink-0 text-sky-400" />,
+          onClick: () => {
+            EventBus.emit('ui:navigate-route', 'ships');
+            EventBus.emit('ui:open-hangar');
+          },
+          accentHoverClass: 'hover:border-sky-400/60',
+        },
+        {
+          label: 'Main Menu',
+          icon: <Home className="h-3.5 w-3.5 shrink-0" />,
+          onClick: () => EventBus.emit('ui:open-menu'),
+        },
+      ];
+
+  return (
+    <ResultCardShell
+      tone="victory_sector"
+      headline="VICTORY"
+      summaryLine={summaryLine}
+      metrics={[
+        { label: 'Score', value: data.score.toLocaleString(), toneClass: 'text-white' },
+        {
+          label: 'Clear Bonus',
+          value: `+${data.bonusScore.toLocaleString()}`,
+          toneClass: 'text-cyan-300',
+        },
+        {
+          label: 'Defeated',
+          value: data.enemiesDefeated.toLocaleString(),
+          toneClass: 'text-emerald-300',
+        },
+      ]}
+      rewardLabel="Rewards"
+      creditsEarned={data.creditsEarned}
+      crystalsEarned={data.crystalsEarned}
+      primaryAction={
+        data.nextLevelNumber
+          ? {
+              label: `Continue · Sector ${String(data.nextLevelNumber).padStart(2, '0')}`,
+              icon: <Play className="h-4 w-4 fill-current" />,
+              onClick: () => EventBus.emit('ui:next-level'),
+            }
+          : {
+              label: 'Play Again',
+              icon: <RotateCcw className="h-4 w-4" />,
+              onClick: () => EventBus.emit('ui:restart-level'),
+            }
+      }
+      secondaryActions={secondaryActions}
+    />
+  );
+};
+
+export const GameOverModal: React.FC<{ data: GameOverPayload }> = ({ data }) => {
+  const modeSummary =
+    data.mode === 'endless'
+      ? `Endless Survival · Wave ${data.waveReached}`
+      : data.mode === 'boss_rush'
+      ? `Boss Rush · Wave ${data.waveReached}/${data.totalWaves}`
+      : data.mode === 'challenge'
+      ? `Challenge · ${data.levelName} · Wave ${data.waveReached}/${data.totalWaves}`
+      : `Sector ${String(data.levelNumber).padStart(2, '0')} · Wave ${data.waveReached}/${data.totalWaves}`;
+
+  return (
+    <ResultCardShell
+      tone="defeat"
+      headline="DEFEAT"
+      summaryLine={modeSummary}
+      metrics={[
+        { label: 'Score', value: data.score.toLocaleString(), toneClass: 'text-white' },
+        {
+          label: 'Defeated',
+          value: data.enemiesDefeated.toLocaleString(),
+          toneClass: 'text-rose-300',
+        },
+      ]}
+      rewardLabel="Salvage"
+      creditsEarned={data.creditsEarned}
+      crystalsEarned={data.crystalsEarned}
+      primaryAction={{
+        label: 'Retry',
+        icon: <RotateCcw className="h-4 w-4" />,
+        onClick: () => EventBus.emit('ui:restart-level'),
+      }}
+      secondaryActions={[
+        {
+          label: 'Hangar',
+          icon: <Wrench className="h-3.5 w-3.5 shrink-0 text-sky-400" />,
+          onClick: () => {
+            EventBus.emit('ui:navigate-route', 'ships');
+            EventBus.emit('ui:open-hangar');
+          },
+          accentHoverClass: 'hover:border-sky-400/60',
+        },
+        {
+          label: 'Main Menu',
+          icon: <Home className="h-3.5 w-3.5 shrink-0" />,
+          onClick: () => EventBus.emit('ui:open-menu'),
+        },
+      ]}
+    />
+  );
+};
 
 export const VictoryModal: React.FC<{ data: VictoryPayload }> = ({ data }) => {
   const isBossRush = data.mode === 'boss_rush';
   return (
-    <div className="scroll-panel absolute inset-0 z-30 flex items-center justify-center overflow-y-auto bg-[#040711]/82 p-4 backdrop-blur-sm">
-      <div className="scroll-panel menu-enter my-auto max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-amber-400/50 bg-[#081022]/96 p-6 sm:p-7 text-center shadow-2xl">
-        <Trophy className="mx-auto mb-3 h-10 w-10 text-amber-400" />
-        <div className="text-xs font-semibold text-amber-300">
-          {isBossRush ? '5-Boss Gauntlet Cleared' : 'Void Emperor Destroyed'}
-        </div>
-        <h2 className="mt-1 font-display text-3xl font-bold text-white">
-          {isBossRush ? 'Boss Rush Conqueror' : 'Galaxy Liberated'}
-        </h2>
-        <p className="mt-2 text-sm leading-relaxed text-slate-300">
-          {isBossRush
-            ? 'Every Void Commander fell in consecutive combat under your fighter’s wings.'
-            : 'The Void Empire flagship has fallen. Humanity’s colonies across all ten sectors are safe under your watch.'}
-        </p>
-
-        <div className="mt-5 grid grid-cols-2 gap-4 border-y border-slate-800 py-4 text-left">
-          <div>
-            <div className="text-xs text-slate-400">Final Score</div>
-            <div className="font-mono-num text-xl font-bold text-white">
-              {data.finalScore.toLocaleString()}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs text-slate-400">Hostiles Cleared</div>
-            <div className="font-mono-num text-xl font-bold text-amber-300">
-              {data.enemiesDefeated}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/25 bg-slate-950/75 px-3.5 py-2.5 text-xs">
-          <span className="text-slate-400">Victory Bounty</span>
-          <div className="flex items-center gap-2">
-            <CreditsBadge amount={data.creditsEarned} prefix="+" size="sm" />
-            <CrystalsBadge amount={data.crystalsEarned} prefix="+" size="sm" />
-          </div>
-        </div>
-
-        <div className="mt-6 flex flex-col gap-2.5">
-          <button
-            type="button"
-            onClick={() =>
-              isBossRush
-                ? EventBus.emit('ui:start-mode', { mode: 'boss_rush', levelNumber: 10 })
-                : EventBus.emit('ui:start-level', 1)
-            }
-            className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-400 to-cyan-400 px-5 py-2.5 font-display text-base font-bold text-slate-950 transition-all hover:brightness-110 active:scale-[0.98]"
-          >
-            <Play className="h-4 w-4 fill-current" />
-            <span>Play Again</span>
-          </button>
-          <div className="grid grid-cols-2 gap-2.5">
-            <button
-              type="button"
-              onClick={() => {
-                EventBus.emit('ui:navigate-route', 'ships');
-                EventBus.emit('ui:open-hangar');
-              }}
-              className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:border-sky-400/70"
-            >
-              <Wrench className="h-4 w-4 text-sky-400" />
-              <span>Hangar</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => EventBus.emit('ui:open-menu')}
-              className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:border-slate-500"
-            >
-              <Home className="h-4 w-4" />
-              <span>Main Menu</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ResultCardShell
+      tone="victory_grand"
+      headline="VICTORY"
+      summaryLine={
+        isBossRush
+          ? 'Boss Rush · 5-Boss Gauntlet Cleared'
+          : 'Campaign Complete · Void Emperor Defeated'
+      }
+      metrics={[
+        { label: 'Score', value: data.finalScore.toLocaleString(), toneClass: 'text-white' },
+        {
+          label: 'Defeated',
+          value: data.enemiesDefeated.toLocaleString(),
+          toneClass: 'text-amber-300',
+        },
+      ]}
+      rewardLabel="Rewards"
+      creditsEarned={data.creditsEarned}
+      crystalsEarned={data.crystalsEarned}
+      primaryAction={{
+        label: 'Play Again',
+        icon: <Play className="h-4 w-4 fill-current" />,
+        onClick: () =>
+          isBossRush
+            ? EventBus.emit('ui:start-mode', { mode: 'boss_rush', levelNumber: 10 })
+            : EventBus.emit('ui:start-level', 1),
+      }}
+      secondaryActions={[
+        {
+          label: 'Hangar',
+          icon: <Wrench className="h-3.5 w-3.5 shrink-0 text-sky-400" />,
+          onClick: () => {
+            EventBus.emit('ui:navigate-route', 'ships');
+            EventBus.emit('ui:open-hangar');
+          },
+          accentHoverClass: 'hover:border-sky-400/60',
+        },
+        {
+          label: 'Main Menu',
+          icon: <Home className="h-3.5 w-3.5 shrink-0" />,
+          onClick: () => EventBus.emit('ui:open-menu'),
+        },
+      ]}
+    />
   );
 };

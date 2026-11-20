@@ -8,7 +8,9 @@ import {
   scaleEquipmentBonuses,
 } from '../../../game/config/EquipmentConfig';
 import { SoundManager } from '../../../game/audio/SoundManager';
+import { isEquipmentItemActionableInSlot } from '../../../game/systems/NotificationStatus';
 import { PlayerProgress } from '../../../game/utils/StorageManager';
+import { NotificationDot } from '../../ui/NotificationDot';
 import { EquipmentSlotMeta, formatBonusTags, SLOT_ICON } from './armoryUtils';
 
 interface EquipmentGearModalProps {
@@ -115,6 +117,8 @@ export const EquipmentGearModal: React.FC<EquipmentGearModalProps> = ({
                 formatBonusTags(scaleEquipmentBonuses(item, Math.max(1, itemLvl)))[0] ??
                 item.passiveText;
 
+              const itemActionable = isEquipmentItemActionableInSlot(progress, item);
+
               return (
                 <button
                   key={item.id}
@@ -124,7 +128,7 @@ export const EquipmentGearModal: React.FC<EquipmentGearModalProps> = ({
                     SoundManager.playButtonClick();
                     onSelectItem(item.id);
                   }}
-                  className={`flex min-h-[136px] flex-col justify-between rounded-xl border p-3 text-left transition-[border-color,background-color,transform] duration-150 active:scale-[0.98] ${
+                  className={`relative flex min-h-[136px] flex-col justify-between rounded-xl border p-3 text-left transition-[border-color,background-color,transform] duration-150 active:scale-[0.98] ${
                     isSelected
                       ? 'border-cyan-300/85 bg-[#0e2140]/95'
                       : itemEquipped
@@ -134,7 +138,12 @@ export const EquipmentGearModal: React.FC<EquipmentGearModalProps> = ({
                       : 'border-slate-800/90 bg-[#050b18]/90 opacity-85 hover:opacity-100 hover:border-slate-600/80'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-1.5">
+                  <NotificationDot
+                    visible={itemActionable}
+                    position="corner-inset"
+                    label={`${item.name} action available`}
+                  />
+                  <div className={`flex items-start justify-between gap-1.5 ${itemActionable ? 'pr-2.5' : ''}`}>
                     <span
                       className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-[#050b18]"
                       style={{ borderColor: `${itemRarity.colorHex}50` }}
@@ -251,8 +260,13 @@ export const EquipmentGearModal: React.FC<EquipmentGearModalProps> = ({
                 <button
                   type="button"
                   onClick={() => onEquipConfirm(activeItem)}
-                  className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border border-cyan-300/60 bg-cyan-400/14 px-4 text-xs font-bold text-cyan-100 transition-colors hover:bg-cyan-400/22"
+                  className="relative flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border border-cyan-300/60 bg-cyan-400/14 px-4 text-xs font-bold text-cyan-100 transition-colors hover:bg-cyan-400/22"
                 >
+                  <NotificationDot
+                    visible={!currentEquippedId}
+                    position="corner"
+                    label="Empty slot ready to equip"
+                  />
                   <span>{currentEquippedId ? 'Replace Equipped' : 'Equip to Slot'}</span>
                 </button>
               )}
@@ -261,7 +275,7 @@ export const EquipmentGearModal: React.FC<EquipmentGearModalProps> = ({
                 type="button"
                 disabled={maxed}
                 onClick={() => onBuyOrEnhanceConfirm(activeItem)}
-                className={`flex min-h-[44px] flex-1 items-center justify-center rounded-xl px-4 font-mono-num text-xs font-bold transition-[background-color,transform] duration-150 ${
+                className={`relative flex min-h-[44px] flex-1 items-center justify-center rounded-xl px-4 font-mono-num text-xs font-bold transition-[background-color,transform] duration-150 ${
                   maxed
                     ? 'cursor-not-allowed border border-slate-800 bg-slate-950 text-slate-500'
                     : affordable
@@ -269,6 +283,11 @@ export const EquipmentGearModal: React.FC<EquipmentGearModalProps> = ({
                     : 'border border-slate-700/80 bg-slate-900/90 text-slate-300 hover:border-slate-500'
                 }`}
               >
+                <NotificationDot
+                  visible={!maxed && affordable}
+                  position="corner"
+                  label={owned ? 'Ready to enhance' : 'Ready to purchase'}
+                />
                 {maxed
                   ? 'MAX LEVEL REACHED'
                   : owned

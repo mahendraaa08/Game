@@ -39,7 +39,8 @@ export class BossEntity implements Targetable {
     bossId: BossId,
     onSpawnMinion: (enemyClass: EnemyClass, x: number, y: number) => void,
     onPhaseShift: (newPhase: 1 | 2 | 3) => void,
-    onBossDefeated: (boss: BossEntity) => void
+    onBossDefeated: (boss: BossEntity) => void,
+    hpMultiplier = 1
   ) {
     this.scene = scene;
     this.def = BOSS_CONFIGS[bossId];
@@ -47,7 +48,7 @@ export class BossEntity implements Targetable {
     this.onPhaseShift = onPhaseShift;
     this.onBossDefeated = onBossDefeated;
 
-    this.maxHp = this.def.maxHp;
+    this.maxHp = Math.max(1, Math.round(this.def.maxHp * hpMultiplier));
     this.hp = this.maxHp;
     this.radius = Math.round(this.def.width * 0.42);
     this.active = true;
@@ -69,8 +70,22 @@ export class BossEntity implements Targetable {
       duration: 2100,
       ease: 'Cubic.easeOut',
       onComplete: () => {
+        if (!this.active || !this.sprite.active) return;
         this.entering = false;
         this.invulnerable = false;
+        const lockRing = this.scene.add
+          .circle(this.x, this.y, this.radius * 0.65, this.def.primaryColor, 0.08)
+          .setDepth(7);
+        lockRing.setStrokeStyle(2, this.def.secondaryColor, 0.65);
+        this.scene.tweens.add({
+          targets: lockRing,
+          scaleX: 2.35,
+          scaleY: 2.35,
+          alpha: 0,
+          duration: 460,
+          ease: 'Cubic.easeOut',
+          onComplete: () => lockRing.destroy(),
+        });
       },
     });
   }
@@ -81,6 +96,10 @@ export class BossEntity implements Targetable {
 
   get y(): number {
     return this.sprite.y;
+  }
+
+  get ageSec(): number {
+    return this.age;
   }
 
   takeDamage(amount: number): boolean {

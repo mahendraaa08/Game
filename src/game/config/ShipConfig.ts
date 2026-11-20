@@ -1,4 +1,5 @@
-import { WeaponId } from './WeaponConfig';
+import { formatShipUnlockLabel, SHIP_ECONOMY } from './EconomyConfig';
+import type { WeaponId } from './WeaponConfig';
 
 export type ShipId =
   | 'falcon_x'
@@ -71,9 +72,8 @@ export const SHIPS: Record<ShipId, ShipDefinition> = {
       specialPowerMult: 1.0,
     },
     unlock: {
-      credits: 0,
-      crystals: 0,
-      description: 'Unlocked by default',
+      ...SHIP_ECONOMY.falcon_x,
+      description: formatShipUnlockLabel('falcon_x'),
     },
   },
   destroyer: {
@@ -101,9 +101,8 @@ export const SHIPS: Record<ShipId, ShipDefinition> = {
       specialPowerMult: 1.15,
     },
     unlock: {
-      credits: 1200,
-      crystals: 0,
-      description: '1,200 Credits',
+      ...SHIP_ECONOMY.destroyer,
+      description: formatShipUnlockLabel('destroyer'),
     },
   },
   phantom: {
@@ -131,9 +130,8 @@ export const SHIPS: Record<ShipId, ShipDefinition> = {
       specialPowerMult: 1.0,
     },
     unlock: {
-      credits: 1600,
-      crystals: 5,
-      description: '1,600 Credits · 5 Crystals',
+      ...SHIP_ECONOMY.phantom,
+      description: formatShipUnlockLabel('phantom'),
     },
   },
   nova_prime: {
@@ -161,10 +159,8 @@ export const SHIPS: Record<ShipId, ShipDefinition> = {
       specialPowerMult: 1.22,
     },
     unlock: {
-      credits: 2800,
-      crystals: 12,
-      minSectorCompleted: 3,
-      description: '2,800 Credits · 12 Crystals · Clear Sector 03',
+      ...SHIP_ECONOMY.nova_prime,
+      description: formatShipUnlockLabel('nova_prime'),
     },
   },
   thunderbolt: {
@@ -192,10 +188,8 @@ export const SHIPS: Record<ShipId, ShipDefinition> = {
       specialPowerMult: 1.08,
     },
     unlock: {
-      credits: 2600,
-      crystals: 10,
-      minSectorCompleted: 2,
-      description: '2,600 Credits · 10 Crystals · Clear Sector 02',
+      ...SHIP_ECONOMY.thunderbolt,
+      description: formatShipUnlockLabel('thunderbolt'),
     },
   },
   aegis: {
@@ -223,10 +217,8 @@ export const SHIPS: Record<ShipId, ShipDefinition> = {
       specialPowerMult: 1.15,
     },
     unlock: {
-      credits: 3400,
-      crystals: 15,
-      minSectorCompleted: 4,
-      description: '3,400 Credits · 15 Crystals · Clear Sector 04',
+      ...SHIP_ECONOMY.aegis,
+      description: formatShipUnlockLabel('aegis'),
     },
   },
   specter: {
@@ -254,10 +246,8 @@ export const SHIPS: Record<ShipId, ShipDefinition> = {
       specialPowerMult: 1.35,
     },
     unlock: {
-      credits: 4500,
-      crystals: 22,
-      minSectorCompleted: 6,
-      description: '4,500 Credits · 22 Crystals · Clear Sector 06',
+      ...SHIP_ECONOMY.specter,
+      description: formatShipUnlockLabel('specter'),
     },
   },
   celestial: {
@@ -286,10 +276,8 @@ export const SHIPS: Record<ShipId, ShipDefinition> = {
       specialPowerMult: 1.4,
     },
     unlock: {
-      credits: 8000,
-      crystals: 45,
-      minSectorCompleted: 8,
-      description: '8,000 Credits · 45 Crystals · Clear Sector 08',
+      ...SHIP_ECONOMY.celestial,
+      description: formatShipUnlockLabel('celestial'),
     },
   },
 };

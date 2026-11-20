@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { getEndlessDifficulty } from '../config/EconomyConfig';
 import { EnemyBehavior, EnemyClass } from '../config/EnemyConfig';
 import { GameMode } from '../config/GameModeConfig';
 import { LevelDefinition, WaveDefinition, WaveSpawnGroup } from '../config/LevelConfig';
@@ -67,7 +68,7 @@ export class WaveDirector {
     if (!e) return;
     const diff =
       this.mode === 'endless'
-        ? 1 + this.currentWaveIdx * 0.1
+        ? getEndlessDifficulty(this.currentWaveIdx)
         : this.level.difficultyMultiplier;
     e.spawn(enemyClass, x, y, 'diving', diff);
     this.onEnemyEncounter?.(enemyClass);
@@ -97,7 +98,7 @@ export class WaveDirector {
     const w = this.scene.scale.width;
     const diff =
       this.mode === 'endless'
-        ? 1 + this.currentWaveIdx * 0.11
+        ? getEndlessDifficulty(this.currentWaveIdx)
         : this.level.difficultyMultiplier;
 
     while (this.spawnQueue.length > 0 && this.spawnQueue[0].spawnAtMs <= this.waveElapsedMs) {

@@ -1,5 +1,6 @@
-import { BossId } from './BossConfig';
-import { EnemyBehavior, EnemyClass } from './EnemyConfig';
+import type { BossId } from './BossConfig';
+import { formatSectorRewardText } from './EconomyConfig';
+import type { EnemyBehavior, EnemyClass } from './EnemyConfig';
 
 export interface WaveSpawnGroup {
   enemyClass: EnemyClass;
@@ -49,7 +50,7 @@ export const CAMPAIGN_LEVELS: LevelDefinition[] = [
     name: 'EARTH DEFENSE',
     subtitle: 'Low Earth Orbit · Year 3099',
     objective: 'Intercept the Void Empire vanguard fleet before they breach Earth orbital shields.',
-    rewardText: 'Unlocks Sector 02: Asteroid Belt · +1,000 Clear Bonus',
+    rewardText: formatSectorRewardText(1, 10, false, 'Asteroid Belt'),
     difficultyMultiplier: 1.0,
     bossId: null,
     environment: {
@@ -98,7 +99,7 @@ export const CAMPAIGN_LEVELS: LevelDefinition[] = [
     name: 'ASTEROID BELT',
     subtitle: 'Ceres Mining Corridor',
     objective: 'Navigate the asteroid drift and dismantle the Iron Guardian siege dreadnought.',
-    rewardText: 'Unlocks Sector 03: Mars Outpost · +2,500 Clear Bonus',
+    rewardText: formatSectorRewardText(2, 10, true, 'Mars Outpost'),
     difficultyMultiplier: 1.12,
     bossId: 'iron_guardian',
     environment: {
@@ -150,7 +151,7 @@ export const CAMPAIGN_LEVELS: LevelDefinition[] = [
     name: 'MARS OUTPOST',
     subtitle: 'Ares Colony Defense Grid',
     objective: 'Repel the Void assault force threatening the Martian civilian orbital habitats.',
-    rewardText: 'Unlocks Sector 04: Nebula Zone · +3,000 Clear Bonus',
+    rewardText: formatSectorRewardText(3, 10, false, 'Nebula Zone'),
     difficultyMultiplier: 1.24,
     bossId: null,
     environment: {
@@ -202,7 +203,7 @@ export const CAMPAIGN_LEVELS: LevelDefinition[] = [
     name: 'NEBULA ZONE',
     subtitle: 'Violet Ion Storm Sector',
     objective: 'Hunt down the bio-plasma Venom Queen deep within the ionized purple nebula.',
-    rewardText: 'Unlocks Sector 05: Alien Fortress · +4,500 Clear Bonus',
+    rewardText: formatSectorRewardText(4, 10, true, 'Alien Fortress'),
     difficultyMultiplier: 1.36,
     bossId: 'venom_queen',
     environment: {
@@ -254,7 +255,7 @@ export const CAMPAIGN_LEVELS: LevelDefinition[] = [
     name: 'ALIEN FORTRESS',
     subtitle: 'Outer Citadel Bastion',
     objective: 'Break through the Void Empire fortress perimeter and shatter its defensive battlegroups.',
-    rewardText: 'Unlocks Sector 06: Frozen Galaxy · +5,500 Clear Bonus',
+    rewardText: formatSectorRewardText(5, 10, false, 'Frozen Galaxy'),
     difficultyMultiplier: 1.48,
     bossId: null,
     environment: {
@@ -306,7 +307,7 @@ export const CAMPAIGN_LEVELS: LevelDefinition[] = [
     name: 'FROZEN GALAXY',
     subtitle: 'Cryo-Nebula Expanse',
     objective: 'Brave the sub-zero crystal fields and destroy the Shadow Titan stealth monolith.',
-    rewardText: 'Unlocks Sector 07: Dark Dimension · +7,000 Clear Bonus',
+    rewardText: formatSectorRewardText(6, 10, true, 'Dark Dimension'),
     difficultyMultiplier: 1.6,
     bossId: 'shadow_titan',
     environment: {
@@ -358,7 +359,7 @@ export const CAMPAIGN_LEVELS: LevelDefinition[] = [
     name: 'DARK DIMENSION',
     subtitle: 'Subspace Singularity Rift',
     objective: 'Survive the dimensional anomalies and purge the elite Void patrol.',
-    rewardText: 'Unlocks Sector 08: Cyber Planet · +8,000 Clear Bonus',
+    rewardText: formatSectorRewardText(7, 10, false, 'Cyber Planet'),
     difficultyMultiplier: 1.72,
     bossId: null,
     environment: {
@@ -410,7 +411,7 @@ export const CAMPAIGN_LEVELS: LevelDefinition[] = [
     name: 'CYBER PLANET',
     subtitle: 'Mechanized Dyson Nexus',
     objective: 'Infiltrate the machine world and deactivate the Cyber Leviathan core.',
-    rewardText: 'Unlocks Sector 09: Void Territory · +10,000 Clear Bonus',
+    rewardText: formatSectorRewardText(8, 10, true, 'Void Territory'),
     difficultyMultiplier: 1.85,
     bossId: 'cyber_leviathan',
     environment: {
@@ -462,7 +463,7 @@ export const CAMPAIGN_LEVELS: LevelDefinition[] = [
     name: 'VOID TERRITORY',
     subtitle: 'Imperial Sovereign Space',
     objective: 'Punch through the Void Empire home fleet to open the path to the Throne Sector.',
-    rewardText: 'Unlocks Sector 10: Final Reckoning · +12,000 Clear Bonus',
+    rewardText: formatSectorRewardText(9, 10, false, 'Final Reckoning'),
     difficultyMultiplier: 2.0,
     bossId: null,
     environment: {
@@ -515,7 +516,7 @@ export const CAMPAIGN_LEVELS: LevelDefinition[] = [
     name: 'FINAL RECKONING',
     subtitle: 'Heart of the Void Empire',
     objective: 'Confront the Void Emperor and end the galactic war once and for all.',
-    rewardText: 'Galactic Liberation · Campaign Victory',
+    rewardText: formatSectorRewardText(10, 10, true),
     difficultyMultiplier: 2.15,
     bossId: 'void_emperor',
     environment: {

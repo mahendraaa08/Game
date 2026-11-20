@@ -1,12 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Coins, Gem, Lock, Shield, Zap } from 'lucide-react';
 import { SHIP_LIST, ShipId, SHIPS } from '../../game/config/ShipConfig';
 import { SPECIAL_LIST, SpecialId, WEAPONS } from '../../game/config/WeaponConfig';
 import { SoundManager } from '../../game/audio/SoundManager';
+import { evaluateGlobalNotifications } from '../../game/systems/NotificationStatus';
 import { ActionResult, ProgressionManager } from '../../game/systems/ProgressionManager';
 import { EventBus } from '../../game/utils/EventBus';
 import { PlayerProgress } from '../../game/utils/StorageManager';
 import { HorizontalSwipeStrip } from '../ui/HorizontalSwipeStrip';
+import { NotificationDot } from '../ui/NotificationDot';
 import { ActionConfirmDialog, PendingHangarAction } from './ActionConfirmDialog';
 import { ShipArtBadge } from './ShipArtBadge';
 
@@ -49,6 +51,7 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
     setPendingAction(null);
   }, [inspectId]);
 
+  const notifications = useMemo(() => evaluateGlobalNotifications(progress), [progress]);
   const inspected = SHIPS[inspectId] ?? SHIPS.falcon_x;
   const equipped = SHIPS[progress.selectedShip] ?? SHIPS.falcon_x;
   const isUnlocked = progress.unlockedShips.includes(inspected.id);
@@ -243,17 +246,22 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
                       SoundManager.playButtonClick();
                       setInspectId(ship.id);
                     }}
-                    className={`flex min-w-[162px] lg:min-w-0 shrink-0 items-center gap-3 rounded-xl border p-3 text-left transition-[border-color,background-color,transform] duration-150 active:scale-[0.985] ${
+                    className={`relative flex min-w-[162px] lg:min-w-0 shrink-0 items-center gap-3 rounded-xl border p-3 text-left transition-[border-color,background-color,transform] duration-150 active:scale-[0.985] ${
                       selected
                         ? 'border-cyan-300/75 bg-[#0c1b36]/95 text-white'
                         : 'border-slate-800/90 bg-[#081122]/85 text-slate-200 hover:border-slate-600 hover:bg-[#0b162c]/90'
                     }`}
                   >
+                    <NotificationDot
+                      visible={notifications.shipIds[ship.id]}
+                      position="corner-inset"
+                      label={`${ship.name} available to unlock`}
+                    />
                     <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-700/70 bg-[#050b18]/90">
                       <ShipArtBadge shipId={ship.id} size={34} />
                     </div>
 
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 pr-2">
                       <div className="truncate font-display text-xs sm:text-[13px] font-bold tracking-wide">
                         {ship.name}
                       </div>
@@ -403,8 +411,13 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
                 <button
                   type="button"
                   onClick={openShipUnlockConfirm}
-                  className="flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-amber-400 px-5 py-2.5 font-display text-sm font-bold text-slate-950 transition-[filter,transform] duration-150 hover:bg-amber-300 active:scale-[0.98]"
+                  className="relative flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-amber-400 px-5 py-2.5 font-display text-sm font-bold text-slate-950 transition-[filter,transform] duration-150 hover:bg-amber-300 active:scale-[0.98]"
                 >
+                  <NotificationDot
+                    visible={notifications.shipIds[inspected.id]}
+                    position="corner"
+                    label={`Ready to unlock ${inspected.name}`}
+                  />
                   <span>UNLOCK {inspected.name}</span>
                   <span className="font-mono-num text-xs">
                     ({inspected.unlock.credits.toLocaleString()} CR

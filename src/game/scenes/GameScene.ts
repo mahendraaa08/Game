@@ -1,5 +1,14 @@
 import Phaser from 'phaser';
 import { BOSS_CONFIGS, BossId } from '../config/BossConfig';
+import {
+  ECONOMY_CAPS,
+  getBossCombatReward,
+  getCampaignClearReward,
+  getEndlessBossHpMult,
+  getEndlessDifficulty,
+  getEndlessWaveReward,
+  getEnemyCreditDrop,
+} from '../config/EconomyConfig';
 import { GAME_CONSTANTS, HudSnapshot } from '../config/GameConfig';
 import { BOSS_RUSH_ORDER, CHALLENGE_BY_ID, ChallengeDefinition, GameMode } from '../config/GameModeConfig';
 import { CAMPAIGN_LEVELS, LevelDefinition } from '../config/LevelConfig';
@@ -16,7 +25,7 @@ import { BackgroundSystem } from '../systems/BackgroundSystem';
 import { CombatSystem } from '../systems/CombatSystem';
 import { computePlayerStats, ProgressionManager } from '../systems/ProgressionManager';
 import { WaveDirector } from '../systems/WaveDirector';
-import { EventBus } from '../utils/EventBus';
+import { EventBus, BossPosePayload } from '../utils/EventBus';
 import { StorageManager } from '../utils/StorageManager';
 
 export interface GameSceneData {
@@ -66,6 +75,17 @@ export class GameScene extends Phaser.Scene {
   private cachedUnlockedWeapons: WeaponId[] = ['plasma'];
   private activeEnemiesBuf: EnemyEntity[] = [];
   private targetsBuf: Targetable[] = [];
+  private bossPoseScratch: BossPosePayload = {
+    active: false,
+    x: 0,
+    y: 0,
+    width: 160,
+    height: 120,
+    ageSec: 0,
+    entering: false,
+    viewportW: 1280,
+    viewportH: 720,
+  };
 
   private onWindowBlur = (): void => {
     this.input.keyboard?.resetKeys();
@@ -176,8 +196,9 @@ export class GameScene extends Phaser.Scene {
       (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass),
       (waveNum) => {
         if (this.mode === 'endless') {
-          this.creditsEarnedRun += Math.round((45 + waveNum * 12) * this.player.stats.creditBonusMult);
-          if (waveNum % 3 === 0) this.crystalsEarnedRun += 1;
+          const waveReward = getEndlessWaveReward(waveNum, this.player.stats.creditBonusMult);
+          this.creditsEarnedRun += waveReward.credits;
+          this.crystalsEarnedRun += waveReward.crystals;
           ProgressionManager.recordCombatProgress({
             survivalWaves: 1,
             runScore: this.score,
@@ -209,7 +230,7 @@ export class GameScene extends Phaser.Scene {
     );
 
     this.drones = !this.challengeDef?.rules.disableDrones
-      ? new DroneManager(this, saved.equippedDrones, saved.ownedDrones, startX, startY)
+      ? new DroneManager(this, saved.equippedDroneSlots, saved.ownedDrones, startX, startY)
       : null;
 
     if (this.mode === 'boss_rush') {
@@ -403,9 +424,14 @@ export class GameScene extends Phaser.Scene {
     this.comboTimerMs = 3400;
     this.score += enemy.scoreReward * Math.max(1, Math.floor(this.combo * 0.5));
 
-    const creditGain = Math.round(
-      (enemy.def.id === 'elite' || enemy.def.id === 'tank' ? 18 : 7) *
-        this.player.stats.creditBonusMult
+    const activeDiff =
+      this.mode === 'endless'
+        ? getEndlessDifficulty(this.waveDirector.currentWaveIdx)
+        : this.levelDef.difficultyMultiplier;
+    const creditGain = getEnemyCreditDrop(
+      enemy.def.id,
+      activeDiff,
+      this.player.stats.creditBonusMult
     );
     this.creditsEarnedRun += creditGain;
 
@@ -443,6 +469,9 @@ export class GameScene extends Phaser.Scene {
     ProgressionManager.recordBossEncounter(bossId);
     SoundManager.playMusic('boss');
 
+    const endlessWaveNum = this.mode === 'endless' ? Math.max(5, this.waveDirector.currentWaveIdx + 1) : 1;
+    const bossHpMult = this.mode === 'endless' ? getEndlessBossHpMult(endlessWaveNum) : 1;
+
     this.scene.launch('BossScene', { bossId });
     this.boss = new BossEntity(
       this,
@@ -453,16 +482,45 @@ export class GameScene extends Phaser.Scene {
           this.combat.maybeDropPowerUp(this.boss.x, this.boss.y + 30, true);
         }
       },
-      (defeatedBoss) => this.handleBossDefeated(defeatedBoss)
+      (defeatedBoss) => this.handleBossDefeated(defeatedBoss),
+      bossHpMult
     );
+    this.emitBossPose();
+    this.emitHud();
+  }
+
+  private emitBossPose(): void {
+    const active = Boolean(this.boss && this.boss.active);
+    this.bossPoseScratch.active = active;
+    if (active && this.boss) {
+      this.bossPoseScratch.x = this.boss.x;
+      this.bossPoseScratch.y = this.boss.y;
+      this.bossPoseScratch.width = this.boss.def.width;
+      this.bossPoseScratch.height = this.boss.def.height;
+      this.bossPoseScratch.ageSec = this.boss.ageSec;
+      this.bossPoseScratch.entering = this.boss.entering;
+    }
+    this.bossPoseScratch.viewportW = this.scale.width;
+    this.bossPoseScratch.viewportH = this.scale.height;
+    EventBus.emit('boss:pose', this.bossPoseScratch);
   }
 
   private handleBossDefeated(boss: BossEntity): void {
     if (this.levelEnding) return;
 
     this.score += boss.def.scoreReward;
-    this.creditsEarnedRun += Math.round(280 * this.player.stats.creditBonusMult);
-    this.crystalsEarnedRun += 2;
+    const endlessBossTier =
+      this.mode === 'endless'
+        ? Math.max(1, Math.floor((this.waveDirector.currentWaveIdx + 1) / 5))
+        : 1;
+    const bossReward = getBossCombatReward(
+      boss.def.id,
+      this.mode,
+      this.player.stats.creditBonusMult,
+      endlessBossTier
+    );
+    this.creditsEarnedRun += bossReward.credits;
+    this.crystalsEarnedRun += bossReward.crystals;
 
     ProgressionManager.recordCombatProgress({
       bossDefeatedId: boss.def.id,
@@ -538,10 +596,14 @@ export class GameScene extends Phaser.Scene {
   private completeCampaignLevel(bossDefeatedName: string | null): void {
     const bonusScore = this.levelDef.levelNumber * 1000 + Math.round(this.player.hp * 15);
     const finalLevelScore = this.score + bonusScore;
-    const clearCredits = Math.round((120 + this.levelDef.levelNumber * 45) * this.player.stats.creditBonusMult);
-    const clearCrystals = this.levelDef.bossId ? 2 : 1;
-    this.creditsEarnedRun += clearCredits;
-    this.crystalsEarnedRun += clearCrystals;
+    const clearReward = getCampaignClearReward(
+      this.levelDef.levelNumber,
+      Boolean(this.levelDef.bossId),
+      false,
+      this.player.stats.creditBonusMult
+    );
+    this.creditsEarnedRun += clearReward.clearCredits;
+    this.crystalsEarnedRun += clearReward.clearCrystals;
 
     this.flushCombatProgress(this.levelDef.levelNumber);
     const granted = ProgressionManager.recordRunReward({
@@ -589,13 +651,11 @@ export class GameScene extends Phaser.Scene {
     this.flushCombatProgress();
     const bonusScore = won ? 2500 + Math.round(this.player.hp * 20) : 0;
     const finalScore = this.score + bonusScore;
-    const credits = won ? this.creditsEarnedRun + chal.rewardCredits : this.creditsEarnedRun;
-    const crystals = won ? this.crystalsEarnedRun + chal.rewardCrystals : this.crystalsEarnedRun;
 
     const granted = ProgressionManager.recordRunReward({
       mode: 'challenge',
-      creditsEarned: credits,
-      crystalsEarned: crystals,
+      creditsEarned: this.creditsEarnedRun,
+      crystalsEarned: this.crystalsEarnedRun,
       score: finalScore,
       kills: this.enemiesDefeated,
       challengeId: chal.id,
@@ -629,8 +689,8 @@ export class GameScene extends Phaser.Scene {
     const finalScore = this.score + bonusScore;
     const granted = ProgressionManager.recordRunReward({
       mode: 'boss_rush',
-      creditsEarned: this.creditsEarnedRun + 1400,
-      crystalsEarned: this.crystalsEarnedRun + 10,
+      creditsEarned: this.creditsEarnedRun,
+      crystalsEarned: this.crystalsEarnedRun,
       score: finalScore,
       kills: this.enemiesDefeated,
       bossRushCleared: true,
@@ -658,9 +718,12 @@ export class GameScene extends Phaser.Scene {
     this.player.sprite.setVisible(false);
 
     this.flushCombatProgress();
+    const salvageCredits = Math.round(
+      this.creditsEarnedRun * ECONOMY_CAPS.defeatCreditSalvageRatio
+    );
     const granted = ProgressionManager.recordRunReward({
       mode: this.mode,
-      creditsEarned: this.creditsEarnedRun,
+      creditsEarned: salvageCredits,
       crystalsEarned: this.crystalsEarnedRun,
       score: this.score,
       kills: this.enemiesDefeated,
@@ -790,9 +853,19 @@ export class GameScene extends Phaser.Scene {
         }
       } else if (this.mode === 'challenge' && this.challengeDef?.rules.targetKills) {
         // Keep endless waves feeding until kill count is reached
-        this.waveDirector = new WaveDirector(this, this.levelDef, 'endless');
+        this.waveDirector = new WaveDirector(
+          this,
+          this.levelDef,
+          'endless',
+          (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass)
+        );
       } else if (this.mode === 'challenge' && this.challengeDef?.rules.timeLimitSec) {
-        this.waveDirector = new WaveDirector(this, this.levelDef, 'endless');
+        this.waveDirector = new WaveDirector(
+          this,
+          this.levelDef,
+          'endless',
+          (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass)
+        );
       } else if (this.mode === 'campaign') {
         this.levelEnding = true;
         this.time.delayedCall(650, () => this.completeCampaignLevel(null));
@@ -805,7 +878,7 @@ export class GameScene extends Phaser.Scene {
       activeEnemies[i].update(dt, this.player.x, this.player.y, this.projectiles);
     }
 
-    // Update Boss
+    // Update Boss & stream real-time 60fps pose to BossHealthBar
     if (this.boss && this.boss.active) {
       this.boss.update(dt, this.player.x, this.player.y, this.projectiles, (laserDmg) => {
         if (this.player.takeDamage(laserDmg)) {
@@ -813,6 +886,9 @@ export class GameScene extends Phaser.Scene {
           if (this.player.hp <= 0) this.triggerGameOver();
         }
       });
+      this.emitBossPose();
+    } else if (this.bossPoseScratch.active) {
+      this.emitBossPose();
     }
 
     // Update Projectiles & Collisions
@@ -943,6 +1019,10 @@ export class GameScene extends Phaser.Scene {
       bossHp: Math.ceil(this.boss?.hp ?? 0),
       bossMaxHp: this.boss?.maxHp ?? bossDef?.maxHp ?? 1,
       bossPhase: this.boss?.phase ?? 1,
+      bossWidth: this.boss?.def.width ?? bossDef?.width ?? 160,
+      bossHeight: this.boss?.def.height ?? bossDef?.height ?? 120,
+      bossAgeSec: this.boss?.ageSec ?? 0,
+      bossEntering: this.boss?.entering ?? false,
       bossWarningText: null,
       creditsEarnedRun: this.creditsEarnedRun,
       crystalsEarnedRun: this.crystalsEarnedRun,

@@ -1,5 +1,6 @@
-import { BossId } from './BossConfig';
-import { WeaponId } from './WeaponConfig';
+import type { BossId } from './BossConfig';
+import { CHALLENGE_REWARDS } from './EconomyConfig';
+import type { WeaponId } from './WeaponConfig';
 
 export type GameMode = 'campaign' | 'endless' | 'challenge' | 'boss_rush';
 
@@ -32,8 +33,8 @@ export const CHALLENGES: ChallengeDefinition[] = [
     difficulty: 'Standard',
     objective: 'Destroy 35 Void hostiles with fragile 45 HP hull plating.',
     constraintsLabel: '45 Max HP · Standard Arsenal',
-    rewardCredits: 850,
-    rewardCrystals: 5,
+    rewardCredits: CHALLENGE_REWARDS.chal_glass_cannon.credits,
+    rewardCrystals: CHALLENGE_REWARDS.chal_glass_cannon.crystals,
     rules: {
       maxHpOverride: 45,
       targetKills: 35,
@@ -46,8 +47,8 @@ export const CHALLENGES: ChallengeDefinition[] = [
     difficulty: 'Standard',
     objective: 'Eliminate 45 hostiles using only Dual Laser & Plasma Cannon.',
     constraintsLabel: 'Weapons Locked: Plasma / Dual Laser',
-    rewardCredits: 950,
-    rewardCrystals: 6,
+    rewardCredits: CHALLENGE_REWARDS.chal_laser_trial.credits,
+    rewardCrystals: CHALLENGE_REWARDS.chal_laser_trial.crystals,
     rules: {
       allowedWeapons: ['plasma', 'dual_laser'],
       targetKills: 45,
@@ -60,8 +61,8 @@ export const CHALLENGES: ChallengeDefinition[] = [
     difficulty: 'Hard',
     objective: 'Survive 60 seconds inside the Dark Dimension rift storm.',
     constraintsLabel: '60s Survival Timer · No Drones',
-    rewardCredits: 1200,
-    rewardCrystals: 8,
+    rewardCredits: CHALLENGE_REWARDS.chal_timed_gauntlet.credits,
+    rewardCrystals: CHALLENGE_REWARDS.chal_timed_gauntlet.crystals,
     rules: {
       timeLimitSec: 60,
       disableDrones: true,
@@ -74,8 +75,8 @@ export const CHALLENGES: ChallengeDefinition[] = [
     difficulty: 'Hard',
     objective: 'Defeat the Venom Queen with shields offline.',
     constraintsLabel: 'Shields Disabled · Boss Hunt',
-    rewardCredits: 1450,
-    rewardCrystals: 10,
+    rewardCredits: CHALLENGE_REWARDS.chal_venom_duel.credits,
+    rewardCrystals: CHALLENGE_REWARDS.chal_venom_duel.crystals,
     rules: {
       disableShield: true,
       bossId: 'venom_queen',
@@ -88,8 +89,8 @@ export const CHALLENGES: ChallengeDefinition[] = [
     difficulty: 'Hard',
     objective: 'Destroy 55 hostiles armed strictly with Spread & Chain Lightning.',
     constraintsLabel: 'Weapons Locked: Spread / Lightning',
-    rewardCredits: 1550,
-    rewardCrystals: 11,
+    rewardCredits: CHALLENGE_REWARDS.chal_lightning_storm.credits,
+    rewardCrystals: CHALLENGE_REWARDS.chal_lightning_storm.crystals,
     rules: {
       allowedWeapons: ['spread', 'lightning'],
       targetKills: 55,
@@ -102,8 +103,8 @@ export const CHALLENGES: ChallengeDefinition[] = [
     difficulty: 'Extreme',
     objective: 'Confront and destroy the Void Emperor under 75 HP hull lock.',
     constraintsLabel: '75 Max HP · No Drones · Final Boss',
-    rewardCredits: 2400,
-    rewardCrystals: 18,
+    rewardCredits: CHALLENGE_REWARDS.chal_emperor_duel.credits,
+    rewardCrystals: CHALLENGE_REWARDS.chal_emperor_duel.crystals,
     rules: {
       maxHpOverride: 75,
       disableDrones: true,

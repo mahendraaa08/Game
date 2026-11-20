@@ -1,5 +1,11 @@
 import Phaser from 'phaser';
-import { DroneId, DRONES, getDronePowerAtLevel } from '../config/DroneConfig';
+import {
+  DRONE_SLOT_IDS,
+  DroneId,
+  DRONES,
+  DroneSlotId,
+  getDronePowerAtLevel,
+} from '../config/DroneConfig';
 import { Player } from './Player';
 import { ProjectileManager } from './ProjectileManager';
 import { Targetable } from './Targetable';
@@ -9,7 +15,7 @@ interface ActiveDroneSlot {
   level: number;
   sprite: Phaser.GameObjects.Sprite;
   cooldownMs: number;
-  sideOffset: number; // -1 left, +1 right
+  sideOffset: number; // -1 left (slot1), +1 right (slot2)
   angle: number;
 }
 
@@ -21,7 +27,7 @@ export class DroneManager {
 
   constructor(
     scene: Phaser.Scene,
-    equippedDrones: DroneId[],
+    equippedDroneSlots: Record<DroneSlotId, DroneId | null>,
     ownedLevels: Partial<Record<DroneId, number>>,
     startX: number,
     startY: number
@@ -29,11 +35,12 @@ export class DroneManager {
     this.scene = scene;
     this.fxGfx = scene.add.graphics().setDepth(11);
 
-    const active = equippedDrones.slice(0, 2);
-    active.forEach((id, idx) => {
+    DRONE_SLOT_IDS.forEach((slotId, idx) => {
+      const id = equippedDroneSlots[slotId];
+      if (!id) return;
       const def = DRONES[id];
       const level = Math.max(1, ownedLevels[id] ?? 1);
-      const side = idx === 0 ? -1 : 1;
+      const side = slotId === 'slot1' ? -1 : 1;
       const sprite = scene.add
         .sprite(startX + side * 44, startY + 8, def.textureKey)
         .setDepth(11)

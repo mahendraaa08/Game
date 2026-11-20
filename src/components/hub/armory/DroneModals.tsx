@@ -1,35 +1,67 @@
 import React from 'react';
-import { ArrowLeft, Check, Cpu, Lock, X } from 'lucide-react';
+import { Check, Lock, X } from 'lucide-react';
 import {
-  DRONE_LIST,
   DRONES,
   DroneDefinition,
   DroneId,
-  getDronePowerAtLevel,
+  DroneSlotId,
+  getDroneModifierTags,
   getDroneUpgradeCost,
 } from '../../../game/config/DroneConfig';
+import { RARITY_CONFIG } from '../../../game/config/EquipmentConfig';
 import { SoundManager } from '../../../game/audio/SoundManager';
+import { isDroneActionableInSlot } from '../../../game/systems/NotificationStatus';
 import { PlayerProgress } from '../../../game/utils/StorageManager';
+import { NotificationDot } from '../../ui/NotificationDot';
 import { DroneArtBadge } from '../ShipArtBadge';
-import { formatDronePower } from './armoryUtils';
+import { DRONE_SLOT_ICON, DRONE_SLOTS, DroneSlotMeta } from './armoryUtils';
 
-interface DroneSlotPickerModalProps {
-  slotIndex: 0 | 1;
+interface DroneSlotModalProps {
+  slotMeta: DroneSlotMeta;
+  slotItems: DroneDefinition[];
+  activeDrone: DroneDefinition;
   progress: PlayerProgress;
+  onSelectDrone: (id: DroneId) => void;
   onClose: () => void;
-  onSelectDroneInfo: (droneId: DroneId, fromSlotIndex: 0 | 1) => void;
-  onUnequipConfirm: (drone: DroneDefinition) => void;
+  onEquipConfirm: (drone: DroneDefinition, slotId: DroneSlotId) => void;
+  onUnequipConfirm: (drone: DroneDefinition, slotId: DroneSlotId) => void;
+  onBuyOrUpgradeConfirm: (drone: DroneDefinition, slotId: DroneSlotId) => void;
 }
 
-export const DroneSlotPickerModal: React.FC<DroneSlotPickerModalProps> = ({
-  slotIndex,
+export const DroneSlotModal: React.FC<DroneSlotModalProps> = ({
+  slotMeta,
+  slotItems,
+  activeDrone,
   progress,
+  onSelectDrone,
   onClose,
-  onSelectDroneInfo,
+  onEquipConfirm,
   onUnequipConfirm,
+  onBuyOrUpgradeConfirm,
 }) => {
-  const currentSlotId = progress.equippedDrones[slotIndex];
-  const currentSlotDrone = currentSlotId ? DRONES[currentSlotId] : null;
+  const HeaderSlotIcon = DRONE_SLOT_ICON[slotMeta.id];
+  const otherSlotId: DroneSlotId = slotMeta.id === 'slot1' ? 'slot2' : 'slot1';
+  const otherSlotMeta = DRONE_SLOTS.find((s) => s.id === otherSlotId) ?? DRONE_SLOTS[0];
+
+  const currentEquippedId = progress.equippedDroneSlots[slotMeta.id];
+  const currentEquippedName = currentEquippedId
+    ? DRONES[currentEquippedId]?.name ?? 'Equipped'
+    : 'Empty Slot';
+
+  const rarity = RARITY_CONFIG[activeDrone.rarity];
+  const lvl = progress.ownedDrones[activeDrone.id] ?? 0;
+  const owned = lvl > 0;
+  const equippedInThisSlot = progress.equippedDroneSlots[slotMeta.id] === activeDrone.id;
+  const equippedInOtherSlot = progress.equippedDroneSlots[otherSlotId] === activeDrone.id;
+  const maxed = lvl >= activeDrone.maxLevel;
+  const upgCost = getDroneUpgradeCost(activeDrone, Math.max(1, lvl));
+  const modifiers = getDroneModifierTags(activeDrone, Math.max(1, lvl));
+  const nextModifiers =
+    owned && !maxed ? getDroneModifierTags(activeDrone, lvl + 1) : [];
+  const creditsNeeded = owned ? upgCost.credits : activeDrone.costCredits;
+  const crystalsNeeded = owned ? upgCost.crystals : activeDrone.costCrystals;
+  const affordable =
+    progress.credits >= creditsNeeded && progress.crystals >= crystalsNeeded;
 
   return (
     <div
@@ -43,31 +75,34 @@ export const DroneSlotPickerModal: React.FC<DroneSlotPickerModalProps> = ({
       }}
     >
       <div
-        className="pause-panel-enter flex max-h-[min(88dvh,680px)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-700/80 bg-[#081122]/98 shadow-2xl shadow-black/75"
+        className="pause-panel-enter flex max-h-[min(90dvh,760px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-700/80 bg-[#081122]/98 shadow-2xl shadow-black/75"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
+        {/* Popup Header (Mirrors EquipmentGearModal 1:1) */}
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800/85 px-5 py-4">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-purple-400/35 bg-[#050b18]">
-              <Cpu className="h-5 w-5 text-purple-300" />
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-700/75 bg-[#050b18]">
+              <HeaderSlotIcon
+                className="h-5 w-5"
+                style={{ color: slotMeta.accentHex }}
+              />
             </span>
             <div className="min-w-0">
-              <div className="font-mono-num text-[10.5px] font-semibold uppercase tracking-[0.12em] text-purple-300">
-                Companion Drones · Slot 0{slotIndex + 1}
+              <div className="font-mono-num text-[10.5px] font-semibold uppercase tracking-[0.12em] text-cyan-300">
+                Equipment Slot · {slotMeta.title}
               </div>
               <h3
                 id="drone-slot-popup-title"
                 className="truncate font-display text-base sm:text-lg font-bold text-white"
               >
-                {currentSlotDrone ? `Active: ${currentSlotDrone.name}` : 'Select Companion Drone'}
+                Active: {currentEquippedName}
               </h3>
             </div>
           </div>
 
           <button
             type="button"
-            aria-label="Close drone slot popup"
+            aria-label="Close drone popup"
             onClick={() => {
               SoundManager.playButtonClick();
               onClose();
@@ -78,316 +113,214 @@ export const DroneSlotPickerModal: React.FC<DroneSlotPickerModalProps> = ({
           </button>
         </div>
 
-        {/* Scrollable Grid of Compatible Companion Drones */}
+        {/* Scrollable Popup Body */}
         <div className="scroll-panel flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 sm:p-5">
-          {currentSlotDrone && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-400/35 bg-[#07191b]/85 px-4 py-3">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <DroneArtBadge
-                  droneId={currentSlotDrone.id}
-                  colorHex={currentSlotDrone.colorHex}
-                  size={28}
-                />
-                <div className="min-w-0">
-                  <div className="truncate font-display text-xs sm:text-sm font-bold text-white">
-                    {currentSlotDrone.name}
-                  </div>
-                  <div className="font-mono-num text-[10.5px] text-emerald-300">
-                    Currently Equipped in Slot 0{slotIndex + 1}
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => onUnequipConfirm(currentSlotDrone)}
-                className="min-h-[36px] rounded-lg border border-slate-700/90 bg-[#050b18] px-3 text-xs font-semibold text-slate-200 transition-colors hover:border-rose-400/55 hover:bg-rose-500/14 hover:text-rose-200"
-              >
-                Unequip
-              </button>
-            </div>
-          )}
+          {/* Compatible Drones Grid (Filtered to clicked slot) */}
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            {slotItems.map((item) => {
+              const itemRarity = RARITY_CONFIG[item.rarity];
+              const itemLvl = progress.ownedDrones[item.id] ?? 0;
+              const itemOwned = itemLvl > 0;
+              const itemEquippedHere = progress.equippedDroneSlots[slotMeta.id] === item.id;
+              const itemEquippedOther = progress.equippedDroneSlots[otherSlotId] === item.id;
+              const isSelected = activeDrone.id === item.id;
+              const primaryMod = getDroneModifierTags(item, Math.max(1, itemLvl))[0];
 
-          <div className="grid grid-cols-2 gap-3">
-            {DRONE_LIST.map((d) => {
-              const lvl = progress.ownedDrones[d.id] ?? 0;
-              const owned = lvl > 0;
-              const equippedSlot = progress.equippedDrones.indexOf(d.id);
-              const equipped = equippedSlot !== -1;
-              const power = getDronePowerAtLevel(d, Math.max(1, lvl));
+              const droneActionable = isDroneActionableInSlot(progress, item, slotMeta.id);
 
               return (
                 <button
-                  key={d.id}
+                  key={item.id}
                   type="button"
-                  onClick={() => onSelectDroneInfo(d.id, slotIndex)}
-                  className={`flex min-h-[152px] flex-col justify-between rounded-2xl border p-3.5 text-left transition-[border-color,background-color,transform] duration-150 active:scale-[0.98] ${
-                    equipped
-                      ? 'border-emerald-400/55 bg-[#07191b]/90 hover:border-emerald-300/80'
-                      : owned
-                      ? 'border-slate-700/85 bg-[#081225]/92 hover:border-purple-300/60'
+                  aria-pressed={isSelected}
+                  onClick={() => {
+                    SoundManager.playButtonClick();
+                    onSelectDrone(item.id);
+                  }}
+                  className={`relative flex min-h-[136px] flex-col justify-between rounded-xl border p-3 text-left transition-[border-color,background-color,transform] duration-150 active:scale-[0.98] ${
+                    isSelected
+                      ? 'border-cyan-300/85 bg-[#0e2140]/95'
+                      : itemEquippedHere
+                      ? 'border-emerald-400/55 bg-[#07191b]/90 hover:border-emerald-300/75'
+                      : itemEquippedOther
+                      ? 'border-amber-400/40 bg-[#171207]/75 hover:border-amber-300/65'
+                      : itemOwned
+                      ? 'border-slate-700/85 bg-[#081225]/92 hover:border-sky-300/50'
                       : 'border-slate-800/90 bg-[#050b18]/90 opacity-85 hover:opacity-100 hover:border-slate-600/80'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-700/70 bg-[#050b18]">
-                      <DroneArtBadge droneId={d.id} colorHex={d.colorHex} size={32} />
+                  <NotificationDot
+                    visible={droneActionable}
+                    position="corner-inset"
+                    label={`${item.name} action available`}
+                  />
+                  <div className={`flex items-start justify-between gap-1.5 ${droneActionable ? 'pr-2.5' : ''}`}>
+                    <span
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-[#050b18]"
+                      style={{ borderColor: `${itemRarity.colorHex}50` }}
+                    >
+                      <DroneArtBadge
+                        droneId={item.id}
+                        colorHex={item.colorHex}
+                        size={22}
+                      />
                     </span>
                     <span
-                      className={`flex items-center gap-1 font-mono-num text-[10px] font-bold ${
-                        equipped
+                      className={`flex items-center gap-0.5 font-mono-num text-[9.5px] font-bold ${
+                        itemEquippedHere
                           ? 'text-emerald-300'
-                          : owned
+                          : itemEquippedOther
+                          ? 'text-amber-300'
+                          : itemOwned
                           ? 'text-sky-300'
                           : 'text-slate-500'
                       }`}
                     >
-                      {!owned && <Lock className="h-3 w-3" />}
+                      {!itemOwned && <Lock className="h-2.5 w-2.5" />}
                       <span>
-                        {equipped
-                          ? `EQUIPPED · S${equippedSlot + 1}`
-                          : owned
-                          ? `OWNED · Lv.${lvl}`
+                        {itemEquippedHere
+                          ? 'EQUIPPED'
+                          : itemEquippedOther
+                          ? otherSlotMeta.title.toUpperCase()
+                          : itemOwned
+                          ? `Lv.${itemLvl}`
                           : 'LOCKED'}
                       </span>
                     </span>
                   </div>
 
                   <div className="my-2 min-w-0">
-                    <div className="truncate font-display text-xs sm:text-sm font-bold text-white">
-                      {d.name}
+                    <div className="line-clamp-2 font-display text-xs font-bold leading-snug text-white">
+                      {item.name}
                     </div>
-                    <div className="mt-0.5 truncate font-mono-num text-[10.5px] text-purple-300">
-                      {d.role}
+                    <div className="mt-1 truncate font-mono-num text-[10px] font-medium text-sky-300/90">
+                      {primaryMod}
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 border-t border-slate-800/80 pt-2 font-mono-num text-[10.5px] font-semibold">
-                    <span style={{ color: d.colorHex }}>{formatDronePower(d, power)}</span>
-                    <span className="text-slate-400">Inspect</span>
+                  <div className={`font-mono-num text-[10px] font-semibold ${itemRarity.textClass}`}>
+                    {itemRarity.label}
                   </div>
                 </button>
               );
             })}
           </div>
-        </div>
-      </div>
-    </div>
-  );
-};
 
-interface DroneInfoModalProps {
-  drone: DroneDefinition;
-  fromSlotIndex: 0 | 1 | null;
-  progress: PlayerProgress;
-  onBackToSlotPicker: (slotIndex: 0 | 1) => void;
-  onClose: () => void;
-  onUnequipConfirm: (drone: DroneDefinition) => void;
-  onEquipConfirm: (drone: DroneDefinition, targetSlotIndex?: 0 | 1) => void;
-  onBuyOrUpgradeConfirm: (drone: DroneDefinition) => void;
-}
-
-export const DroneInfoModal: React.FC<DroneInfoModalProps> = ({
-  drone: d,
-  fromSlotIndex: preferredSlot,
-  progress,
-  onBackToSlotPicker,
-  onClose,
-  onUnequipConfirm,
-  onEquipConfirm,
-  onBuyOrUpgradeConfirm,
-}) => {
-  const lvl = progress.ownedDrones[d.id] ?? 0;
-  const owned = lvl > 0;
-  const slotIdx = progress.equippedDrones.indexOf(d.id);
-  const equipped = slotIdx !== -1;
-  const slotsFull = progress.equippedDrones.length >= 2;
-  const maxed = lvl >= d.maxLevel;
-  const upgCost = getDroneUpgradeCost(d, Math.max(1, lvl));
-  const power = getDronePowerAtLevel(d, Math.max(1, lvl));
-  const nextPower = owned && !maxed ? getDronePowerAtLevel(d, lvl + 1) : null;
-  const creditsNeeded = owned ? upgCost.credits : d.costCredits;
-  const crystalsNeeded = owned ? upgCost.crystals : d.costCrystals;
-  const affordable = progress.credits >= creditsNeeded && progress.crystals >= crystalsNeeded;
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="drone-info-popup-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#03060f]/82 p-3 sm:p-5 backdrop-blur-sm"
-      onClick={() => {
-        SoundManager.playButtonClick();
-        onClose();
-      }}
-    >
-      <div
-        key={d.id}
-        className="pause-panel-enter flex max-h-[min(88dvh,640px)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-slate-700/80 bg-[#081122]/98 shadow-2xl shadow-black/75"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-800/85 px-5 py-3.5">
-          {preferredSlot !== null ? (
-            <button
-              type="button"
-              onClick={() => onBackToSlotPicker(preferredSlot)}
-              className="flex min-h-[36px] items-center gap-1.5 rounded-lg border border-slate-700/80 bg-[#060c1a] px-3 text-xs font-semibold text-slate-200 transition-colors hover:border-purple-300/60 hover:text-white"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span>All Drones (Slot 0{preferredSlot + 1})</span>
-            </button>
-          ) : (
-            <span className="font-mono-num text-[11px] font-semibold uppercase tracking-[0.12em] text-purple-300">
-              Companion Drone Info
-            </span>
-          )}
-
-          <button
-            type="button"
-            aria-label="Close drone details"
-            onClick={() => {
-              SoundManager.playButtonClick();
-              onClose();
-            }}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-700/80 bg-[#060c1a] text-slate-400 transition-colors hover:border-slate-500 hover:text-white"
+          {/* Selected Drone Details & Actions (Mirrors EquipmentGearModal 1:1) */}
+          <div
+            key={activeDrone.id}
+            className="panel-swap rounded-2xl border border-slate-800/90 bg-[#050b18]/90 p-4"
           >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Scrollable Drone Details */}
-        <div className="scroll-panel flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
-          {/* Visual + Title + Ownership */}
-          <div className="flex items-center gap-4">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-slate-700/80 bg-[#050b18]">
-              <DroneArtBadge droneId={d.id} colorHex={d.colorHex} size={48} />
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5 font-mono-num text-[11px]">
-                <span className="font-semibold text-purple-300">{d.role}</span>
-                <span aria-hidden="true" className="text-slate-600">
-                  ·
-                </span>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
                 <span
-                  className={`font-bold ${
-                    equipped ? 'text-emerald-300' : owned ? 'text-sky-300' : 'text-slate-400'
-                  }`}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border bg-[#071022]"
+                  style={{ borderColor: `${rarity.colorHex}55` }}
                 >
-                  {equipped
-                    ? `Equipped (Slot 0${slotIdx + 1})`
-                    : owned
-                    ? `Owned · Lv.${lvl}/${d.maxLevel}`
-                    : 'Locked'}
+                  <DroneArtBadge
+                    droneId={activeDrone.id}
+                    colorHex={activeDrone.colorHex}
+                    size={32}
+                  />
                 </span>
-              </div>
-              <h3
-                id="drone-info-popup-title"
-                className="mt-1 truncate font-display text-lg sm:text-xl font-bold text-white"
-              >
-                {d.name}
-              </h3>
-            </div>
-          </div>
-
-          {/* Description */}
-          <p className="text-xs sm:text-[13px] leading-relaxed text-slate-300">{d.description}</p>
-
-          {/* Primary Stat & Special Ability */}
-          <div className="flex flex-col gap-2.5 rounded-xl border border-slate-800/90 bg-[#050b18]/90 p-3.5 font-mono-num text-xs">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-slate-400">Wingman Output</span>
-              <div className="font-bold" style={{ color: d.colorHex }}>
-                {formatDronePower(d, power)}
-                {nextPower !== null && (
-                  <span className="ml-2 text-emerald-400">→ {formatDronePower(d, nextPower)}</span>
-                )}
-              </div>
-            </div>
-            <div className="h-px bg-slate-800/80" />
-            <div>
-              <div className="text-[10.5px] uppercase tracking-wider text-slate-500">
-                Special Capability
-              </div>
-              <div className="mt-1 font-sans text-xs leading-relaxed text-slate-200">
-                {d.abilitySummary}
-              </div>
-            </div>
-          </div>
-
-          {/* Action Area */}
-          <div className="flex flex-col gap-2.5 border-t border-slate-800/85 pt-4">
-            {!owned ? (
-              <div className="flex min-h-[42px] items-center justify-center gap-2 rounded-xl border border-slate-800 bg-[#050b18]/85 px-4 text-xs font-medium text-slate-500">
-                <Lock className="h-3.5 w-3.5" />
-                <span>Locked — Unlock drone before equipping</span>
-              </div>
-            ) : equipped ? (
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-3.5 py-2.5 text-xs">
-                  <span className="flex items-center gap-1.5 font-bold text-emerald-300">
-                    <Check className="h-4 w-4" />
-                    <span>Equipped in Slot 0{slotIdx + 1}</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onUnequipConfirm(d)}
-                    className="font-semibold text-rose-300 underline-offset-2 hover:text-rose-200 hover:underline"
-                  >
-                    Unequip
-                  </button>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5 font-mono-num text-[11px]">
+                    <span className={`font-bold ${rarity.textClass}`}>{rarity.label}</span>
+                    <span aria-hidden="true" className="text-slate-600">
+                      ·
+                    </span>
+                    <span className={owned ? 'font-semibold text-emerald-300' : 'text-slate-400'}>
+                      {owned
+                        ? `Owned · Lv.${lvl}/${activeDrone.maxLevel}`
+                        : 'Locked (Not Owned)'}
+                    </span>
+                    {equippedInThisSlot && (
+                      <>
+                        <span aria-hidden="true" className="text-slate-600">
+                          ·
+                        </span>
+                        <span className="font-bold text-emerald-300">Equipped</span>
+                      </>
+                    )}
+                    {equippedInOtherSlot && (
+                      <>
+                        <span aria-hidden="true" className="text-slate-600">
+                          ·
+                        </span>
+                        <span className="font-bold text-amber-300">
+                          Active in {otherSlotMeta.title}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <h4 className="mt-0.5 truncate font-display text-base sm:text-lg font-bold text-white">
+                    {activeDrone.name}
+                  </h4>
                 </div>
               </div>
-            ) : !slotsFull ? (
-              <button
-                type="button"
-                onClick={() => onEquipConfirm(d)}
-                className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-cyan-300/60 bg-cyan-400/14 px-4 text-xs font-bold text-cyan-100 transition-colors hover:bg-cyan-400/22"
-              >
-                <span>Equip to Slot 0{progress.equippedDrones.length + 1}</span>
-              </button>
-            ) : preferredSlot !== null ? (
-              <button
-                type="button"
-                onClick={() => onEquipConfirm(d, preferredSlot)}
-                className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-cyan-300/60 bg-cyan-400/14 px-4 text-xs font-bold text-cyan-100 transition-colors hover:bg-cyan-400/22"
-              >
-                <span>
-                  Equip to Slot 0{preferredSlot + 1} (Replaces{' '}
-                  {DRONES[progress.equippedDrones[preferredSlot]]?.name ?? 'Active'})
-                </span>
-              </button>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                {([0, 1] as const).map((targetIdx) => {
-                  const incumbentId = progress.equippedDrones[targetIdx];
-                  const incumbentName = incumbentId
-                    ? DRONES[incumbentId]?.name ?? incumbentId
-                    : 'Empty';
-                  return (
-                    <button
-                      key={`replace-s${targetIdx}`}
-                      type="button"
-                      onClick={() => onEquipConfirm(d, targetIdx)}
-                      className="flex min-h-[44px] flex-col items-center justify-center rounded-xl border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-center transition-colors hover:border-cyan-300/60 hover:text-white"
-                    >
-                      <span className="text-[11px] font-bold text-cyan-200">
-                        Replace Slot 0{targetIdx + 1}
-                      </span>
-                      <span className="max-w-full truncate font-mono-num text-[10px] text-slate-400">
-                        {incumbentName}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            </div>
 
-            {owned ? (
+            <p className="mt-2.5 text-xs leading-relaxed text-slate-300">
+              {activeDrone.description}
+            </p>
+
+            <div className="mt-3 rounded-xl border border-slate-800/85 bg-[#071022]/85 p-3">
+              <div className="font-mono-num text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
+                {owned ? 'Drone Modifiers' : 'Base Modifiers (Lv.1)'}
+              </div>
+              <div className="mt-1.5 flex flex-col gap-1 font-mono-num text-xs font-semibold text-sky-300">
+                {modifiers.map((m, idx) => (
+                  <div key={m} className="flex items-center justify-between gap-2">
+                    <span>{m}</span>
+                    {nextModifiers[idx] && nextModifiers[idx] !== m && (
+                      <span className="text-[11px] text-emerald-400">
+                        → {nextModifiers[idx]}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-col gap-2.5 sm:flex-row">
+              {!owned ? (
+                <div className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border border-slate-800 bg-[#060c1a] px-3 text-xs font-medium text-slate-500">
+                  <Lock className="h-3.5 w-3.5" />
+                  <span>Purchase required to equip</span>
+                </div>
+              ) : equippedInThisSlot ? (
+                <button
+                  type="button"
+                  onClick={() => onUnequipConfirm(activeDrone, slotMeta.id)}
+                  className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border border-emerald-400/50 bg-emerald-500/14 px-4 text-xs font-bold text-emerald-300 transition-colors hover:border-rose-400/55 hover:bg-rose-500/14 hover:text-rose-200"
+                >
+                  <Check className="h-4 w-4" />
+                  <span>Equipped · Unequip</span>
+                </button>
+              ) : equippedInOtherSlot ? (
+                <div className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border border-amber-400/35 bg-amber-500/10 px-3 text-xs font-semibold text-amber-200/90">
+                  <span>Active in {otherSlotMeta.title} · Unequip there first</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onEquipConfirm(activeDrone, slotMeta.id)}
+                  className="relative flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl border border-cyan-300/60 bg-cyan-400/14 px-4 text-xs font-bold text-cyan-100 transition-colors hover:bg-cyan-400/22"
+                >
+                  <NotificationDot
+                    visible={!currentEquippedId}
+                    position="corner"
+                    label="Empty slot ready to equip"
+                  />
+                  <span>{currentEquippedId ? 'Replace Equipped' : 'Equip to Slot'}</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 disabled={maxed}
-                onClick={() => onBuyOrUpgradeConfirm(d)}
-                className={`flex min-h-[46px] items-center justify-center rounded-xl px-4 font-mono-num text-xs font-bold transition-[background-color,transform] duration-150 ${
+                onClick={() => onBuyOrUpgradeConfirm(activeDrone, slotMeta.id)}
+                className={`relative flex min-h-[44px] flex-1 items-center justify-center rounded-xl px-4 font-mono-num text-xs font-bold transition-[background-color,transform] duration-150 ${
                   maxed
                     ? 'cursor-not-allowed border border-slate-800 bg-slate-950 text-slate-500'
                     : affordable
@@ -395,27 +328,22 @@ export const DroneInfoModal: React.FC<DroneInfoModalProps> = ({
                     : 'border border-slate-700/80 bg-slate-900/90 text-slate-300 hover:border-slate-500'
                 }`}
               >
+                <NotificationDot
+                  visible={!maxed && affordable && !equippedInOtherSlot}
+                  position="corner"
+                  label={owned ? 'Ready to enhance' : 'Ready to purchase'}
+                />
                 {maxed
                   ? 'MAX LEVEL REACHED'
-                  : `Upgrade Lv.${lvl + 1} (${upgCost.credits.toLocaleString()} CR${
+                  : owned
+                  ? `Enhance Lv.${lvl + 1} (${upgCost.credits.toLocaleString()} CR${
                       upgCost.crystals > 0 ? ` · ${upgCost.crystals} Gems` : ''
+                    })`
+                  : `Buy Drone (${activeDrone.costCredits.toLocaleString()} CR${
+                      activeDrone.costCrystals > 0 ? ` · ${activeDrone.costCrystals} Gems` : ''
                     })`}
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => onBuyOrUpgradeConfirm(d)}
-                className={`flex min-h-[46px] items-center justify-center rounded-xl px-4 font-mono-num text-xs font-bold transition-[background-color,transform] duration-150 ${
-                  affordable
-                    ? 'bg-sky-400 text-slate-950 hover:bg-sky-300 active:scale-[0.98]'
-                    : 'border border-slate-700/80 bg-slate-900/90 text-slate-300 hover:border-slate-500'
-                }`}
-              >
-                {`Unlock Drone (${d.costCredits.toLocaleString()} CR${
-                  d.costCrystals > 0 ? ` · ${d.costCrystals} Gems` : ''
-                })`}
-              </button>
-            )}
+            </div>
           </div>
         </div>
       </div>

@@ -433,10 +433,11 @@ export class CombatSystem {
     });
 
     // Update power-ups & pickup collisions
+    const w = this.scene.scale.width;
     const h = this.scene.scale.height;
     const magnetBonus = player.stats.pickupRadiusBonus;
     this.powerUpPool.forEachActive((pu) => {
-      pu.update(dt, player.x, player.y, h, magnetBonus);
+      pu.update(dt, player.x, player.y, h, magnetBonus, w);
       if (!pu.active) return;
       const dist = Math.hypot(pu.sprite.x - player.x, pu.sprite.y - player.y);
       if (dist < player.radius + 22) {

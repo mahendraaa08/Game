@@ -1,11 +1,13 @@
-import React, { useEffect } from 'react';
-import { ChevronRight, Play, Settings, Trophy, Wrench } from 'lucide-react';
+import React, { useEffect, useMemo } from 'react';
+import { BookOpen, ChevronRight, Play, Settings, Trophy, Wrench } from 'lucide-react';
 import titleKeyArt from '../assets/images/title_key_art_1794922504898.jpg';
 import { SHIPS } from '../game/config/ShipConfig';
 import { SoundManager } from '../game/audio/SoundManager';
+import { evaluateGlobalNotifications } from '../game/systems/NotificationStatus';
 import { AppRoute } from '../game/utils/EventBus';
 import { PlayerProgress } from '../game/utils/StorageManager';
 import { CreditCoinIcon, CrystalGemIcon } from './ui/CurrencyBadges';
+import { NotificationDot } from './ui/NotificationDot';
 
 interface TitleOverlayProps {
   progress: PlayerProgress;
@@ -19,6 +21,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
   onNavigate,
 }) => {
   const activeShip = SHIPS[progress.selectedShip] ?? SHIPS.falcon_x;
+  const notifications = useMemo(() => evaluateGlobalNotifications(progress), [progress]);
 
   const navigateTo = (route: Exclude<AppRoute, 'menu'>) => {
     SoundManager.unlock();
@@ -197,8 +200,13 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
             <button
               type="button"
               onClick={() => navigateTo('ships')}
-              className="group flex min-h-[54px] w-full items-center justify-between rounded-2xl border border-slate-700/70 bg-[#081122]/86 px-5 py-3 text-left text-slate-100 backdrop-blur-sm transition-[border-color,background-color,transform] duration-150 hover:border-cyan-300/45 hover:bg-[#0d1930]/92 active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400"
+              className="group relative flex min-h-[54px] w-full items-center justify-between rounded-2xl border border-slate-700/70 bg-[#081122]/86 px-5 py-3 text-left text-slate-100 backdrop-blur-sm transition-[border-color,background-color,transform] duration-150 hover:border-cyan-300/45 hover:bg-[#0d1930]/92 active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400"
             >
+              <NotificationDot
+                visible={notifications.hangarMenu}
+                position="corner"
+                label="Hangar action available"
+              />
               <div className="flex items-center gap-3.5 min-w-0">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10">
                   <Wrench className="h-[17px] w-[17px] text-cyan-300" />
@@ -214,8 +222,13 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
             <button
               type="button"
               onClick={() => navigateTo('missions')}
-              className="group flex min-h-[54px] w-full items-center justify-between rounded-2xl border border-slate-700/70 bg-[#081122]/86 px-5 py-3 text-left text-slate-100 backdrop-blur-sm transition-[border-color,background-color,transform] duration-150 hover:border-cyan-300/45 hover:bg-[#0d1930]/92 active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400"
+              className="group relative flex min-h-[54px] w-full items-center justify-between rounded-2xl border border-slate-700/70 bg-[#081122]/86 px-5 py-3 text-left text-slate-100 backdrop-blur-sm transition-[border-color,background-color,transform] duration-150 hover:border-cyan-300/45 hover:bg-[#0d1930]/92 active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400"
             >
+              <NotificationDot
+                visible={notifications.missionsMenu}
+                position="corner"
+                label="Completed mission or medal reward ready to claim"
+              />
               <div className="flex items-center gap-3.5 min-w-0">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-amber-300/20 bg-amber-400/10">
                   <Trophy className="h-[17px] w-[17px] text-amber-300" />
@@ -225,6 +238,23 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
                 </span>
               </div>
               <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-amber-300" />
+            </button>
+
+            {/* 4. CODEX -> Game Encyclopedia */}
+            <button
+              type="button"
+              onClick={() => navigateTo('codex')}
+              className="group relative flex min-h-[54px] w-full items-center justify-between rounded-2xl border border-slate-700/70 bg-[#081122]/86 px-5 py-3 text-left text-slate-100 backdrop-blur-sm transition-[border-color,background-color,transform] duration-150 hover:border-cyan-300/45 hover:bg-[#0d1930]/92 active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400"
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-sky-300/20 bg-sky-400/10">
+                  <BookOpen className="h-[17px] w-[17px] text-sky-300" />
+                </span>
+                <span className="truncate font-display text-sm sm:text-[15px] font-semibold tracking-[0.08em] text-slate-100">
+                  CODEX
+                </span>
+              </div>
+              <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-sky-300" />
             </button>
           </nav>
         </section>
