@@ -3,6 +3,7 @@ import { CAMPAIGN_LEVELS } from '../config/LevelConfig';
 import { SHIPS } from '../config/ShipConfig';
 import { SoundManager } from '../audio/SoundManager';
 import { BackgroundSystem } from '../systems/BackgroundSystem';
+import { generateAllTextures } from '../textures/TextureGenerator';
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../utils/StorageManager';
 
@@ -19,10 +20,13 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   create(): void {
+    generateAllTextures(this);
     EventBus.emit('scene:changed', 'MainMenuScene');
     const saved = StorageManager.load();
     SoundManager.syncSettings(saved.settings);
-    SoundManager.playMusic('menu');
+    if (saved.guestModeConfirmed) {
+      SoundManager.playMusic('menu');
+    }
 
     this.bg = new BackgroundSystem(this, CAMPAIGN_LEVELS[0].environment, saved.settings.fxQuality);
     this.bg.setScrollMultiplier(0.75);

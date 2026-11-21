@@ -25,6 +25,7 @@ import { BackgroundSystem } from '../systems/BackgroundSystem';
 import { CombatSystem } from '../systems/CombatSystem';
 import { computePlayerStats, ProgressionManager } from '../systems/ProgressionManager';
 import { WaveDirector } from '../systems/WaveDirector';
+import { generateAllTextures } from '../textures/TextureGenerator';
 import { EventBus, BossPosePayload } from '../utils/EventBus';
 import { StorageManager } from '../utils/StorageManager';
 
@@ -137,6 +138,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(data: GameSceneData): void {
+    generateAllTextures(this);
     const saved = StorageManager.load();
     this.mode = data?.mode ?? 'campaign';
     this.challengeDef =
@@ -764,6 +766,7 @@ export class GameScene extends Phaser.Scene {
     if (this.levelEnding) return;
     this.levelEnding = true;
     SoundManager.playExplosion('boss');
+    SoundManager.playDefeat();
     SoundManager.playMusic('gameover');
     this.combat.spawnExplosion(this.player.x, this.player.y, 0xf43f5e, 32, 320, 1.6);
     this.shakeCamera(420, 0.018);
@@ -826,6 +829,7 @@ export class GameScene extends Phaser.Scene {
         const wDef = WEAPON_LIST[i];
         if (wDef && this.cachedUnlockedWeapons.includes(wDef.id)) {
           if (this.player.setWeapon(wDef.id)) {
+            SoundManager.playWeaponSwitch();
             StorageManager.setWeapon(wDef.id);
           }
         }
@@ -881,7 +885,8 @@ export class GameScene extends Phaser.Scene {
       targets,
       (t, dmg, isCrit) => this.applyDirectDamage(t, dmg, isCrit),
       () => {},
-      (intensity) => this.shakeCamera(180, intensity)
+      (intensity) => this.shakeCamera(180, intensity),
+      (t) => this.combat.spawnStunRing(t.x, t.y)
     );
 
     // Update Companion Drones

@@ -3,6 +3,7 @@ import { CAMPAIGN_LEVELS } from '../config/LevelConfig';
 import { SHIPS } from '../config/ShipConfig';
 import { SpecialId, WeaponId } from '../config/WeaponConfig';
 import { BackgroundSystem } from '../systems/BackgroundSystem';
+import { generateAllTextures } from '../textures/TextureGenerator';
 import { EventBus, LevelResultPayload } from '../utils/EventBus';
 import { StorageManager } from '../utils/StorageManager';
 
@@ -21,6 +22,7 @@ export class LevelResultScene extends Phaser.Scene {
   }
 
   create(data: LevelResultData): void {
+    generateAllTextures(this);
     EventBus.emit('scene:changed', 'LevelResultScene');
     EventBus.emit('level:result', data);
 

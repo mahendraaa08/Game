@@ -8,4 +8,5 @@ export interface Targetable {
   radius: number;
   sprite: Phaser.GameObjects.Sprite;
   takeDamage(amount: number): boolean;
+  applyParalyze?(baseDurationSec: number): boolean;
 }

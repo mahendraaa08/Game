@@ -13,6 +13,13 @@ import {
   WeaponId,
   WEAPONS,
 } from '../../game/config/WeaponConfig';
+import {
+  getNextWeaponEvolutionMeta,
+  getWeaponEvolutionMeta,
+  getWeaponEvolutionStage,
+  WEAPON_EVOLUTION_LEVELS,
+  WEAPON_EVOLUTIONS,
+} from '../../game/config/WeaponEvolutionConfig';
 import { SoundManager } from '../../game/audio/SoundManager';
 import { evaluateGlobalNotifications } from '../../game/systems/NotificationStatus';
 import { ActionResult, ProgressionManager } from '../../game/systems/ProgressionManager';
@@ -59,6 +66,11 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
   const isMaxWeapon = wLvl >= def.maxWeaponLevel;
   const upgCost = getWeaponUpgradeCost(wLvl, def.id);
 
+  const evoStage = getWeaponEvolutionStage(wLvl);
+  const evoMeta = getWeaponEvolutionMeta(def.id, wLvl);
+  const nextEvoMeta = getNextWeaponEvolutionMeta(def.id, wLvl);
+  const allEvoTiers = WEAPON_EVOLUTIONS[def.id];
+
   const curDmg = getWeaponDamageAtLevel(def, wLvl);
   const nextDmg = isMaxWeapon ? curDmg : getWeaponDamageAtLevel(def, wLvl + 1);
   const curRate = Number((1000 / getWeaponFireRateAtLevel(def, wLvl)).toFixed(1));
@@ -67,6 +79,18 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
     : Number((1000 / getWeaponFireRateAtLevel(def, wLvl + 1)).toFixed(1));
   const eqDmg = getWeaponDamageAtLevel(eqDef, eqLvl);
   const eqRate = Number((1000 / getWeaponFireRateAtLevel(eqDef, eqLvl)).toFixed(1));
+
+  const dmgStatLabel =
+    def.id === 'beam'
+      ? 'Tick Damage'
+      : def.id === 'dual_laser'
+      ? 'Bolt Damage (x2)'
+      : def.id === 'homing'
+      ? 'Missile Damage (x2)'
+      : def.id === 'spread'
+      ? `Bolt Damage (x${evoStage === 2 ? 6 : 4})`
+      : 'Bolt Damage';
+  const rateStatLabel = def.id === 'beam' ? 'Tick Cadence' : 'Fire Cadence';
 
   const openWeaponActionConfirm = (action: 'unlock' | 'select' | 'upgrade') => {
     SoundManager.unlock();
@@ -78,13 +102,14 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
         category: 'equip',
         title: 'Confirm Equip',
         itemName: def.name,
-        itemSubtitle: `Hotkey #${def.hotkey} · ${def.rangeLabel} · Lv.${wLvl}`,
+        itemSubtitle: `Hotkey #${def.hotkey} · ${evoMeta.formName} · Lv.${wLvl}`,
         description: `Switch primary combat weapon from ${eqDef.name} to ${def.name}?`,
         icon: <Crosshair className="h-5 w-5" style={{ color: def.colorHex }} />,
         statDeltas: [
           { label: 'Equipped Weapon', before: eqDef.name, after: def.name },
-          { label: 'Bolt Damage', before: `${eqDmg}`, after: `${curDmg}` },
-          { label: 'Fire Cadence', before: `${eqRate}/s`, after: `${curRate}/s` },
+          { label: 'Evolution Form', before: getWeaponEvolutionMeta(eqDef.id, eqLvl).formName, after: evoMeta.formName },
+          { label: dmgStatLabel, before: `${eqDmg}`, after: `${curDmg}` },
+          { label: rateStatLabel, before: `${eqRate}/s`, after: `${curRate}/s` },
         ],
         execute: () => ProgressionManager.unlockOrUpgradeWeapon(def.id, 'select'),
       });
@@ -105,8 +130,9 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
           : undefined,
         icon: <Crosshair className="h-5 w-5" style={{ color: def.colorHex }} />,
         statDeltas: [
-          { label: 'Bolt Damage (Lv.1)', before: `${curDmg}` },
-          { label: 'Fire Cadence', before: `${curRate}/s` },
+          { label: 'Base Form', before: allEvoTiers[0].formName },
+          { label: `${dmgStatLabel} (Lv.1)`, before: `${curDmg}` },
+          { label: rateStatLabel, before: `${curRate}/s` },
         ],
         creditsCost: def.unlockCredits,
         crystalsCost: def.unlockCrystals,
@@ -115,18 +141,32 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
       return;
     }
 
+    const nextLvl = wLvl + 1;
+    const nextStageMeta = getWeaponEvolutionMeta(def.id, nextLvl);
+    const unlocksEvolution = nextStageMeta.stage > evoMeta.stage;
+
     setPendingAction({
       id: `upgrade-weapon-${def.id}-${wLvl}`,
       category: 'upgrade',
-      title: 'Confirm Upgrade',
+      title: unlocksEvolution ? `Unlock ${nextStageMeta.tierLabel}` : 'Confirm Upgrade',
       itemName: def.name,
-      itemSubtitle: `Primary Weapon Enhancement · Hotkey #${def.hotkey}`,
-      description: `Reinforce ${def.name} emitters and ballistic output.`,
+      itemSubtitle: unlocksEvolution
+        ? `${nextStageMeta.tierLabel} Milestone · ${nextStageMeta.formName}`
+        : `Primary Weapon Enhancement · Hotkey #${def.hotkey}`,
+      description: unlocksEvolution
+        ? `${nextStageMeta.formName}: ${nextStageMeta.summary}`
+        : `Reinforce ${def.name} emitters and ballistic output.`,
+      note: unlocksEvolution
+        ? `Reaching Level ${nextLvl} evolves this weapon into ${nextStageMeta.formName}!`
+        : undefined,
       icon: <ArrowUpCircle className="h-5 w-5 text-cyan-300" />,
       statDeltas: [
-        { label: 'Weapon Level', before: `Lv.${wLvl}`, after: `Lv.${wLvl + 1}` },
-        { label: 'Bolt Damage', before: `${curDmg}`, after: `${nextDmg}` },
-        { label: 'Fire Cadence', before: `${curRate}/s`, after: `${nextRate}/s` },
+        { label: 'Weapon Level', before: `Lv.${wLvl}`, after: `Lv.${nextLvl}` },
+        ...(unlocksEvolution
+          ? [{ label: 'Evolution Form', before: evoMeta.formName, after: nextStageMeta.formName }]
+          : []),
+        { label: dmgStatLabel, before: `${curDmg}`, after: `${nextDmg}` },
+        { label: rateStatLabel, before: `${curRate}/s`, after: `${nextRate}/s` },
       ],
       creditsCost: upgCost.credits,
       crystalsCost: upgCost.crystals,
@@ -245,6 +285,7 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                   const isEquipped = progress.selectedWeapon === w.id;
                   const isSelected = inspectWeapon === w.id;
                   const lvl = progress.weaponLevels[w.id] ?? 1;
+                  const stage = getWeaponEvolutionStage(lvl);
 
                   return (
                     <button
@@ -280,11 +321,22 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                         ) : null}
                       </div>
                       <div className="mt-2 flex items-center justify-between font-mono-num text-[10.5px] text-slate-400">
-                        <span>#{w.hotkey}</span>
+                        <span>
+                          #{w.hotkey}
+                          {isOwned && stage > 0 && (
+                            <span
+                              className={`ml-1.5 font-bold ${
+                                stage === 2 ? 'text-amber-300' : 'text-cyan-300'
+                              }`}
+                            >
+                              {stage === 2 ? 'EVO II' : 'EVO I'}
+                            </span>
+                          )}
+                        </span>
                         <span>
                           {isOwned
                             ? `Lv.${lvl}/${w.maxWeaponLevel}`
-                            : `S${String(w.unlockLevel).padStart(2, '0')}`}
+                            : `${w.unlockCredits.toLocaleString()} CR · S${String(w.unlockLevel).padStart(2, '0')}`}
                         </span>
                       </div>
                     </button>
@@ -314,46 +366,90 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                     }`}
                   >
                     {progress.selectedWeapon === def.id
-                      ? 'EQUIPPED'
+                      ? `EQUIPPED · Lv.${wLvl}/${def.maxWeaponLevel}`
                       : unlocked
                       ? `OWNED · Lv.${wLvl}/${def.maxWeaponLevel}`
                       : 'LOCKED'}
                   </span>
                 </div>
 
-                <div className="mt-2 flex items-center gap-2.5">
-                  <span
-                    className="h-8 w-1.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: def.colorHex }}
-                  />
-                  <h4
-                    className="font-display text-xl sm:text-2xl font-bold tracking-wide"
-                    style={{ color: def.colorHex }}
-                  >
-                    {def.name}
-                  </h4>
-                </div>
-
-                <p className="mt-2.5 text-xs leading-relaxed text-slate-300">{def.description}</p>
-                <p className="mt-1.5 font-mono-num text-[11px] font-medium text-purple-300">
-                  Trait: {def.specialProperty}
-                </p>
-
-                {/* Level Pips */}
-                <div className="mt-3.5 flex items-center gap-1">
-                  {Array.from({ length: def.maxWeaponLevel }).map((_, i) => (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
                     <span
-                      key={i}
-                      className={`h-1.5 flex-1 rounded-full ${
-                        i < wLvl ? 'bg-cyan-400' : 'bg-slate-800'
-                      }`}
+                      className="h-8 w-1.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: def.colorHex }}
                     />
-                  ))}
+                    <div>
+                      <h4
+                        className="font-display text-xl sm:text-2xl font-bold leading-tight tracking-wide"
+                        style={{ color: def.colorHex }}
+                      >
+                        {def.name}
+                      </h4>
+                      <div className="mt-0.5 flex items-center gap-1.5 font-mono-num text-[11px]">
+                        <span
+                          className={`font-bold ${
+                            evoStage === 2
+                              ? 'text-amber-300'
+                              : evoStage === 1
+                              ? 'text-cyan-300'
+                              : 'text-slate-300'
+                          }`}
+                        >
+                          {evoMeta.tierLabel.toUpperCase()}
+                        </span>
+                        <span className="text-slate-600">·</span>
+                        <span className="text-slate-200">{evoMeta.formName}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="mt-3.5 grid grid-cols-2 gap-3 border-y border-slate-800/80 py-3 text-xs">
+                <p className="mt-2.5 text-xs leading-relaxed text-slate-300">{evoMeta.summary}</p>
+
+                {/* 20-Level Progression Pips with Lv12 (Evo I) & Lv20 (Evo II) Milestone Markers */}
+                <div className="mt-3.5">
+                  <div className="flex items-center gap-0.5">
+                    {Array.from({ length: def.maxWeaponLevel }).map((_, i) => {
+                      const lvlNum = i + 1;
+                      const isFilled = i < wLvl;
+                      const isEvo1 = lvlNum === WEAPON_EVOLUTION_LEVELS.EVO_1;
+                      const isEvo2 = lvlNum === WEAPON_EVOLUTION_LEVELS.EVO_2;
+                      return (
+                        <span
+                          key={i}
+                          title={`Lv.${lvlNum}${isEvo1 ? ' (Evolution I)' : isEvo2 ? ' (Evolution II)' : ''}`}
+                          className={`flex-1 rounded-full transition-colors ${
+                            isEvo1 || isEvo2 ? 'h-2.5' : 'h-1.5'
+                          } ${
+                            isFilled
+                              ? lvlNum >= WEAPON_EVOLUTION_LEVELS.EVO_2
+                                ? 'bg-amber-300'
+                                : lvlNum >= WEAPON_EVOLUTION_LEVELS.EVO_1
+                                ? 'bg-cyan-300'
+                                : 'bg-sky-400'
+                              : isEvo1 || isEvo2
+                              ? 'border border-slate-600 bg-slate-800/90'
+                              : 'bg-slate-800'
+                          }`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="mt-1 flex items-center justify-between font-mono-num text-[9.5px] text-slate-400">
+                    <span>Lv.1 Base</span>
+                    <span className={wLvl >= WEAPON_EVOLUTION_LEVELS.EVO_1 ? 'font-bold text-cyan-300' : ''}>
+                      Lv.12 Evo I
+                    </span>
+                    <span className={wLvl >= WEAPON_EVOLUTION_LEVELS.EVO_2 ? 'font-bold text-amber-300' : ''}>
+                      Lv.20 Evo II
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-3 border-y border-slate-800/80 py-3 text-xs">
                   <div>
-                    <div className="text-[11px] text-slate-400">Bolt Damage</div>
+                    <div className="text-[11px] text-slate-400">{dmgStatLabel}</div>
                     <div className="mt-0.5 font-mono-num text-base font-bold text-white">
                       {curDmg}
                       {!isMaxWeapon && unlocked && (
@@ -368,7 +464,7 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                     </div>
                   </div>
                   <div>
-                    <div className="text-[11px] text-slate-400">Fire Cadence</div>
+                    <div className="text-[11px] text-slate-400">{rateStatLabel}</div>
                     <div className="mt-0.5 font-mono-num text-base font-bold text-sky-300">
                       {curRate}/s
                       {!isMaxWeapon && unlocked && nextRate !== curRate && (
@@ -377,6 +473,55 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Evolution Stages Roadmap */}
+                <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                  {allEvoTiers.map((tier) => {
+                    const isUnlockedTier = unlocked && wLvl >= tier.unlockLevel;
+                    const isCurrentTier = unlocked && evoStage === tier.stage;
+                    return (
+                      <div
+                        key={tier.stage}
+                        className={`rounded-xl border px-2.5 py-2 transition-colors ${
+                          isCurrentTier
+                            ? tier.stage === 2
+                              ? 'border-amber-300/60 bg-amber-400/10'
+                              : 'border-cyan-300/55 bg-cyan-400/10'
+                            : isUnlockedTier
+                            ? 'border-slate-700/80 bg-slate-900/60'
+                            : 'border-slate-800/80 bg-[#050b18]/75 opacity-75'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between font-mono-num text-[9.5px]">
+                          <span
+                            className={`font-bold ${
+                              isCurrentTier
+                                ? tier.stage === 2
+                                  ? 'text-amber-300'
+                                  : 'text-cyan-300'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            {tier.tierLabel}
+                          </span>
+                          <span className="text-slate-400">Lv.{tier.unlockLevel}</span>
+                        </div>
+                        <div className="mt-0.5 truncate font-display text-[11.5px] font-bold text-white">
+                          {tier.formName}
+                        </div>
+                        <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-slate-400">
+                          {tier.mechanicNotes[0]}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {nextEvoMeta && unlocked && (
+                  <p className="mt-2 font-mono-num text-[10.5px] text-cyan-200/85">
+                    Next Evolution @ Lv.{nextEvoMeta.unlockLevel}: {nextEvoMeta.formName} — {nextEvoMeta.mechanicNotes[0]}
+                  </p>
+                )}
               </div>
 
               <div className="mt-4">
@@ -425,7 +570,7 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                       <ArrowUpCircle className="h-4 w-4" />
                       <span>
                         {isMaxWeapon
-                          ? 'MAX LEVEL'
+                          ? 'MAX LEVEL (EVO II)'
                           : `UPGRADE (${upgCost.credits} CR${
                               upgCost.crystals > 0 ? ` · ${upgCost.crystals} Gems` : ''
                             })`}

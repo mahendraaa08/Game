@@ -355,6 +355,43 @@
   animation: startup-orbit-spin 28s linear infinite reverse;
 }
 
+@keyframes loading-letter-wave {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: translateY(0px);
+  }
+  42% {
+    opacity: 1;
+    transform: translateY(-2.5px);
+  }
+  70% {
+    opacity: 0.72;
+    transform: translateY(0px);
+  }
+}
+
+.loading-letter {
+  display: inline-block;
+  animation: loading-letter-wave 1.85s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+}
+
+@keyframes loading-aura-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.92;
+    transform: scale(1.04);
+  }
+}
+
+.loading-aura {
+  animation: loading-aura-breathe 3.4s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .menu-enter,
   .panel-swap,
@@ -372,7 +409,9 @@
   .startup-emblem-enter,
   .startup-card-enter,
   .startup-orbit-slow,
-  .startup-orbit-reverse {
+  .startup-orbit-reverse,
+  .loading-letter,
+  .loading-aura {
     animation: none;
   }
 }

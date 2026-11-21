@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { ENEMY_CONFIGS, EnemyBehavior, EnemyClass, EnemyDefinition } from '../config/EnemyConfig';
+import { WEAPON_RUNTIME_TUNING } from '../config/WeaponEvolutionConfig';
+import { SoundManager } from '../audio/SoundManager';
 import { ProjectileManager } from './ProjectileManager';
 import { Targetable } from './Targetable';
 
@@ -51,6 +53,11 @@ export class EnemyEntity implements Targetable {
   private evadeTimerMs = 0;
   private evadeCooldownMs = 0;
   private evadeVx = 0;
+
+  // Paralyze / Stun status state (Lightning Evolution II)
+  private paralyzeTimerMs = 0;
+  private paralyzeImmunityMs = 0;
+  private paralyzeNextImmunityMs = 0;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -122,6 +129,9 @@ export class EnemyEntity implements Targetable {
     this.evadeTimerMs = 0;
     this.evadeCooldownMs = 1200 + Math.random() * 1200;
     this.evadeVx = 0;
+    this.paralyzeTimerMs = 0;
+    this.paralyzeImmunityMs = 0;
+    this.paralyzeNextImmunityMs = 0;
 
     this.sprite.setTexture(this.def.textureKey);
     this.sprite.setPosition(x, y);
@@ -132,6 +142,25 @@ export class EnemyEntity implements Targetable {
     this.sprite.setActive(true).setVisible(true);
     this.hpBarGfx.clear();
     this.telegraphGfx.clear();
+  }
+
+  applyParalyze(baseDurationSec: number): boolean {
+    if (!this.active || this.paralyzeTimerMs > 0 || this.paralyzeImmunityMs > 0) {
+      return false;
+    }
+    const isHeavyOrElite =
+      this.def.id === 'tank' ||
+      this.def.id === 'elite' ||
+      this.def.id === 'bastion' ||
+      this.def.id === 'harbinger' ||
+      this.def.id === 'splitter';
+    const resistMult = isHeavyOrElite ? WEAPON_RUNTIME_TUNING.lightning.evo2EliteResistance : 1;
+    this.paralyzeTimerMs = Math.max(220, Math.round(baseDurationSec * 1000 * resistMult));
+    this.paralyzeNextImmunityMs = isHeavyOrElite
+      ? WEAPON_RUNTIME_TUNING.lightning.evo2EliteImmunityMs
+      : WEAPON_RUNTIME_TUNING.lightning.evo2StunImmunityMs;
+    this.evadeTimerMs = 0;
+    return true;
   }
 
   takeDamage(amount: number): boolean {
@@ -195,6 +224,31 @@ export class EnemyEntity implements Targetable {
     const h = this.scene.scale.height;
 
     this.evadeCooldownMs = Math.max(0, this.evadeCooldownMs - dtMs);
+
+    if (this.paralyzeTimerMs > 0) {
+      this.paralyzeTimerMs -= dtMs;
+      const damp = 1 - Math.exp(-14 * dt);
+      this.vx = Phaser.Math.Linear(this.vx, 0, damp);
+      this.vy = Phaser.Math.Linear(this.vy, 0, damp);
+      this.sprite.x = Phaser.Math.Clamp(this.sprite.x + this.vx * dt, 30, w - 30);
+      this.sprite.y += this.vy * dt;
+
+      this.telegraphGfx.clear();
+      this.drawParalyzeFx(this.telegraphGfx, this.sprite.x, this.sprite.y, this.radius);
+
+      if (this.paralyzeTimerMs <= 0) {
+        this.paralyzeTimerMs = 0;
+        this.paralyzeImmunityMs = this.paralyzeNextImmunityMs;
+      }
+
+      this.drawHealthBars();
+      if (this.sprite.y > h + 65) {
+        this.deactivate();
+      }
+      return;
+    }
+
+    this.paralyzeImmunityMs = Math.max(0, this.paralyzeImmunityMs - dtMs);
 
     // 1. Compute smooth target velocity (targetVx, targetVy) based on AI behavior
     let targetVx = 0;
@@ -511,6 +565,37 @@ export class EnemyEntity implements Targetable {
     }
 
     // 4. Health & Shield bar when damaged or shielded
+    this.drawHealthBars();
+
+    if (this.sprite.y > h + 65) {
+      this.deactivate();
+    }
+  }
+
+  private drawParalyzeFx(gfx: Phaser.GameObjects.Graphics, cx: number, cy: number, radius: number): void {
+    const r = radius + 6;
+    gfx.lineStyle(1.6, 0x22d3ee, 0.72);
+    gfx.strokeCircle(cx, cy, r);
+    // Crackling lightning arcs jittering around stunned hull
+    for (let a = 0; a < 3; a++) {
+      const ang1 = (Math.PI * 2 * a) / 3 + this.age * 16 + Math.random() * 0.6;
+      const ang2 = ang1 + 0.9 + Math.random() * 0.5;
+      const x1 = cx + Math.cos(ang1) * (r * 0.65);
+      const y1 = cy + Math.sin(ang1) * (r * 0.65);
+      const xm = cx + Math.cos((ang1 + ang2) * 0.5) * (r * 1.15);
+      const ym = cy + Math.sin((ang1 + ang2) * 0.5) * (r * 1.15);
+      const x2 = cx + Math.cos(ang2) * (r * 0.7);
+      const y2 = cy + Math.sin(ang2) * (r * 0.7);
+      gfx.lineStyle(2.4, 0x38bdf8, 0.75);
+      gfx.lineBetween(x1, y1, xm, ym);
+      gfx.lineBetween(xm, ym, x2, y2);
+      gfx.lineStyle(1.1, 0xffffff, 0.95);
+      gfx.lineBetween(x1, y1, xm, ym);
+      gfx.lineBetween(xm, ym, x2, y2);
+    }
+  }
+
+  private drawHealthBars(): void {
     this.hpBarGfx.clear();
     if (this.hp < this.maxHp || this.shieldHp > 0) {
       const bw = 38;
@@ -529,10 +614,6 @@ export class EnemyEntity implements Targetable {
         this.hpBarGfx.fillStyle(0x34d399, 1);
         this.hpBarGfx.fillRect(this.sprite.x - bw / 2, syBar, bw * sRatio, 3);
       }
-    }
-
-    if (this.sprite.y > h + 65) {
-      this.deactivate();
     }
   }
 
@@ -625,6 +706,17 @@ export class EnemyEntity implements Targetable {
     const spd = this.def.projectileSpeed;
     const dmg = this.damage;
     const cycle = this.attackCycle++;
+
+    if (
+      this.def.id === 'sniper' ||
+      this.def.id === 'bomber' ||
+      this.def.id === 'splitter' ||
+      this.def.id === 'bastion' ||
+      this.def.id === 'elite' ||
+      this.def.id === 'harbinger'
+    ) {
+      SoundManager.playEnemyFire(this.def.id);
+    }
 
     switch (this.def.id) {
       case 'scout': {

@@ -443,7 +443,7 @@ export class CombatSystem {
       if (dist < player.radius + 22) {
         const type = pu.type;
         pu.deactivate();
-        SoundManager.playPowerUp();
+        SoundManager.playPowerUp(type);
         let result = { amountRestored: 0, durationSec: 0, isFull: false };
         if (type === 'mega_bomb') {
           this.triggerMegaBomb(player, projectiles, targets, onKillTarget);
@@ -462,6 +462,109 @@ export class CombatSystem {
     });
   }
 
+  spawnAoeShockwave(
+    x: number,
+    y: number,
+    radiusPx: number,
+    color: number,
+    isHeavy = false
+  ): void {
+    this.spawnExplosion(
+      x,
+      y,
+      color,
+      isHeavy ? 18 : 11,
+      isHeavy ? 250 : 185,
+      isHeavy ? 1.35 : 0.95
+    );
+    if (this.fxQuality === 'low') return;
+    const baseR = 14;
+    const targetScale = Math.max(1.5, radiusPx / baseR);
+    const ring = this.scene.add.circle(x, y, baseR, color, isHeavy ? 0.2 : 0.13).setDepth(16);
+    ring.setStrokeStyle(isHeavy ? 3.5 : 2.2, color, 0.92);
+    this.scene.tweens.add({
+      targets: ring,
+      scaleX: targetScale,
+      scaleY: targetScale,
+      alpha: 0,
+      duration: isHeavy ? 320 : 230,
+      ease: 'Cubic.easeOut',
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  spawnStunRing(x: number, y: number): void {
+    if (this.fxQuality === 'low') return;
+    const ring = this.scene.add.circle(x, y, 12, 0x22d3ee, 0.16).setDepth(16);
+    ring.setStrokeStyle(2.4, 0xa5f3fc, 0.95);
+    this.scene.tweens.add({
+      targets: ring,
+      scaleX: 2.3,
+      scaleY: 2.3,
+      alpha: 0,
+      duration: 210,
+      ease: 'Cubic.easeOut',
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  private applyBulletAreaEffects(
+    hitX: number,
+    hitY: number,
+    b: {
+      damage: number;
+      isCrit: boolean;
+      splashRadius: number;
+      splashDamageRatio: number;
+      splashColor: number;
+      burstShardCount: number;
+      burstShardDamage: number;
+      isHeavyMissile: boolean;
+    },
+    directTarget: Targetable,
+    projectiles: ProjectileManager,
+    enemies: EnemyEntity[],
+    boss: BossEntity | null,
+    onEnemyKilled: (enemy: EnemyEntity) => void,
+    onBossHit: (dmg: number, isCrit: boolean) => void
+  ): void {
+    if (b.splashRadius > 0 && b.splashDamageRatio > 0) {
+      this.spawnAoeShockwave(hitX, hitY, b.splashRadius, b.splashColor, b.isHeavyMissile);
+      const splashDmg = Math.max(1, Math.round(b.damage * b.splashDamageRatio));
+
+      for (let j = 0; j < enemies.length; j++) {
+        const other = enemies[j];
+        if (!other.active || other === directTarget) continue;
+        const d = Math.hypot(other.x - hitX, other.y - hitY);
+        if (d <= b.splashRadius + other.radius) {
+          this.spawnDamageNumber(other.x, other.y, splashDmg, false);
+          const killed = other.takeDamage(splashDmg);
+          if (killed) onEnemyKilled(other);
+        }
+      }
+
+      if (boss && boss.active && !boss.entering && !boss.invulnerable && boss !== directTarget) {
+        const dBoss = Math.hypot(boss.x - hitX, boss.y - hitY);
+        if (dBoss <= b.splashRadius + boss.radius * 0.75) {
+          boss.takeDamage(splashDmg);
+          this.spawnDamageNumber(boss.x, boss.y, splashDmg, false);
+          onBossHit(splashDmg, false);
+        }
+      }
+    }
+
+    if (b.burstShardCount > 0 && b.burstShardDamage > 0) {
+      projectiles.spawnPlasmaBurstShards(
+        hitX,
+        hitY,
+        b.burstShardCount,
+        b.burstShardDamage,
+        b.isCrit,
+        directTarget
+      );
+    }
+  }
+
   resolveCollisions(
     player: Player,
     projectiles: ProjectileManager,
@@ -477,21 +580,25 @@ export class CombatSystem {
       if (!b.active) return;
 
       // Check Boss
-      if (boss && boss.active && !boss.entering) {
+      if (boss && boss.active && !boss.entering && b.ignoreTarget !== boss) {
         const dBoss = Math.hypot(b.sprite.x - boss.x, b.sprite.y - boss.y);
         if (dBoss < boss.radius + b.radius) {
+          const hitX = b.sprite.x;
+          const hitY = b.sprite.y;
+          const impScale = (b.isCrit ? 0.85 : 0.58) * (b.impactScale || 1);
+          const impColor = b.isCrit ? 0xfacc15 : b.impactColor || boss.def.primaryColor;
           this.spawnExplosion(
-            b.sprite.x,
-            b.sprite.y,
-            b.isCrit ? 0xfacc15 : boss.def.primaryColor,
-            b.isCrit ? 8 : 5,
-            110,
-            b.isCrit ? 0.8 : 0.55
+            hitX,
+            hitY,
+            impColor,
+            b.isCrit || (b.impactScale || 1) > 1.2 ? 8 : 5,
+            125,
+            impScale
           );
           b.setActive(false).setVisible(false);
           if (!boss.invulnerable) {
             boss.takeDamage(b.damage);
-            this.spawnDamageNumber(b.sprite.x, b.sprite.y, b.damage, b.isCrit);
+            this.spawnDamageNumber(hitX, hitY, b.damage, b.isCrit);
             if (b.isCrit) {
               SoundManager.playCritHit();
               onCritLanded?.();
@@ -500,6 +607,17 @@ export class CombatSystem {
             }
             onBossHit(b.damage, b.isCrit);
           }
+          this.applyBulletAreaEffects(
+            hitX,
+            hitY,
+            b,
+            boss,
+            projectiles,
+            enemies,
+            boss,
+            onEnemyKilled,
+            onBossHit
+          );
           return;
         }
       }
@@ -507,16 +625,20 @@ export class CombatSystem {
       // Check Enemies
       for (let i = 0; i < enemies.length; i++) {
         const e = enemies[i];
-        if (!e.active) continue;
+        if (!e.active || b.ignoreTarget === e) continue;
         const dist = Math.hypot(b.sprite.x - e.x, b.sprite.y - e.y);
         if (dist < e.radius + b.radius) {
+          const hitX = b.sprite.x;
+          const hitY = b.sprite.y;
+          const impScale = (b.isCrit ? 0.82 : 0.56) * (b.impactScale || 1);
+          const impColor = b.isCrit ? 0xfacc15 : b.impactColor || e.def.accentColor;
           this.spawnExplosion(
-            b.sprite.x,
-            b.sprite.y,
-            b.isCrit ? 0xfacc15 : e.def.accentColor,
-            b.isCrit ? 8 : 5,
-            120,
-            b.isCrit ? 0.78 : 0.55
+            hitX,
+            hitY,
+            impColor,
+            b.isCrit || (b.impactScale || 1) > 1.2 ? 8 : 5,
+            125,
+            impScale
           );
           if (!b.piercing) {
             b.setActive(false).setVisible(false);
@@ -532,6 +654,17 @@ export class CombatSystem {
           if (killed) {
             onEnemyKilled(e);
           }
+          this.applyBulletAreaEffects(
+            hitX,
+            hitY,
+            b,
+            e,
+            projectiles,
+            enemies,
+            boss,
+            onEnemyKilled,
+            onBossHit
+          );
           if (!b.piercing) break;
         }
       }

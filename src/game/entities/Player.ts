@@ -8,6 +8,10 @@ import {
   WeaponId,
   WEAPONS,
 } from '../config/WeaponConfig';
+import {
+  getWeaponEvolutionStage,
+  WEAPON_RUNTIME_TUNING,
+} from '../config/WeaponEvolutionConfig';
 import { SoundManager } from '../audio/SoundManager';
 import { ComputedPlayerStats } from '../systems/ProgressionManager';
 import { EventBus } from '../utils/EventBus';
@@ -47,6 +51,14 @@ export class Player {
   private timeSinceHitMs = 0;
   private afterimageTimerMs = 0;
   private continuousFireTimeSec = 0;
+
+  // Evolution II proc & barrage runtime timers
+  private plasmaBurstCooldownMs = 0;
+  private heavyMissileCooldownMs = 0;
+  private dualBarrageActiveMs = 0;
+  private dualBarrageCooldownMs = 0;
+  private dualBarrageShotTimerMs = 0;
+  private beamSoundCooldownMs = 0;
 
   autoFire = true;
   private dragPointerId: number | null = null;
@@ -188,6 +200,10 @@ export class Player {
     if (this.allowedWeapons && !this.allowedWeapons.includes(weapon)) {
       return false;
     }
+    if (this.weaponId !== weapon) {
+      this.dualBarrageActiveMs = 0;
+      this.beamSoundCooldownMs = 0;
+    }
     this.weaponId = weapon;
     return true;
   }
@@ -252,7 +268,7 @@ export class Player {
     this.specialCooldownMs = Math.round(spec.cooldownMs * this.stats.specialCooldownMult);
     const dmgBase = Math.round(spec.damage * this.stats.specialPowerMult);
 
-    SoundManager.playSpecial();
+    SoundManager.playSpecial(this.specialId);
     onCameraShake(0.012);
 
     if (this.specialId === 'emp_nova') {
@@ -350,16 +366,18 @@ export class Player {
 
     const mitigated = Math.max(1, Math.round(amount * (1 - this.stats.damageReduction)));
     let remaining = mitigated;
+    let absorbedByShield = 0;
     if (this.shield > 0) {
-      const absorbed = Math.min(this.shield, remaining);
-      this.shield -= absorbed;
-      remaining -= absorbed;
+      absorbedByShield = Math.min(this.shield, remaining);
+      this.shield -= absorbedByShield;
+      remaining -= absorbedByShield;
     }
     if (remaining > 0) {
       this.hp = Math.max(0, this.hp - remaining);
+      SoundManager.playPlayerDamage();
+    } else if (absorbedByShield > 0) {
+      SoundManager.playShieldHit();
     }
-
-    SoundManager.playPlayerDamage();
     this.sprite.setTint(0xff4d6d).setTintMode(Phaser.TintModes.FILL);
     this.scene.time.delayedCall(95, () => {
       if (this.sprite.active) this.sprite.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
@@ -394,7 +412,8 @@ export class Player {
     targets: Targetable[],
     onInstantHit: (t: Targetable, dmg: number, isCrit?: boolean) => void,
     onSpecialUsed: () => void,
-    onCameraShake: (intensity: number) => void
+    onCameraShake: (intensity: number) => void,
+    onStunApplied?: (t: Targetable) => void
   ): void {
     const dtMs = dt * 1000;
     this.fireTimerMs = Math.max(0, this.fireTimerMs - dtMs);
@@ -404,6 +423,10 @@ export class Player {
     this.powerupInvulnMs = Math.max(0, this.powerupInvulnMs - dtMs);
     this.rapidFireMs = Math.max(0, this.rapidFireMs - dtMs);
     this.doubleDamageMs = Math.max(0, this.doubleDamageMs - dtMs);
+    this.plasmaBurstCooldownMs = Math.max(0, this.plasmaBurstCooldownMs - dtMs);
+    this.heavyMissileCooldownMs = Math.max(0, this.heavyMissileCooldownMs - dtMs);
+    this.dualBarrageCooldownMs = Math.max(0, this.dualBarrageCooldownMs - dtMs);
+    this.beamSoundCooldownMs = Math.max(0, this.beamSoundCooldownMs - dtMs);
     this.timeSinceHitMs += dtMs;
 
     // Passive shield recharge after delay
@@ -517,30 +540,120 @@ export class Player {
       this.continuousFireTimeSec = 0;
     }
 
-    if (wantFire && this.fireTimerMs <= 0) {
-      const weaponDef = WEAPONS[this.weaponId];
-      const baseCycleMs = getWeaponFireRateAtLevel(weaponDef, this.weaponLevel);
-      const rotaryBonus = 1 + this.stats.rotaryFireBonus * Math.min(1, this.continuousFireTimeSec / 2);
-      const totalFireRateMult = this.stats.fireRateMult * rotaryBonus * (this.rapidFireMs > 0 ? 1.75 : 1);
+    const weaponDef = WEAPONS[this.weaponId];
+    const rotaryBonus = 1 + this.stats.rotaryFireBonus * Math.min(1, this.continuousFireTimeSec / 2);
+    const totalFireRateMult = this.stats.fireRateMult * rotaryBonus * (this.rapidFireMs > 0 ? 1.75 : 1);
 
-      let shipWeaponDmgBonus = 1;
-      if (this.stats.shipId === 'nova_prime' && (this.weaponId === 'beam' || this.weaponId === 'plasma')) {
-        shipWeaponDmgBonus = 1.18;
-      }
+    let shipWeaponDmgBonus = 1;
+    if (this.stats.shipId === 'nova_prime' && (this.weaponId === 'beam' || this.weaponId === 'plasma')) {
+      shipWeaponDmgBonus = 1.18;
+    }
 
-      const dmgMult =
-        this.stats.damageMult * shipWeaponDmgBonus * (this.doubleDamageMs > 0 ? 2 : 1);
+    const dmgMult =
+      this.stats.damageMult * shipWeaponDmgBonus * (this.doubleDamageMs > 0 ? 2 : 1);
+    const heavyScaleMult = this.stats.shipId === 'destroyer' ? 1.25 : 1;
+    const weaponStage = getWeaponEvolutionStage(this.weaponLevel);
 
-      this.fireTimerMs = Math.max(55, baseCycleMs / totalFireRateMult);
-
-      projectiles.fireWeapon(this.weaponId, this.x, this.y, dmgMult, targets, onInstantHit, {
+    // Continuous Beam runs smoothly every frame while firing Energy Beam
+    if (this.weaponId === 'beam') {
+      projectiles.updateContinuousBeam(dt, {
+        firing: wantFire,
+        x: this.x,
+        y: this.y,
         weaponLevel: this.weaponLevel,
-        extraChainTargets: this.stats.extraChainTargets,
-        hasAstralWingBolts: this.stats.hasAstralWingBolts,
-        heavyScaleMult: this.stats.shipId === 'destroyer' ? 1.25 : 1,
+        damageMult: dmgMult,
+        totalFireRateMult,
+        targets,
+        onInstantHit,
         rollCrit: () => this.rollCrit(),
       });
-      SoundManager.playWeaponFire(this.weaponId);
+      if (wantFire && this.beamSoundCooldownMs <= 0) {
+        this.beamSoundCooldownMs = 155;
+        SoundManager.playWeaponFire('beam');
+      }
+      // Preserve Celestial Astral Wing-Bolts while firing Beam
+      if (wantFire && this.stats.hasAstralWingBolts && this.fireTimerMs <= 0) {
+        const baseCycleMs = getWeaponFireRateAtLevel(weaponDef, this.weaponLevel);
+        this.fireTimerMs = Math.max(95, baseCycleMs / totalFireRateMult);
+        projectiles.fireWeapon('beam', this.x, this.y, dmgMult, targets, onInstantHit, {
+          weaponLevel: this.weaponLevel,
+          hasAstralWingBolts: true,
+        });
+      }
+    } else {
+      projectiles.updateContinuousBeam(dt, {
+        firing: false,
+        x: this.x,
+        y: this.y,
+        weaponLevel: this.weaponLevel,
+        damageMult: dmgMult,
+        totalFireRateMult,
+        targets,
+        onInstantHit,
+        rollCrit: () => this.rollCrit(),
+      });
+
+      if (wantFire && this.fireTimerMs <= 0) {
+        const baseCycleMs = getWeaponFireRateAtLevel(weaponDef, this.weaponLevel);
+        this.fireTimerMs = Math.max(55, baseCycleMs / totalFireRateMult);
+
+        projectiles.fireWeapon(this.weaponId, this.x, this.y, dmgMult, targets, onInstantHit, {
+          weaponLevel: this.weaponLevel,
+          extraChainTargets: this.stats.extraChainTargets,
+          hasAstralWingBolts: this.stats.hasAstralWingBolts,
+          heavyScaleMult,
+          plasmaBurstProcReady: this.plasmaBurstCooldownMs <= 0,
+          onPlasmaBurstTriggered: () => {
+            this.plasmaBurstCooldownMs = WEAPON_RUNTIME_TUNING.plasma.evo2BurstCooldownMs;
+          },
+          heavyMissileProcReady: this.heavyMissileCooldownMs <= 0,
+          onHeavyMissileTriggered: () => {
+            this.heavyMissileCooldownMs = WEAPON_RUNTIME_TUNING.homing.evo2HeavyCooldownMs;
+          },
+          onLightningStunApplied: (t) => onStunApplied?.(t),
+          rollCrit: () => this.rollCrit(),
+        });
+
+        // Dual Laser Evolution II (Lv20): Chance to ignite Central Rapid Barrage window
+        if (
+          this.weaponId === 'dual_laser' &&
+          weaponStage === 2 &&
+          this.dualBarrageActiveMs <= 0 &&
+          this.dualBarrageCooldownMs <= 0 &&
+          Math.random() < WEAPON_RUNTIME_TUNING.dual_laser.evo2BarrageProcChance
+        ) {
+          this.dualBarrageActiveMs = WEAPON_RUNTIME_TUNING.dual_laser.evo2BarrageDurationMs;
+          this.dualBarrageShotTimerMs = 0;
+        }
+
+        SoundManager.playWeaponFire(this.weaponId);
+      }
+    }
+
+    // Dual Laser Evolution II: Central Rapid Barrage emitter tick
+    if (this.weaponId === 'dual_laser' && weaponStage === 2 && this.dualBarrageActiveMs > 0) {
+      this.dualBarrageActiveMs -= dtMs;
+      if (wantFire) {
+        this.dualBarrageShotTimerMs -= dtMs;
+        if (this.dualBarrageShotTimerMs <= 0) {
+          this.dualBarrageShotTimerMs = Math.max(
+            52,
+            WEAPON_RUNTIME_TUNING.dual_laser.evo2BarrageFireIntervalMs / totalFireRateMult
+          );
+          projectiles.fireDualCentralBarrageBolt(
+            this.x,
+            this.y,
+            this.weaponLevel,
+            dmgMult,
+            heavyScaleMult,
+            () => this.rollCrit()
+          );
+        }
+      }
+      if (this.dualBarrageActiveMs <= 0) {
+        this.dualBarrageActiveMs = 0;
+        this.dualBarrageCooldownMs = WEAPON_RUNTIME_TUNING.dual_laser.evo2BarrageCooldownMs;
+      }
     }
 
     this.renderAttachments();
@@ -580,6 +693,15 @@ export class Player {
       const ratio = this.shield / Math.max(1, this.maxShield);
       this.shieldGfx.lineStyle(1.6, shipDef.primaryColorNum, 0.18 + 0.25 * ratio);
       this.shieldGfx.strokeCircle(this.x, this.y, 30);
+    }
+
+    // Dual Laser Evolution II: glowing central hyper-cannon muzzle aura while active
+    if (this.weaponId === 'dual_laser' && this.dualBarrageActiveMs > 0) {
+      const pulse = 0.72 + 0.28 * Math.sin(this.scene.time.now * 0.025);
+      this.shieldGfx.fillStyle(0x22d3ee, 0.42 * pulse);
+      this.shieldGfx.fillCircle(this.x, this.y - 24, 9);
+      this.shieldGfx.fillStyle(0xecfeff, 0.9 * pulse);
+      this.shieldGfx.fillCircle(this.x, this.y - 24, 4.2);
     }
   }
 

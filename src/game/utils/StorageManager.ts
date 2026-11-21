@@ -690,7 +690,27 @@ class StorageManagerImpl {
 
   confirmGuestMode(): PlayerProgress {
     const inspection = this.inspectSavedState();
-    // Preserve unreadable raw payload as backup before writing a fresh profile
+    const current = this.load();
+
+    // Never overwrite or reset already-confirmed or substantive existing player progress
+    if (
+      inspection.status === 'ready' ||
+      current.guestModeConfirmed === true ||
+      this.hasSubstantiveGameplayProgress(current)
+    ) {
+      if (!current.guestModeConfirmed || !current.guestSessionCreatedAt) {
+        const preserved: PlayerProgress = {
+          ...current,
+          guestModeConfirmed: true,
+          guestSessionCreatedAt: current.guestSessionCreatedAt ?? Date.now(),
+        };
+        this.save(preserved);
+        return preserved;
+      }
+      return current;
+    }
+
+    // Preserve unreadable raw payload as backup before initializing a fresh profile
     if (inspection.status === 'corrupted') {
       try {
         const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -702,7 +722,6 @@ class StorageManagerImpl {
       }
     }
 
-    const current = this.load();
     const fresh = createDefaultProgress();
     const confirmed: PlayerProgress = {
       ...fresh,

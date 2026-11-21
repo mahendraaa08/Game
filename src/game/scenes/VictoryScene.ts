@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { CAMPAIGN_LEVELS } from '../config/LevelConfig';
 import { SHIPS } from '../config/ShipConfig';
 import { BackgroundSystem } from '../systems/BackgroundSystem';
+import { generateAllTextures } from '../textures/TextureGenerator';
 import { EventBus, VictoryPayload } from '../utils/EventBus';
 import { StorageManager } from '../utils/StorageManager';
 
@@ -15,6 +16,7 @@ export class VictoryScene extends Phaser.Scene {
   }
 
   create(data: VictoryPayload): void {
+    generateAllTextures(this);
     EventBus.emit('scene:changed', 'VictoryScene');
     EventBus.emit('campaign:victory', data);
 

@@ -1,11 +1,15 @@
 import { WEAPON_ECONOMY } from './EconomyConfig';
+import {
+  getWeaponEvolutionStage,
+  WEAPON_RUNTIME_TUNING,
+} from './WeaponEvolutionConfig';
 
 export type WeaponId =
   | 'plasma'
   | 'dual_laser'
   | 'spread'
-  | 'homing'
   | 'beam'
+  | 'homing'
   | 'lightning';
 
 export type SpecialId = 'emp_nova' | 'orbital_strike' | 'photon_barrage';
@@ -41,6 +45,8 @@ export interface SpecialDefinition {
   colorNum: number;
 }
 
+export const MAX_WEAPON_LEVEL = 20;
+
 export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
   plasma: {
     id: 'plasma',
@@ -48,19 +54,19 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     name: 'Plasma Cannon',
     shortName: 'Plasma',
     typeLabel: 'Energy Bolt',
-    description: 'Balanced high-energy plasma bolts with crisp single-target impact.',
-    fireRateMs: 175,
-    damage: 16,
-    projectileSpeed: 840,
+    description: 'Balanced single-bolt plasma cannon built for reliable precision at any range.',
+    fireRateMs: 180,
+    damage: 18,
+    projectileSpeed: WEAPON_RUNTIME_TUNING.plasma.baseSpeed,
     rangeLabel: 'Long',
-    specialProperty: 'Balanced velocity + Lv8+ twin bolts',
+    specialProperty: 'Balanced single bolt · Lv12 Enhanced · Lv20 Plasma Burst',
     colorHex: '#38BDF8',
     colorNum: 0x38bdf8,
     glowNum: 0x0284c7,
     unlockLevel: WEAPON_ECONOMY.plasma.unlockLevel,
     unlockCredits: WEAPON_ECONOMY.plasma.unlockCredits,
     unlockCrystals: WEAPON_ECONOMY.plasma.unlockCrystals,
-    maxWeaponLevel: 15,
+    maxWeaponLevel: MAX_WEAPON_LEVEL,
   },
   dual_laser: {
     id: 'dual_laser',
@@ -68,79 +74,79 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     name: 'Dual Laser',
     shortName: 'Dual Laser',
     typeLabel: 'Twin Laser',
-    description: 'Twin rapid-cycle coherent beams for steady sustained DPS.',
-    fireRateMs: 145,
-    damage: 9,
-    projectileSpeed: 980,
+    description: 'Twin rapid-cycle coherent wing lasers delivering relentless sustained fire.',
+    fireRateMs: 135,
+    damage: 8,
+    projectileSpeed: WEAPON_RUNTIME_TUNING.dual_laser.baseSpeed,
     rangeLabel: 'Full Screen',
-    specialProperty: 'Ultra-fast bolt velocity + Lv12+ triple lane',
+    specialProperty: 'Ultra-high fire rate · Lv12 Enhanced · Lv20 Central Rapid Barrage',
     colorHex: '#22D3EE',
     colorNum: 0x22d3ee,
     glowNum: 0x06b6d4,
     unlockLevel: WEAPON_ECONOMY.dual_laser.unlockLevel,
     unlockCredits: WEAPON_ECONOMY.dual_laser.unlockCredits,
     unlockCrystals: WEAPON_ECONOMY.dual_laser.unlockCrystals,
-    maxWeaponLevel: 15,
-  },
-  beam: {
-    id: 'beam',
-    hotkey: 3,
-    name: 'Energy Beam',
-    shortName: 'Beam',
-    typeLabel: 'Piercing Rail',
-    description: 'Piercing hyper-focused rail beam slicing entire vertical columns.',
-    fireRateMs: 105,
-    damage: 9,
-    projectileSpeed: 0,
-    rangeLabel: 'Instant Column',
-    specialProperty: 'Pierces all enemies in line instantaneously',
-    colorHex: '#60A5FA',
-    colorNum: 0x60a5fa,
-    glowNum: 0x3b82f6,
-    unlockLevel: WEAPON_ECONOMY.beam.unlockLevel,
-    unlockCredits: WEAPON_ECONOMY.beam.unlockCredits,
-    unlockCrystals: WEAPON_ECONOMY.beam.unlockCrystals,
-    maxWeaponLevel: 15,
-  },
-  homing: {
-    id: 'homing',
-    hotkey: 4,
-    name: 'Homing Missile',
-    shortName: 'Missiles',
-    typeLabel: 'Guided Warhead',
-    description: 'Autonomous thermal warheads that lock onto hostile ships.',
-    fireRateMs: 380,
-    damage: 21,
-    projectileSpeed: 540,
-    rangeLabel: 'Auto-Seek 480px',
-    specialProperty: 'Twin auto-lock seekers · 3rd warhead at Lv12+',
-    colorHex: '#F59E0B',
-    colorNum: 0xf59e0b,
-    glowNum: 0xd97706,
-    unlockLevel: WEAPON_ECONOMY.homing.unlockLevel,
-    unlockCredits: WEAPON_ECONOMY.homing.unlockCredits,
-    unlockCrystals: WEAPON_ECONOMY.homing.unlockCrystals,
-    maxWeaponLevel: 15,
+    maxWeaponLevel: MAX_WEAPON_LEVEL,
   },
   spread: {
     id: 'spread',
-    hotkey: 5,
+    hotkey: 3,
     name: 'Spread Shot',
     shortName: 'Spread',
-    typeLabel: 'Scatter Cone',
-    description: 'Wide multi-bolt fan salvo built for swarm control and close burst.',
-    fireRateMs: 300,
-    damage: 9,
-    projectileSpeed: 740,
-    rangeLabel: 'Medium-Wide',
-    specialProperty: '5-way cone (7-way at Lv12+)',
+    typeLabel: 'Scatter Fan',
+    description: 'Symmetrical multi-bolt energy fan engineered for swarm control and flank coverage.',
+    fireRateMs: 340,
+    damage: 13,
+    projectileSpeed: WEAPON_RUNTIME_TUNING.spread.baseSpeed,
+    rangeLabel: 'Wide Fan',
+    specialProperty: '4-way fan · Lv12 Enhanced · Lv20 Six-Way Spread',
     colorHex: '#A855F7',
     colorNum: 0xa855f7,
     glowNum: 0x7e22ce,
     unlockLevel: WEAPON_ECONOMY.spread.unlockLevel,
     unlockCredits: WEAPON_ECONOMY.spread.unlockCredits,
     unlockCrystals: WEAPON_ECONOMY.spread.unlockCrystals,
-    maxWeaponLevel: 15,
+    maxWeaponLevel: MAX_WEAPON_LEVEL,
+  },
+  beam: {
+    id: 'beam',
+    hotkey: 4,
+    name: 'Energy Beam',
+    shortName: 'Beam',
+    typeLabel: 'Continuous Rail',
+    description: 'Continuous piercing laser column whose lock-on heat ramps damage over time.',
+    fireRateMs: WEAPON_RUNTIME_TUNING.beam.baseDamageIntervalMs,
+    damage: 12,
+    projectileSpeed: 0,
+    rangeLabel: 'Continuous Line',
+    specialProperty: 'Lock-on ramp (+45%→+58%) · Lv12 Enhanced · Lv20 Autonomous Drone',
+    colorHex: '#60A5FA',
+    colorNum: 0x60a5fa,
+    glowNum: 0x3b82f6,
+    unlockLevel: WEAPON_ECONOMY.beam.unlockLevel,
+    unlockCredits: WEAPON_ECONOMY.beam.unlockCredits,
+    unlockCrystals: WEAPON_ECONOMY.beam.unlockCrystals,
+    maxWeaponLevel: MAX_WEAPON_LEVEL,
+  },
+  homing: {
+    id: 'homing',
+    hotkey: 5,
+    name: 'Homing Missile',
+    shortName: 'Missiles',
+    typeLabel: 'Guided AoE',
+    description: 'Autonomous twin seeker warheads that track hostiles and detonate with AoE shockwaves.',
+    fireRateMs: 410,
+    damage: 22,
+    projectileSpeed: WEAPON_RUNTIME_TUNING.homing.baseSpeed,
+    rangeLabel: 'Seek 500px · AoE',
+    specialProperty: 'Twin AoE seekers · Lv12 Enhanced Blast · Lv20 Heavy Missile',
+    colorHex: '#F59E0B',
+    colorNum: 0xf59e0b,
+    glowNum: 0xd97706,
+    unlockLevel: WEAPON_ECONOMY.homing.unlockLevel,
+    unlockCredits: WEAPON_ECONOMY.homing.unlockCredits,
+    unlockCrystals: WEAPON_ECONOMY.homing.unlockCrystals,
+    maxWeaponLevel: MAX_WEAPON_LEVEL,
   },
   lightning: {
     id: 'lightning',
@@ -148,28 +154,28 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     name: 'Chain Lightning',
     shortName: 'Lightning',
     typeLabel: 'Voltaic Arc',
-    description: 'Arcing voltaic discharge jumping across multiple hostile craft.',
-    fireRateMs: 325,
-    damage: 19,
+    description: 'Instant voltaic arc jumping across multiple hostiles with cascading crowd control.',
+    fireRateMs: 255,
+    damage: 20,
     projectileSpeed: 0,
-    rangeLabel: 'Arc 540px',
-    specialProperty: 'Chains up to 4 targets (5 at Lv12+) · 82% bounce',
+    rangeLabel: 'Arc 540–600px',
+    specialProperty: '4→6 chain jumps · Lv12 Enhanced · Lv20 Paralyzing Stun',
     colorHex: '#67E8F9',
     colorNum: 0x67e8f9,
     glowNum: 0x0ea5e9,
     unlockLevel: WEAPON_ECONOMY.lightning.unlockLevel,
     unlockCredits: WEAPON_ECONOMY.lightning.unlockCredits,
     unlockCrystals: WEAPON_ECONOMY.lightning.unlockCrystals,
-    maxWeaponLevel: 15,
+    maxWeaponLevel: MAX_WEAPON_LEVEL,
   },
 };
 
 export const WEAPON_LIST: WeaponDefinition[] = [
   WEAPONS.plasma,
   WEAPONS.dual_laser,
+  WEAPONS.spread,
   WEAPONS.beam,
   WEAPONS.homing,
-  WEAPONS.spread,
   WEAPONS.lightning,
 ];
 
@@ -210,13 +216,45 @@ export const SPECIAL_LIST: SpecialDefinition[] = [
 ];
 
 export function getWeaponDamageAtLevel(def: WeaponDefinition, level: number): number {
+  const clamped = Math.max(1, Math.min(def.maxWeaponLevel, Math.floor(level)));
   const maxSteps = Math.max(1, def.maxWeaponLevel - 1);
-  const ratio = Math.min(1, Math.max(0, Math.max(1, level) - 1) / maxSteps);
-  return Math.round(def.damage * (1 + ratio * 0.45));
+  const ratio = (clamped - 1) / maxSteps;
+  const stage = getWeaponEvolutionStage(clamped);
+  const evoBonus = stage === 2 ? 0.14 : stage === 1 ? 0.08 : 0;
+  return Math.round(def.damage * (1 + ratio * 0.52 + evoBonus));
 }
 
 export function getWeaponFireRateAtLevel(def: WeaponDefinition, level: number): number {
+  const clamped = Math.max(1, Math.min(def.maxWeaponLevel, Math.floor(level)));
   const maxSteps = Math.max(1, def.maxWeaponLevel - 1);
-  const ratio = Math.min(1, Math.max(0, Math.max(1, level) - 1) / maxSteps);
-  return Math.round(def.fireRateMs / (1 + ratio * 0.15));
+  const ratio = (clamped - 1) / maxSteps;
+  const stage = getWeaponEvolutionStage(clamped);
+
+  if (def.id === 'beam') {
+    const baseMs =
+      stage >= 1
+        ? WEAPON_RUNTIME_TUNING.beam.evo1DamageIntervalMs
+        : WEAPON_RUNTIME_TUNING.beam.baseDamageIntervalMs;
+    const rateScale = 1 + ratio * 0.12 + (stage === 2 ? 0.04 : 0);
+    return Math.max(WEAPON_RUNTIME_TUNING.beam.minDamageIntervalMs, Math.round(baseMs / rateScale));
+  }
+
+  const evoRateBonus = stage === 2 ? 0.08 : stage === 1 ? 0.05 : 0;
+  return Math.round(def.fireRateMs / (1 + ratio * 0.18 + evoRateBonus));
+}
+
+/**
+ * Single authoritative Beam damage-tick cadence calculation integrating Fire Rate modifiers
+ * cleanly with minimum interval cap (no double-dipping on damage).
+ */
+export function getEffectiveBeamTickIntervalMs(
+  weaponLevel: number,
+  totalFireRateMult: number
+): number {
+  const levelIntervalMs = getWeaponFireRateAtLevel(WEAPONS.beam, weaponLevel);
+  const safeMult = Math.max(0.5, totalFireRateMult);
+  return Math.max(
+    WEAPON_RUNTIME_TUNING.beam.minDamageIntervalMs,
+    Math.round(levelIntervalMs / safeMult)
+  );
 }

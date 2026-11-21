@@ -6,6 +6,7 @@ import { SoundManager } from '../audio/SoundManager';
 import { ProjectileManager } from '../entities/ProjectileManager';
 import { Targetable } from '../entities/Targetable';
 import { BackgroundSystem } from '../systems/BackgroundSystem';
+import { generateAllTextures } from '../textures/TextureGenerator';
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../utils/StorageManager';
 
@@ -45,6 +46,7 @@ export class HangarScene extends Phaser.Scene {
   }
 
   create(): void {
+    generateAllTextures(this);
     EventBus.emit('scene:changed', 'HangarScene');
     const saved = StorageManager.load();
     this.selectedShip = saved.selectedShip;

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { BOSS_CONFIGS, BossDefinition, BossId } from '../config/BossConfig';
 import { EnemyClass } from '../config/EnemyConfig';
+import { WEAPON_RUNTIME_TUNING } from '../config/WeaponEvolutionConfig';
 import { SoundManager } from '../audio/SoundManager';
 import { ProjectileManager } from './ProjectileManager';
 import { Targetable } from './Targetable';
@@ -59,6 +60,9 @@ export class BossEntity implements Targetable {
 
   private pendingBeats: PendingBossBeat[] = [];
   private activeLasers: BossLaserTelegraph[] = [];
+
+  private paralyzeTimerMs = 0;
+  private paralyzeImmunityMs = 0;
 
   private onSpawnMinion: (enemyClass: EnemyClass, x: number, y: number) => void;
   private onPhaseShift: (newPhase: 1 | 2 | 3) => void;
@@ -134,6 +138,24 @@ export class BossEntity implements Targetable {
     return this.age;
   }
 
+  applyParalyze(baseDurationSec: number): boolean {
+    if (
+      !this.active ||
+      this.entering ||
+      this.invulnerable ||
+      this.phaseTransitionMs > 0 ||
+      this.paralyzeTimerMs > 0 ||
+      this.paralyzeImmunityMs > 0
+    ) {
+      return false;
+    }
+    this.paralyzeTimerMs = Math.max(
+      180,
+      Math.round(baseDurationSec * 1000 * WEAPON_RUNTIME_TUNING.lightning.evo2BossResistance)
+    );
+    return true;
+  }
+
   takeDamage(amount: number): boolean {
     if (!this.active || this.invulnerable || this.entering) return false;
 
@@ -173,7 +195,7 @@ export class BossEntity implements Targetable {
     this.moveModeTimerMs = 1500;
     this.phaseGlideAlpha = 1;
 
-    SoundManager.playBossWarning();
+    SoundManager.playBossPhaseShift();
     this.scene.cameras.main.shake(320, 0.01);
 
     const ring = this.scene.add.circle(this.x, this.y, 24, this.def.primaryColor, 0.2).setDepth(15);
@@ -266,6 +288,36 @@ export class BossEntity implements Targetable {
       }
       return;
     }
+
+    if (this.paralyzeTimerMs > 0) {
+      this.paralyzeTimerMs -= dtMs;
+      // Strong boss resistance: brief overload slow & attack pause rather than full lock
+      this.updateMovement(dt * 0.18, dtMs * 0.18, w, h, playerX);
+      const r = this.radius + 10;
+      for (let a = 0; a < 4; a++) {
+        const ang1 = (Math.PI * 2 * a) / 4 + this.age * 18 + Math.random() * 0.5;
+        const ang2 = ang1 + 0.85;
+        const x1 = this.x + Math.cos(ang1) * (r * 0.72);
+        const y1 = this.y + Math.sin(ang1) * (r * 0.55);
+        const xm = this.x + Math.cos((ang1 + ang2) * 0.5) * (r * 1.12);
+        const ym = this.y + Math.sin((ang1 + ang2) * 0.5) * (r * 0.85);
+        const x2 = this.x + Math.cos(ang2) * (r * 0.72);
+        const y2 = this.y + Math.sin(ang2) * (r * 0.55);
+        this.telegraphGfx.lineStyle(3, 0x38bdf8, 0.8);
+        this.telegraphGfx.lineBetween(x1, y1, xm, ym);
+        this.telegraphGfx.lineBetween(xm, ym, x2, y2);
+        this.telegraphGfx.lineStyle(1.4, 0xffffff, 0.95);
+        this.telegraphGfx.lineBetween(x1, y1, xm, ym);
+        this.telegraphGfx.lineBetween(xm, ym, x2, y2);
+      }
+      if (this.paralyzeTimerMs <= 0) {
+        this.paralyzeTimerMs = 0;
+        this.paralyzeImmunityMs = WEAPON_RUNTIME_TUNING.lightning.evo2BossImmunityMs;
+      }
+      return;
+    }
+
+    this.paralyzeImmunityMs = Math.max(0, this.paralyzeImmunityMs - dtMs);
 
     // 1. Dynamic smooth steering per Boss personality & phase
     this.updateMovement(dt, dtMs, w, h, playerX);
@@ -535,7 +587,7 @@ export class BossEntity implements Targetable {
       if (l.timerMs <= 0) {
         this.activeLasers.splice(i, 1);
         projectiles.addVisualBeam(sx, sy, l.targetX, l.targetY, l.color, l.width, 0.28);
-        SoundManager.playSpecial();
+        SoundManager.playBossLaser();
         const dist = this.pointToSegmentDist(playerX, playerY, sx, sy, l.targetX, l.targetY);
         if (dist < Math.max(24, l.width * 0.85)) {
           onLaserHitPlayer(l.damage);

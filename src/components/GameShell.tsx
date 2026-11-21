@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type Phaser from 'phaser';
+import titleKeyArt from '../assets/images/title_key_art_1794922504898.jpg';
 import { ExchangeDirection } from '../game/config/EconomyConfig';
 import { HudSnapshot, SceneId } from '../game/config/GameConfig';
 import { SHIPS, ShipId } from '../game/config/ShipConfig';
 import { WeaponId } from '../game/config/WeaponConfig';
 import { SoundManager } from '../game/audio/SoundManager';
+import { runStartupPipeline } from '../game/startup/StartupLoader';
 import {
   ActionResult,
   ProgressionManager,
@@ -20,7 +22,12 @@ import {
   StartRunRequest,
   VictoryPayload,
 } from '../game/utils/EventBus';
-import { PlayerProgress, StorageManager } from '../game/utils/StorageManager';
+import {
+  PlayerProgress,
+  StorageHealthStatus,
+  StorageInspectionResult,
+  StorageManager,
+} from '../game/utils/StorageManager';
 import { DedicatedScreenShell } from './DedicatedScreenShell';
 import { HudOverlay } from './HudOverlay';
 import { ModeSelectorOverlay } from './ModeSelectorOverlay';
@@ -40,6 +47,8 @@ import { HangarSubNav, HangarTabRoute } from './hub/HangarSubNav';
 import { MissionsAchievementsPanel } from './hub/MissionsAchievementsPanel';
 import { SettingsPanel } from './hub/SettingsPanel';
 import { WeaponsUpgradesPanel } from './hub/WeaponsUpgradesPanel';
+import { GuestLoginScreen } from './startup/GuestLoginScreen';
+import { LoadingScreen } from './startup/LoadingScreen';
 
 const INITIAL_HUD: HudSnapshot = {
   hp: 100,
@@ -95,8 +104,21 @@ type PendingStart =
   | { kind: 'level'; levelNumber: number }
   | { kind: 'mode'; req: StartRunRequest };
 
+type StartupStage = 'loading' | 'loading_exit' | 'guest_login' | 'guest_exit' | 'ready';
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
+
 export const GameShell: React.FC = () => {
   const [sceneId, setSceneId] = useState<SceneId>('BootScene');
+  const [startupStage, setStartupStage] = useState<StartupStage>('loading');
+  const [storageStatus, setStorageStatus] = useState<StorageHealthStatus>('empty');
+
   const [routeStack, setRouteStack] = useState<AppRoute[]>(['menu']);
   const [progress, setProgress] = useState<PlayerProgress>(() => ({ ...StorageManager.load() }));
   const [feedback, setFeedback] = useState<ActionResult | null>(null);
@@ -115,6 +137,8 @@ export const GameShell: React.FC = () => {
   const engineReadyRef = useRef(false);
   const pendingHangarRef = useRef(false);
   const pendingStartRef = useRef<PendingStart | null>(null);
+  const inspectionRef = useRef<StorageInspectionResult | null>(null);
+  const guestTransitionTimerRef = useRef<number | null>(null);
 
   const showFeedback = useCallback((res: ActionResult) => {
     setFeedback(res);
@@ -195,6 +219,7 @@ export const GameShell: React.FC = () => {
     let destroyed = false;
     let game: Phaser.Game | null = null;
     let flushingPendingStart = false;
+    let exitTimer: number | null = null;
 
     const syncProgress = () => setProgress({ ...StorageManager.load() });
 
@@ -282,30 +307,112 @@ export const GameShell: React.FC = () => {
       EventBus.on('campaign:victory', (res) => setVictoryData(res)),
     ];
 
-    // Load Phaser asynchronously after React paints Main Menu UI so Preview never hangs on heavy bundle eval
-    import('../game/PhaserGame')
-      .then(({ createPhaserGame }) => {
+    void runStartupPipeline(
+      {
+        parentId: 'phaser-root',
+        keyArtSrcs: [titleKeyArt],
+      },
+      {
+        isAborted: () => destroyed,
+        onStage: (stage) => {
+          if (destroyed) return;
+          if (stage === 'storage') {
+            const loaded = StorageManager.load();
+            setProgress({ ...loaded });
+            setInspectedShipId(loaded.selectedShip);
+            setInspectedWeaponId(loaded.selectedWeapon);
+          }
+        },
+      }
+    ).then((result) => {
+      if (destroyed) {
+        result.game?.destroy(true);
+        return;
+      }
+      game = result.game;
+      inspectionRef.current = result.inspection;
+      setStorageStatus(result.inspection.status);
+      syncProgress();
+
+      const exitMs = prefersReducedMotion() ? 10 : 420;
+      setStartupStage('loading_exit');
+      exitTimer = window.setTimeout(() => {
         if (destroyed) return;
-        game = createPhaserGame('phaser-root');
-      })
-      .catch(() => {
-        // React UI remains responsive even if canvas/WebGL backend fails to initialize
-      });
+        const latestInspection = inspectionRef.current ?? StorageManager.inspectSavedState();
+        setStorageStatus(latestInspection.status);
+        if (latestInspection.hasConfirmedGuestSession) {
+          setStartupStage('ready');
+          SoundManager.playMusic('menu');
+        } else {
+          setStartupStage('guest_login');
+        }
+      }, exitMs);
+    });
 
     return () => {
       destroyed = true;
-      unsubs.forEach((u) => u());
+      if (exitTimer) window.clearTimeout(exitTimer);
+      if (guestTransitionTimerRef.current) window.clearTimeout(guestTransitionTimerRef.current);
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      unsubs.forEach((u) => u());
       SoundManager.playMusic('none');
       game?.destroy(true);
     };
   }, []);
 
+  const transitionFromGuestToMenu = useCallback(() => {
+    const exitMs = prefersReducedMotion() ? 10 : 260;
+    setStartupStage('guest_exit');
+    if (guestTransitionTimerRef.current) {
+      window.clearTimeout(guestTransitionTimerRef.current);
+    }
+    guestTransitionTimerRef.current = window.setTimeout(() => {
+      setStartupStage('ready');
+    }, exitMs);
+  }, []);
+
+  const handleConfirmGuestMode = useCallback(() => {
+    const confirmed = StorageManager.confirmGuestMode();
+    inspectionRef.current = {
+      status: 'ready',
+      hasConfirmedGuestSession: true,
+      storageAvailable: true,
+    };
+    setStorageStatus('ready');
+    setProgress({ ...confirmed });
+    setInspectedShipId(confirmed.selectedShip);
+    setInspectedWeaponId(confirmed.selectedWeapon);
+    SoundManager.syncSettings(confirmed.settings);
+    SoundManager.unlock();
+    SoundManager.playMusic('menu');
+    EventBus.emit('progress:updated');
+    transitionFromGuestToMenu();
+  }, [transitionFromGuestToMenu]);
+
+  const handleRetryCorruptedLoad = useCallback((): boolean => {
+    const { inspection, progress: reloaded } = StorageManager.retryLoadSavedState();
+    inspectionRef.current = inspection;
+    setStorageStatus(inspection.status);
+    if (inspection.hasConfirmedGuestSession) {
+      setProgress({ ...reloaded });
+      setInspectedShipId(reloaded.selectedShip);
+      setInspectedWeaponId(reloaded.selectedWeapon);
+      SoundManager.syncSettings(reloaded.settings);
+      SoundManager.unlock();
+      SoundManager.playMusic('menu');
+      EventBus.emit('progress:updated');
+      transitionFromGuestToMenu();
+      return true;
+    }
+    return false;
+  }, [transitionFromGuestToMenu]);
+
   const activeRoute: AppRoute = routeStack[routeStack.length - 1] ?? 'menu';
+  const isStartupDone = startupStage === 'ready';
 
   // Display Level-Up popup exclusively after returning to Main Menu and consume once so it never repeats
   useEffect(() => {
-    if (sceneId === 'MainMenuScene' && activeRoute === 'menu' && progress.pendingLevelUp) {
+    if (isStartupDone && sceneId === 'MainMenuScene' && activeRoute === 'menu' && progress.pendingLevelUp) {
       const consumed = ProgressionManager.consumePendingLevelUp();
       if (consumed) {
         setActiveLevelUpModal((existing) =>
@@ -321,7 +428,7 @@ export const GameShell: React.FC = () => {
         );
       }
     }
-  }, [sceneId, activeRoute, progress.pendingLevelUp]);
+  }, [isStartupDone, sceneId, activeRoute, progress.pendingLevelUp]);
   const prevRoute: AppRoute = routeStack[routeStack.length - 2] ?? 'menu';
   const isNonCombatUiScene =
     sceneId === 'MainMenuScene' ||
@@ -348,11 +455,26 @@ export const GameShell: React.FC = () => {
       {/* Isolated Phaser Canvas Container */}
       <div id="phaser-root" className="absolute inset-0 h-full w-full" />
 
+      {/* Startup Loading Screen (Always shown on initial load & reload for >=4s & real init) */}
+      {(startupStage === 'loading' || startupStage === 'loading_exit') && (
+        <LoadingScreen exiting={startupStage === 'loading_exit'} />
+      )}
+
+      {/* First-Time Guest Login Card (Shown only when no confirmed progress exists) */}
+      {(startupStage === 'guest_login' || startupStage === 'guest_exit') && (
+        <GuestLoginScreen
+          storageStatus={storageStatus}
+          exiting={startupStage === 'guest_exit'}
+          onConfirmGuest={handleConfirmGuestMode}
+          onRetryLoad={handleRetryCorruptedLoad}
+        />
+      )}
+
       {/* Dedicated Non-Combat Screens (Stack-Driven Navigation) */}
-      {isNonCombatUiScene && activeRoute === 'menu' && (
+      {isStartupDone && isNonCombatUiScene && activeRoute === 'menu' && (
         <TitleOverlay
           progress={progress}
-          isActive={isNonCombatUiScene && activeRoute === 'menu'}
+          isActive={isStartupDone && isNonCombatUiScene && activeRoute === 'menu'}
           onNavigate={navigateTo}
           onOpenExchange={openExchange}
           feedback={feedback}
@@ -360,14 +482,14 @@ export const GameShell: React.FC = () => {
         />
       )}
 
-      {isNonCombatUiScene && activeRoute === 'modes' && (
+      {isStartupDone && isNonCombatUiScene && activeRoute === 'modes' && (
         <ModeSelectorOverlay
           progress={progress}
           onBack={popRoute}
         />
       )}
 
-      {isNonCombatUiScene && activeRoute === 'ships' && (
+      {isStartupDone && isNonCombatUiScene && activeRoute === 'ships' && (
         <DedicatedScreenShell
           title="Hangar & Upgrades"
           subtitle={shipSummary}
@@ -391,7 +513,7 @@ export const GameShell: React.FC = () => {
         </DedicatedScreenShell>
       )}
 
-      {isNonCombatUiScene && activeRoute === 'weapons' && (
+      {isStartupDone && isNonCombatUiScene && activeRoute === 'weapons' && (
         <DedicatedScreenShell
           title="Hangar & Upgrades"
           subtitle={shipSummary}
@@ -415,7 +537,7 @@ export const GameShell: React.FC = () => {
         </DedicatedScreenShell>
       )}
 
-      {isNonCombatUiScene && activeRoute === 'armory' && (
+      {isStartupDone && isNonCombatUiScene && activeRoute === 'armory' && (
         <DedicatedScreenShell
           title="Hangar & Upgrades"
           subtitle="Equipment Gear · Companion Drones"
@@ -434,7 +556,7 @@ export const GameShell: React.FC = () => {
         </DedicatedScreenShell>
       )}
 
-      {isNonCombatUiScene && activeRoute === 'missions' && (
+      {isStartupDone && isNonCombatUiScene && activeRoute === 'missions' && (
         <DedicatedScreenShell
           title="Missions & Medals"
           subtitle="Daily Directives · Weekly Challenges · Achievements & Medals"
@@ -449,7 +571,7 @@ export const GameShell: React.FC = () => {
         </DedicatedScreenShell>
       )}
 
-      {isNonCombatUiScene && activeRoute === 'codex' && (
+      {isStartupDone && isNonCombatUiScene && activeRoute === 'codex' && (
         <DedicatedScreenShell
           title="Codex"
           subtitle="Galactic Encyclopedia · Aircraft, Arsenal & Hostile Intel"
@@ -462,7 +584,7 @@ export const GameShell: React.FC = () => {
         </DedicatedScreenShell>
       )}
 
-      {isNonCombatUiScene && activeRoute === 'exchange' && (
+      {isStartupDone && isNonCombatUiScene && activeRoute === 'exchange' && (
         <DedicatedScreenShell
           title="Exchange"
           subtitle="Vault Currency Terminal · Convert Credits & Void Gems"
@@ -481,7 +603,7 @@ export const GameShell: React.FC = () => {
         </DedicatedScreenShell>
       )}
 
-      {isNonCombatUiScene && activeRoute === 'settings' && (
+      {isStartupDone && isNonCombatUiScene && activeRoute === 'settings' && (
         <DedicatedScreenShell
           title="Settings"
           subtitle="Audio Mixer · Touch Flight Controls · Visual Quality & Display"
@@ -496,26 +618,26 @@ export const GameShell: React.FC = () => {
       )}
 
       {/* Active Gameplay HUD & Combat Modals */}
-      {(sceneId === 'GameScene' || sceneId === 'BossScene' || sceneId === 'PauseMenuScene') && (
+      {isStartupDone && (sceneId === 'GameScene' || sceneId === 'BossScene' || sceneId === 'PauseMenuScene') && (
         <HudOverlay
           hud={hud}
           bossWarning={bossWarning}
           isPaused={sceneId === 'PauseMenuScene'}
         />
       )}
-      {sceneId === 'PauseMenuScene' && <PauseModal />}
-      {sceneId === 'LevelResultScene' && levelResult && (
+      {isStartupDone && sceneId === 'PauseMenuScene' && <PauseModal />}
+      {isStartupDone && sceneId === 'LevelResultScene' && levelResult && (
         <LevelResultModal data={levelResult} />
       )}
-      {sceneId === 'GameOverScene' && gameOverData && (
+      {isStartupDone && sceneId === 'GameOverScene' && gameOverData && (
         <GameOverModal data={gameOverData} />
       )}
-      {sceneId === 'VictoryScene' && victoryData && (
+      {isStartupDone && sceneId === 'VictoryScene' && victoryData && (
         <VictoryModal data={victoryData} />
       )}
 
       {/* Level-Up Celebration Popup (Shown cleanly outside active combat) */}
-      {activeLevelUpModal && (
+      {isStartupDone && activeLevelUpModal && (
         <LevelUpModal
           data={activeLevelUpModal}
           onClose={() => setActiveLevelUpModal(null)}

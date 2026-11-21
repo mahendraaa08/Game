@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { CAMPAIGN_LEVELS } from '../config/LevelConfig';
 import { SpecialId, WeaponId } from '../config/WeaponConfig';
 import { BackgroundSystem } from '../systems/BackgroundSystem';
+import { generateAllTextures } from '../textures/TextureGenerator';
 import { EventBus, GameOverPayload } from '../utils/EventBus';
 import { StorageManager } from '../utils/StorageManager';
 
@@ -19,6 +20,7 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   create(data: GameOverData): void {
+    generateAllTextures(this);
     EventBus.emit('scene:changed', 'GameOverScene');
     EventBus.emit('game:over', data);
 

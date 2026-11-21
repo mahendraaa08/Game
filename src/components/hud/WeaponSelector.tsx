@@ -1,6 +1,7 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronUp, Lock, X } from 'lucide-react';
 import { WEAPON_LIST, WEAPONS, WeaponDefinition, WeaponId } from '../../game/config/WeaponConfig';
+import { getWeaponEvolutionMeta, getWeaponEvolutionStage } from '../../game/config/WeaponEvolutionConfig';
 import { SoundManager } from '../../game/audio/SoundManager';
 import { EventBus } from '../../game/utils/EventBus';
 import { WeaponVectorIcon } from './HudIcons';
@@ -32,6 +33,9 @@ export const WeaponSelector = memo<WeaponSelectorProps>(
     const itemGestureRef = useRef<WeaponGestureState | null>(null);
 
     const activeDef = WEAPONS[activeWeaponId] ?? WEAPON_LIST[0];
+    const activeLvl = weaponLevels[activeDef.id] ?? 1;
+    const activeStage = getWeaponEvolutionStage(activeLvl);
+    const activeEvo = getWeaponEvolutionMeta(activeDef.id, activeLvl);
 
     // Subtle confirmation pulse whenever active weapon changes (tap or hotkey)
     useEffect(() => {
@@ -75,32 +79,20 @@ export const WeaponSelector = memo<WeaponSelectorProps>(
       };
     }, [open]);
 
-    const sortedWeapons = useMemo(() => {
-      const available: WeaponDefinition[] = [];
-      const locked: WeaponDefinition[] = [];
-      for (const w of WEAPON_LIST) {
-        const isOwned = unlockedWeapons.includes(w.id);
-        const isAllowed = !allowedWeapons || allowedWeapons.includes(w.id);
-        if (isOwned && isAllowed) {
-          available.push(w);
-        } else {
-          locked.push(w);
-        }
-      }
-      return [...available, ...locked];
-    }, [unlockedWeapons, allowedWeapons]);
+    // Preserve canonical Arsenal Selector order (#1 Plasma .. #6 Lightning)
+    const orderedWeapons = useMemo(() => WEAPON_LIST, []);
 
     const gridColsClass =
-      sortedWeapons.length <= 2 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2';
+      orderedWeapons.length <= 2 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2';
     const panelWidthClass =
-      sortedWeapons.length <= 2
+      orderedWeapons.length <= 2
         ? 'w-[min(86vw,264px)]'
-        : 'w-[min(88vw,380px)] sm:w-[416px]';
+        : 'w-[min(90vw,400px)] sm:w-[464px]';
 
     const selectWeapon = (weapon: WeaponDefinition) => {
       if (isPaused) return;
       SoundManager.unlock();
-      SoundManager.playButtonClick();
+      SoundManager.playWeaponSwitch();
       EventBus.emit('ui:select-weapon', weapon.id);
       itemGestureRef.current = null;
       setOpen(false);
@@ -135,7 +127,7 @@ export const WeaponSelector = memo<WeaponSelectorProps>(
                   SELECT WEAPON
                 </span>
                 <span className="font-mono-num text-[10px] text-slate-400">
-                  {sortedWeapons.filter(
+                  {orderedWeapons.filter(
                     (w) =>
                       unlockedWeapons.includes(w.id) &&
                       (!allowedWeapons || allowedWeapons.includes(w.id))
@@ -178,12 +170,14 @@ export const WeaponSelector = memo<WeaponSelectorProps>(
               }}
               className={`scroll-panel grid ${gridColsClass} gap-2 overflow-y-auto overscroll-contain touch-pan-y p-2 max-h-[min(48dvh,310px)]`}
             >
-              {sortedWeapons.map((w) => {
+              {orderedWeapons.map((w) => {
                 const isOwned = unlockedWeapons.includes(w.id);
                 const isAllowed = !allowedWeapons || allowedWeapons.includes(w.id);
                 const available = isOwned && isAllowed;
                 const active = activeWeaponId === w.id;
                 const lvl = weaponLevels[w.id] ?? 1;
+                const stage = getWeaponEvolutionStage(lvl);
+                const evoMeta = getWeaponEvolutionMeta(w.id, lvl);
 
                 return (
                   <button
@@ -262,17 +256,22 @@ export const WeaponSelector = memo<WeaponSelectorProps>(
                     {/* Weapon Metadata */}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-1.5">
-                        <span className="truncate font-display text-xs font-bold text-white">
-                          {w.name}
-                        </span>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <span className="shrink-0 font-mono-num text-[10px] font-bold text-cyan-300/75">
+                            #{w.hotkey}
+                          </span>
+                          <span className="truncate font-display text-xs font-bold text-white">
+                            {w.name}
+                          </span>
+                        </div>
                         {active ? (
                           <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-cyan-400/20 px-1.5 py-0.5 font-mono-num text-[9px] font-bold text-cyan-200">
                             <Check className="h-2.5 w-2.5" />
                             ACTIVE
                           </span>
                         ) : available ? (
-                          <span className="shrink-0 font-mono-num text-[9.5px] font-semibold text-slate-400">
-                            #{w.hotkey}
+                          <span className="shrink-0 font-mono-num text-[9px] font-semibold text-slate-400">
+                            KEY {w.hotkey}
                           </span>
                         ) : (
                           <span className="shrink-0 rounded bg-slate-800/90 px-1.5 py-0.5 font-mono-num text-[9px] font-semibold text-slate-400">
@@ -282,19 +281,28 @@ export const WeaponSelector = memo<WeaponSelectorProps>(
                       </div>
 
                       <div className="mt-0.5 flex items-center gap-1.5 text-[10px]">
-                        <span style={{ color: available ? w.colorHex : '#64748B' }} className="font-semibold">
-                          {w.typeLabel || w.rangeLabel}
+                        <span style={{ color: available ? w.colorHex : '#64748B' }} className="truncate font-semibold">
+                          {available ? evoMeta.formName : w.typeLabel || w.rangeLabel}
                         </span>
                         {available && (
                           <>
                             <span className="text-slate-600">·</span>
-                            <span className="font-mono-num text-slate-400">Lv.{lvl}</span>
+                            <span className="shrink-0 font-mono-num text-slate-400">Lv.{lvl}</span>
+                            {stage > 0 && (
+                              <span
+                                className={`shrink-0 font-mono-num text-[9px] font-bold ${
+                                  stage === 2 ? 'text-amber-300' : 'text-cyan-300'
+                                }`}
+                              >
+                                {stage === 2 ? 'EVO II' : 'EVO I'}
+                              </span>
+                            )}
                           </>
                         )}
                       </div>
 
                       <p className="mt-0.5 line-clamp-1 text-[10px] leading-tight text-slate-400">
-                        {w.description}
+                        {evoMeta.summary}
                       </p>
                     </div>
                   </button>
@@ -351,9 +359,18 @@ export const WeaponSelector = memo<WeaponSelectorProps>(
               <span className="max-w-[92px] sm:max-w-[120px] truncate font-display text-xs font-bold tracking-wide text-white">
                 {activeDef.shortName}
               </span>
+              {activeStage > 0 && (
+                <span
+                  className={`font-mono-num text-[9px] font-bold ${
+                    activeStage === 2 ? 'text-amber-300' : 'text-cyan-300'
+                  }`}
+                >
+                  {activeStage === 2 ? 'E2' : 'E1'}
+                </span>
+              )}
             </div>
-            <div className="font-mono-num text-[9.5px] text-slate-400">
-              {activeDef.typeLabel || activeDef.rangeLabel}
+            <div className="max-w-[138px] truncate font-mono-num text-[9.5px] text-slate-400">
+              {activeEvo.formName}
             </div>
           </div>
 

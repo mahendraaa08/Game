@@ -3,6 +3,10 @@ import {
   getWeaponFireRateAtLevel,
   WEAPON_LIST,
 } from '../../game/config/WeaponConfig';
+import {
+  WEAPON_EVOLUTIONS,
+  WEAPON_RUNTIME_TUNING,
+} from '../../game/config/WeaponEvolutionConfig';
 import type { CodexEntry, CodexSpecialEffect } from './types';
 
 const WEAPON_RUNTIME_META: Record<
@@ -14,16 +18,18 @@ const WEAPON_RUNTIME_META: Record<
   }
 > = {
   plasma: {
-    projectileCount: '1 bolt (2 twin at Lv8+)',
+    projectileCount: '1 Bolt (Evo II: +6 Burst Shards)',
     deliveryStats: [
-      { label: 'Bolt Speed', value: '840 px/s', numericValue: 840, maxReference: 1050, tone: 'sky' },
+      {
+        label: 'Bolt Speed (Base → Evo I+)',
+        value: `${WEAPON_RUNTIME_TUNING.plasma.baseSpeed} → ${WEAPON_RUNTIME_TUNING.plasma.evo1Speed} px/s`,
+        numericValue: WEAPON_RUNTIME_TUNING.plasma.evo1Speed,
+        maxReference: 1150,
+        tone: 'sky',
+      },
       { label: 'Effective Range', value: 'Long', tone: 'cyan' },
     ],
     effects: [
-      {
-        title: 'Lv8+ Twin Convergence',
-        description: 'Splits into twin slightly angled plasma bolts dealing 58% damage each for wider coverage.',
-      },
       {
         title: 'Nova Prime Synergy',
         description: 'Gains +18% bonus weapon damage when mounted on Nova Prime.',
@@ -31,54 +37,50 @@ const WEAPON_RUNTIME_META: Record<
     ],
   },
   dual_laser: {
-    projectileCount: '2 parallel bolts (3 at Lv12+)',
+    projectileCount: '2 Parallel Bolts (Evo II: +Central Barrage)',
     deliveryStats: [
-      { label: 'Bolt Speed', value: '980 px/s', numericValue: 980, maxReference: 1050, tone: 'cyan' },
+      {
+        label: 'Bolt Speed (Base → Evo I+)',
+        value: `${WEAPON_RUNTIME_TUNING.dual_laser.baseSpeed} → ${WEAPON_RUNTIME_TUNING.dual_laser.evo1Speed} px/s`,
+        numericValue: WEAPON_RUNTIME_TUNING.dual_laser.evo1Speed,
+        maxReference: 1150,
+        tone: 'cyan',
+      },
       { label: 'Effective Range', value: 'Full Screen', tone: 'sky' },
     ],
-    effects: [
-      {
-        title: 'Lv12+ Triple Laser Core',
-        description: 'Adds a high-speed 1040 px/s central lane bolt dealing 60% bolt damage.',
-      },
-    ],
+    effects: [],
   },
   spread: {
-    projectileCount: '5-way cone (7-way at Lv12+)',
+    projectileCount: '4-Way Fan (Lv20 Evo II: 6-Way Fan)',
     deliveryStats: [
-      { label: 'Bolt Speed', value: '740 px/s', numericValue: 740, maxReference: 1050, tone: 'purple' },
-      { label: 'Effective Range', value: 'Medium-Wide Cone', tone: 'sky' },
-    ],
-    effects: [
       {
-        title: 'Lv12+ Expanded Arc',
-        description: 'Widens fan from 5 projectiles (±0.36 rad) to 7 projectiles (±0.45 rad) for swarm clearing.',
+        label: 'Bolt Speed (Base → Evo II)',
+        value: `${WEAPON_RUNTIME_TUNING.spread.baseSpeed} → ${WEAPON_RUNTIME_TUNING.spread.evo2Speed} px/s`,
+        numericValue: WEAPON_RUNTIME_TUNING.spread.evo2Speed,
+        maxReference: 1150,
+        tone: 'purple',
       },
+      { label: 'Effective Range', value: 'Medium-Wide Fan', tone: 'sky' },
     ],
-  },
-  homing: {
-    projectileCount: '2 missiles (3 at Lv12+)',
-    deliveryStats: [
-      { label: 'Missile Speed', value: '540 px/s', numericValue: 540, maxReference: 1050, tone: 'amber' },
-      { label: 'Seek Radius', value: '480 px', numericValue: 480, maxReference: 600, tone: 'cyan' },
-    ],
-    effects: [
-      {
-        title: 'Guided Twin Salvo',
-        description: 'Fires twin autonomous thermal seekers and unlocks a third central warhead (75% DMG) at Lv12+.',
-      },
-    ],
+    effects: [],
   },
   beam: {
-    projectileCount: 'Instant Piercing Column',
+    projectileCount: 'Continuous Piercing Column',
     deliveryStats: [
-      { label: 'Delivery', value: 'Instant Hitscan', tone: 'sky' },
-      { label: 'Beam Width', value: '32–48 px', tone: 'cyan' },
+      { label: 'Delivery', value: 'Continuous Lock Laser', tone: 'sky' },
+      {
+        label: 'Lock-On Ramp Cap',
+        value: `+${Math.round(WEAPON_RUNTIME_TUNING.beam.baseMaxRampBonus * 100)}% → +${Math.round(WEAPON_RUNTIME_TUNING.beam.evo1MaxRampBonus * 100)}%`,
+        numericValue: Math.round(WEAPON_RUNTIME_TUNING.beam.evo1MaxRampBonus * 100),
+        maxReference: 75,
+        tone: 'cyan',
+      },
     ],
     effects: [
       {
-        title: 'Full Column Penetration',
-        description: 'Pierces every hostile along the vertical firing line ahead of the aircraft with zero travel delay.',
+        title: 'Fire Rate Synchronization',
+        description:
+          'Fire Rate bonuses smoothly shorten the Beam damage tick interval down to 52ms without double-dipping.',
       },
       {
         title: 'Nova Prime Synergy',
@@ -86,17 +88,45 @@ const WEAPON_RUNTIME_META: Record<
       },
     ],
   },
-  lightning: {
-    projectileCount: '4 chain jumps (5 at Lv12+)',
+  homing: {
+    projectileCount: '2 AoE Missiles (Evo II: +Heavy Missile)',
     deliveryStats: [
-      { label: 'Initial Arc Range', value: '540 px', numericValue: 540, maxReference: 600, tone: 'cyan' },
-      { label: 'Chain Jump Range', value: '270 px', numericValue: 270, maxReference: 600, tone: 'sky' },
+      {
+        label: 'Missile Speed (Base → Evo I+)',
+        value: `${WEAPON_RUNTIME_TUNING.homing.baseSpeed} → ${WEAPON_RUNTIME_TUNING.homing.evo1Speed} px/s`,
+        numericValue: WEAPON_RUNTIME_TUNING.homing.evo1Speed,
+        maxReference: 1150,
+        tone: 'amber',
+      },
+      {
+        label: 'Blast Radius (Base → Evo I → Evo II)',
+        value: `${WEAPON_RUNTIME_TUNING.homing.baseSplashRadiusPx} → ${WEAPON_RUNTIME_TUNING.homing.evo1SplashRadiusPx} → ${WEAPON_RUNTIME_TUNING.homing.evo2HeavySplashRadiusPx} px`,
+        numericValue: WEAPON_RUNTIME_TUNING.homing.evo2HeavySplashRadiusPx,
+        maxReference: 150,
+        tone: 'rose',
+      },
+    ],
+    effects: [],
+  },
+  lightning: {
+    projectileCount: '4 Chain Jumps (Lv12 Evo I+: 6 Jumps)',
+    deliveryStats: [
+      {
+        label: 'Initial Arc Range',
+        value: `${WEAPON_RUNTIME_TUNING.lightning.baseInitialRangePx} → ${WEAPON_RUNTIME_TUNING.lightning.evo1InitialRangePx} px`,
+        numericValue: WEAPON_RUNTIME_TUNING.lightning.evo1InitialRangePx,
+        maxReference: 650,
+        tone: 'cyan',
+      },
+      {
+        label: 'Chain Jump Range',
+        value: `${WEAPON_RUNTIME_TUNING.lightning.baseChainRangePx} → ${WEAPON_RUNTIME_TUNING.lightning.evo1ChainRangePx} px`,
+        numericValue: WEAPON_RUNTIME_TUNING.lightning.evo1ChainRangePx,
+        maxReference: 650,
+        tone: 'sky',
+      },
     ],
     effects: [
-      {
-        title: 'Voltaic Chain Decay',
-        description: 'Jumps instantaneously between targets; each bounce retains 82% of the previous arc damage.',
-      },
       {
         title: 'Thunderbolt Synergy',
         description: 'Thunderbolt chassis adds +1 extra chain bounce per volley.',
@@ -111,6 +141,7 @@ export const WEAPONS_CODEX: CodexEntry[] = WEAPON_LIST.map((weapon) => {
   const rateLv1 = getWeaponFireRateAtLevel(weapon, 1);
   const rateLvMax = getWeaponFireRateAtLevel(weapon, weapon.maxWeaponLevel);
   const meta = WEAPON_RUNTIME_META[weapon.id];
+  const evoTiers = WEAPON_EVOLUTIONS[weapon.id];
 
   const unlockParts: string[] = [];
   if (weapon.unlockCredits === 0 && weapon.unlockCrystals === 0) {
@@ -140,7 +171,7 @@ export const WEAPONS_CODEX: CodexEntry[] = WEAPON_LIST.map((weapon) => {
       {
         label: `Cycle Delay (Lv1 → Lv${weapon.maxWeaponLevel})`,
         value: `${rateLv1} → ${rateLvMax} ms`,
-        numericValue: Math.round(1000 / rateLv1 * 10) / 10,
+        numericValue: Math.round((1000 / rateLv1) * 10) / 10,
         maxReference: 11,
         tone: 'amber',
       },
@@ -152,13 +183,20 @@ export const WEAPONS_CODEX: CodexEntry[] = WEAPON_LIST.map((weapon) => {
       ...(meta?.deliveryStats ?? []),
     ],
     specialEffects: [
-      {
-        title: 'Upgrade Progression',
-        description: `Scales smoothly up to +45% base damage and +15% fire cadence at Max Level ${weapon.maxWeaponLevel}.`,
-      },
+      ...evoTiers.map((tier) => ({
+        title: `${tier.tierLabel} (Lv.${tier.unlockLevel}): ${tier.formName}`,
+        description: `${tier.summary} ${tier.mechanicNotes.join(' · ')}.`,
+      })),
       ...(meta?.effects ?? []),
     ],
     acquisition: unlockParts.join(' · '),
-    searchKeywords: [weapon.name, weapon.typeLabel, weapon.specialProperty, 'weapon'],
+    searchKeywords: [
+      weapon.name,
+      weapon.typeLabel,
+      weapon.specialProperty,
+      ...evoTiers.map((t) => t.formName),
+      'weapon',
+      'evolution',
+    ],
   };
 });

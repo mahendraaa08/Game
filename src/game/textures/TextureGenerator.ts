@@ -1,23 +1,152 @@
 import Phaser from 'phaser';
 
-export function generateAllTextures(scene: Phaser.Scene): void {
-  if (scene.textures.exists('player_ship')) return;
+interface TextureStep {
+  label: string;
+  keys: readonly string[];
+  run: (scene: Phaser.Scene) => void;
+}
 
-  createShipTextures(scene);
-  createDroneTextures(scene);
-  createEnemyTextures(scene);
-  createBossTextures(scene);
-  createProjectileTextures(scene);
-  createPowerUpTextures(scene);
-  createParticleAndEnvTextures(scene);
+const TEXTURE_STEPS: readonly TextureStep[] = [
+  {
+    label: 'Preparing starfighter hulls',
+    keys: [
+      'player_ship',
+      'ship_falcon_x',
+      'ship_destroyer',
+      'ship_phantom',
+      'ship_nova_prime',
+      'ship_thunderbolt',
+      'ship_aegis',
+      'ship_specter',
+      'ship_celestial',
+    ],
+    run: createShipTextures,
+  },
+  {
+    label: 'Calibrating companion drones',
+    keys: ['drone_assault', 'drone_shield', 'drone_repair', 'drone_collector'],
+    run: createDroneTextures,
+  },
+  {
+    label: 'Loading hostile fleet assets',
+    keys: [
+      'enemy_scout',
+      'enemy_fighter',
+      'enemy_bomber',
+      'enemy_tank',
+      'enemy_elite',
+      'enemy_interceptor',
+      'enemy_sniper',
+      'enemy_splitter',
+      'enemy_bastion',
+      'enemy_harbinger',
+    ],
+    run: createEnemyTextures,
+  },
+  {
+    label: 'Loading Void command carriers',
+    keys: [
+      'boss_iron_guardian',
+      'boss_venom_queen',
+      'boss_shadow_titan',
+      'boss_cyber_leviathan',
+      'boss_void_emperor',
+    ],
+    run: createBossTextures,
+  },
+  {
+    label: 'Charging weapon projectiles',
+    keys: [
+      'proj_plasma',
+      'proj_plasma_evo1',
+      'proj_plasma_burst',
+      'proj_plasma_shard',
+      'proj_laser',
+      'proj_laser_evo1',
+      'proj_laser_barrage',
+      'proj_spread',
+      'proj_spread_evo1',
+      'proj_missile',
+      'proj_missile_evo1',
+      'proj_missile_heavy',
+      'drone_beam_evo',
+      'proj_enemy_bolt',
+      'proj_enemy_bomb',
+      'proj_enemy_seeker',
+      'proj_enemy_splitter',
+      'proj_enemy_shard',
+    ],
+    run: createProjectileTextures,
+  },
+  {
+    label: 'Preparing supply pods',
+    keys: [
+      'powerup_health',
+      'powerup_shield',
+      'powerup_rapid_fire',
+      'powerup_double_damage',
+      'powerup_mega_bomb',
+      'powerup_invulnerability',
+    ],
+    run: createPowerUpTextures,
+  },
+  {
+    label: 'Building sector environment',
+    keys: ['particle_glow', 'particle_spark', 'asteroid_1', 'asteroid_2'],
+    run: createParticleAndEnvTextures,
+  },
+];
+
+function hasAllStepKeys(scene: Phaser.Scene, keys: readonly string[]): boolean {
+  const textures = scene?.textures;
+  if (!textures) return false;
+  for (let i = 0; i < keys.length; i++) {
+    if (!textures.exists(keys[i])) return false;
+  }
+  return true;
+}
+
+export function areAllTexturesReady(scene: Phaser.Scene): boolean {
+  if (!scene?.textures) return false;
+  for (let i = 0; i < TEXTURE_STEPS.length; i++) {
+    if (!hasAllStepKeys(scene, TEXTURE_STEPS[i].keys)) return false;
+  }
+  return true;
+}
+
+function isSceneUsable(scene: Phaser.Scene): boolean {
+  const sys = scene?.sys;
+  if (!sys || !sys.textures) return false;
+  const status = sys.settings?.status;
+  return status !== Phaser.Scenes.SHUTDOWN && status !== Phaser.Scenes.DESTROYED;
+}
+
+export function generateAllTextures(scene: Phaser.Scene): void {
+  if (!isSceneUsable(scene)) return;
+  if (areAllTexturesReady(scene)) return;
+
+  for (let i = 0; i < TEXTURE_STEPS.length; i++) {
+    const step = TEXTURE_STEPS[i];
+    if (!hasAllStepKeys(scene, step.keys)) {
+      step.run(scene);
+    }
+  }
 }
 
 function yieldFrame(): Promise<void> {
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const fallbackTimer = setTimeout(finish, 32);
     if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-      window.requestAnimationFrame(() => resolve());
-    } else {
-      setTimeout(resolve, 16);
+      window.requestAnimationFrame(() => {
+        clearTimeout(fallbackTimer);
+        finish();
+      });
     }
   });
 }
@@ -26,25 +155,20 @@ export async function generateAllTexturesAsync(
   scene: Phaser.Scene,
   onStep?: (ratio: number, stageLabel: string) => void
 ): Promise<void> {
-  if (scene.textures.exists('player_ship')) {
+  if (!isSceneUsable(scene)) return;
+
+  if (areAllTexturesReady(scene)) {
     onStep?.(1, 'Visual assets verified');
     return;
   }
 
-  const steps: Array<{ label: string; run: () => void }> = [
-    { label: 'Preparing starfighter hulls', run: () => createShipTextures(scene) },
-    { label: 'Calibrating companion drones', run: () => createDroneTextures(scene) },
-    { label: 'Loading hostile fleet assets', run: () => createEnemyTextures(scene) },
-    { label: 'Loading Void command carriers', run: () => createBossTextures(scene) },
-    { label: 'Charging weapon projectiles', run: () => createProjectileTextures(scene) },
-    { label: 'Preparing supply pods', run: () => createPowerUpTextures(scene) },
-    { label: 'Building sector environment', run: () => createParticleAndEnvTextures(scene) },
-  ];
-
-  for (let i = 0; i < steps.length; i++) {
-    if (!scene.sys || !scene.sys.isActive()) return;
-    steps[i].run();
-    onStep?.((i + 1) / steps.length, steps[i].label);
+  for (let i = 0; i < TEXTURE_STEPS.length; i++) {
+    if (!isSceneUsable(scene)) return;
+    const step = TEXTURE_STEPS[i];
+    if (!hasAllStepKeys(scene, step.keys)) {
+      step.run(scene);
+    }
+    onStep?.((i + 1) / TEXTURE_STEPS.length, step.label);
     await yieldFrame();
   }
 }
@@ -757,7 +881,7 @@ function createBossTextures(scene: Phaser.Scene): void {
 }
 
 function createProjectileTextures(scene: Phaser.Scene): void {
-  // Plasma bolt
+  // Plasma Base Bolt
   {
     const g = scene.make.graphics({ x: 0, y: 0 });
     g.fillStyle(0x0284c7, 0.45);
@@ -770,7 +894,54 @@ function createProjectileTextures(scene: Phaser.Scene): void {
     g.destroy();
   }
 
-  // Dual laser
+  // Plasma Evo I: Enhanced Plasma Orb (larger, denser sphere with bright core & outer aura)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0x0284c7, 0.35);
+    g.fillCircle(13, 13, 12);
+    g.lineStyle(1.8, 0x7dd3fc, 0.9);
+    g.strokeCircle(13, 13, 9.5);
+    g.fillStyle(0x38bdf8, 1);
+    g.fillCircle(13, 13, 7.5);
+    g.fillStyle(0xe0f2fe, 1);
+    g.fillCircle(13, 13, 4.5);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(13, 13, 2.5);
+    g.generateTexture('proj_plasma_evo1', 26, 26);
+    g.destroy();
+  }
+
+  // Plasma Evo II: Plasma Burst Hyper-Orb (intense large explosive sphere)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0x0ea5e9, 0.32);
+    g.fillCircle(18, 18, 17);
+    g.lineStyle(2.4, 0xbae6fd, 0.95);
+    g.strokeCircle(18, 18, 13.5);
+    g.fillStyle(0x38bdf8, 1);
+    g.fillCircle(18, 18, 10.5);
+    g.fillStyle(0xe0f2fe, 1);
+    g.fillCircle(18, 18, 7);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(18, 18, 4);
+    g.generateTexture('proj_plasma_burst', 36, 36);
+    g.destroy();
+  }
+
+  // Plasma Evo II: Radial Burst Mini-Shard
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0x38bdf8, 0.45);
+    g.fillEllipse(6, 9, 9, 15);
+    g.fillStyle(0x7dd3fc, 1);
+    g.fillEllipse(6, 9, 5, 11);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(6, 7, 2.2);
+    g.generateTexture('proj_plasma_shard', 12, 18);
+    g.destroy();
+  }
+
+  // Dual Laser Base
   {
     const g = scene.make.graphics({ x: 0, y: 0 });
     g.fillStyle(0x06b6d4, 0.5);
@@ -781,7 +952,33 @@ function createProjectileTextures(scene: Phaser.Scene): void {
     g.destroy();
   }
 
-  // Spread orb
+  // Dual Laser Evo I: Enhanced Dual Shot (larger, denser, brighter coherent bolt with outer halo)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0x0891b2, 0.42);
+    g.fillRoundedRect(1, 0, 12, 30, 5);
+    g.fillStyle(0x22d3ee, 0.95);
+    g.fillRoundedRect(3.5, 1, 7, 28, 3);
+    g.fillStyle(0xecfeff, 1);
+    g.fillRoundedRect(5.5, 2, 3, 25, 1.5);
+    g.generateTexture('proj_laser_evo1', 14, 30);
+    g.destroy();
+  }
+
+  // Dual Laser Evo II: Central Rapid Barrage Hyper-Bolt
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0x38bdf8, 0.48);
+    g.fillRoundedRect(1, 0, 14, 34, 6);
+    g.fillStyle(0x67e8f9, 1);
+    g.fillRoundedRect(4, 1, 8, 31, 4);
+    g.fillStyle(0xffffff, 1);
+    g.fillRoundedRect(6.2, 2, 3.6, 28, 2);
+    g.generateTexture('proj_laser_barrage', 16, 34);
+    g.destroy();
+  }
+
+  // Spread Base orb
   {
     const g = scene.make.graphics({ x: 0, y: 0 });
     g.fillStyle(0x9333ea, 0.55);
@@ -794,7 +991,22 @@ function createProjectileTextures(scene: Phaser.Scene): void {
     g.destroy();
   }
 
-  // Homing missile
+  // Spread Evo I & II: Enhanced Spread Orb (brighter core + thicker violet-magenta shell)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0x9333ea, 0.4);
+    g.fillCircle(11, 11, 10);
+    g.lineStyle(2, 0xd8b4fe, 0.92);
+    g.strokeCircle(11, 11, 8);
+    g.fillStyle(0xc084fc, 1);
+    g.fillCircle(11, 11, 6);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(11, 11, 3);
+    g.generateTexture('proj_spread_evo1', 22, 22);
+    g.destroy();
+  }
+
+  // Homing Missile Base
   {
     const g = scene.make.graphics({ x: 0, y: 0 });
     g.fillStyle(0xf59e0b, 1);
@@ -802,6 +1014,73 @@ function createProjectileTextures(scene: Phaser.Scene): void {
     g.fillStyle(0xfef08a, 1);
     g.fillRect(6, 14, 4, 6);
     g.generateTexture('proj_missile', 16, 22);
+    g.destroy();
+  }
+
+  // Homing Missile Evo I: Enhanced Homing Missile (bulkier warhead + hotter thruster plume)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0xd97706, 0.45);
+    g.fillEllipse(11, 13, 18, 24);
+    g.fillStyle(0xf59e0b, 1);
+    g.fillTriangle(11, 1, 3, 19, 19, 19);
+    g.fillStyle(0xfbbf24, 1);
+    g.fillRect(7, 10, 8, 10);
+    g.fillStyle(0xffffff, 1);
+    g.fillTriangle(11, 4, 8, 14, 14, 14);
+    g.fillStyle(0xfef08a, 1);
+    g.fillTriangle(11, 27, 7, 19, 15, 19);
+    g.generateTexture('proj_missile_evo1', 22, 28);
+    g.destroy();
+  }
+
+  // Homing Missile Evo II: Heavy Homing Missile (armored heavy twin-fin cruise warhead)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0xef4444, 0.35);
+    g.fillEllipse(15, 17, 26, 32);
+    // Heavy armored fuselage & twin stabilizer fins
+    g.fillStyle(0x9a3412, 1);
+    g.fillTriangle(15, 1, 4, 24, 26, 24);
+    g.lineStyle(1.8, 0xfde047, 1);
+    g.strokeTriangle(15, 1, 4, 24, 26, 24);
+    g.fillStyle(0xf59e0b, 1);
+    g.fillRoundedRect(10, 8, 10, 17, 3);
+    g.fillStyle(0xfef08a, 1);
+    g.fillCircle(15, 12, 3.6);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(15, 12, 1.8);
+    // Bright exhaust core
+    g.fillStyle(0xfb923c, 1);
+    g.fillTriangle(15, 35, 9, 24, 21, 24);
+    g.fillStyle(0xffffff, 1);
+    g.fillTriangle(15, 31, 12, 24, 18, 24);
+    g.generateTexture('proj_missile_heavy', 30, 36);
+    g.destroy();
+  }
+
+  // Beam Evo II: Autonomous Laser Drone (sleek cobalt-cyan tactical turret pod)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    const c = 16;
+    g.fillStyle(0x1d4ed8, 0.28);
+    g.fillCircle(c, c, 15);
+    g.fillStyle(0x0f172a, 1);
+    g.lineStyle(2, 0x60a5fa, 1);
+    g.beginPath();
+    g.moveTo(c, c - 13);
+    g.lineTo(c + 12, c + 4);
+    g.lineTo(c + 6, c + 11);
+    g.lineTo(c - 6, c + 11);
+    g.lineTo(c - 12, c + 4);
+    g.closePath();
+    g.fillPath();
+    g.strokePath();
+    g.fillStyle(0x93c5fd, 1);
+    g.fillCircle(c, c, 4.5);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(c, c - 2, 2.2);
+    g.generateTexture('drone_beam_evo', 32, 32);
     g.destroy();
   }
 

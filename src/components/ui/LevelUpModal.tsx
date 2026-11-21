@@ -22,7 +22,7 @@ export const LevelUpModal: React.FC<LevelUpModalProps> = ({ data, onClose }) => 
 
   useEffect(() => {
     SoundManager.unlock();
-    SoundManager.playPowerUp();
+    SoundManager.playLevelUp();
   }, [data.newLevel]);
 
   // Smooth lightweight count-up animation for level number & reward totals

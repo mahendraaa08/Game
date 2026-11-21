@@ -425,33 +425,47 @@ export function calculateFleetUpgradeCost(
   return { credits, crystals };
 }
 
-/** Weapon unlocks & differentiated 15-level tiered upgrade curves (ordered from Plasma #1 starter to Chain Lightning #6 apex) */
+/**
+ * Weapon unlocks & differentiated 20-level tiered upgrade curves
+ * Ordered #1 (cheapest) -> #6 (most expensive):
+ * 1. Plasma -> 2. Dual -> 3. Spread -> 4. Beam -> 5. Homing -> 6. Lightning
+ */
 export const WEAPON_ECONOMY: Record<
   WeaponId,
   { unlockLevel: number; unlockCredits: number; unlockCrystals: number; upgradeTierMult: number }
 > = {
   plasma: { unlockLevel: 1, unlockCredits: 0, unlockCrystals: 0, upgradeTierMult: 1.0 },
   dual_laser: { unlockLevel: 1, unlockCredits: 1800, unlockCrystals: 4, upgradeTierMult: 1.15 },
-  beam: { unlockLevel: 2, unlockCredits: 3200, unlockCrystals: 8, upgradeTierMult: 1.28 },
-  homing: { unlockLevel: 2, unlockCredits: 4300, unlockCrystals: 11, upgradeTierMult: 1.38 },
-  spread: { unlockLevel: 2, unlockCredits: 5400, unlockCrystals: 14, upgradeTierMult: 1.48 },
-  lightning: { unlockLevel: 3, unlockCredits: 6800, unlockCrystals: 18, upgradeTierMult: 1.6 },
+  spread: { unlockLevel: 2, unlockCredits: 3200, unlockCrystals: 8, upgradeTierMult: 1.28 },
+  beam: { unlockLevel: 2, unlockCredits: 4400, unlockCrystals: 11, upgradeTierMult: 1.38 },
+  homing: { unlockLevel: 2, unlockCredits: 5600, unlockCrystals: 15, upgradeTierMult: 1.48 },
+  lightning: { unlockLevel: 3, unlockCredits: 7000, unlockCrystals: 19, upgradeTierMult: 1.6 },
 };
 
 export function calculateWeaponUpgradeCost(
   currentLevel: number,
   weaponId: WeaponId = 'plasma',
-  maxWeaponLevel = 15
+  maxWeaponLevel = 20
 ): CurrencyAmount {
   const lvl = Math.max(1, Math.floor(currentLevel));
   if (lvl >= maxWeaponLevel) return { credits: 0, crystals: 0 };
   const tierMult = WEAPON_ECONOMY[weaponId]?.upgradeTierMult ?? 1.0;
-  const credits = roundCredits(160 * tierMult * Math.pow(1.165, lvl - 1), 10);
+  // Smooth exponential up to Lv14, then tapered upper-tier scaling for Lv15..19 -> Lv20
+  const expScale =
+    lvl <= 14
+      ? Math.pow(1.16, lvl - 1)
+      : Math.pow(1.16, 13) * Math.pow(1.115, lvl - 14);
+  const credits = roundCredits(160 * tierMult * expScale, 10);
+
   let crystals = 0;
-  if (lvl >= 13) {
-    crystals = tierMult >= 1.25 ? Math.round(2.3 * tierMult) : 2;
-  } else if (lvl >= 10) {
-    crystals = Math.round(1.6 * tierMult);
+  if (lvl >= 18) {
+    crystals = Math.round(3.6 * tierMult);
+  } else if (lvl >= 15) {
+    crystals = Math.round(2.8 * tierMult);
+  } else if (lvl >= 12) {
+    crystals = tierMult >= 1.25 ? Math.round(2.2 * tierMult) : 2;
+  } else if (lvl >= 9) {
+    crystals = Math.round(1.5 * tierMult);
   } else if (lvl >= 6) {
     crystals = Math.max(1, Math.round(1.0 * tierMult));
   } else if (lvl >= 3 && tierMult >= 1.4) {
