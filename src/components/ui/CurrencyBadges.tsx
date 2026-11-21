@@ -50,6 +50,29 @@ export const CrystalGemIcon: React.FC<{ className?: string }> = ({ className = '
   );
 };
 
+export const ExpStarIcon: React.FC<{ className?: string }> = ({ className = 'h-4 w-4' }) => {
+  const gradId = useId();
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
+      <defs>
+        <linearGradient id={gradId} x1="4" y1="2" x2="20" y2="22" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#F3E8FF" />
+          <stop offset="48%" stopColor="#C084FC" />
+          <stop offset="100%" stopColor="#7C3AED" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M12 2.5L14.9 9.1L21.5 12L14.9 14.9L12 21.5L9.1 14.9L2.5 12L9.1 9.1L12 2.5Z"
+        fill={`url(#${gradId})`}
+        stroke="#E9D5FF"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="2.2" fill="#FAF5FF" fillOpacity="0.85" />
+    </svg>
+  );
+};
+
 export const CreditsBadge: React.FC<CurrencyBadgeProps> = ({
   amount,
   prefix = '',
@@ -122,18 +145,74 @@ export const CrystalsBadge: React.FC<CurrencyBadgeProps> = ({
   return <div className={classes}>{inner}</div>;
 };
 
+export const ExpBadge: React.FC<CurrencyBadgeProps> = ({
+  amount,
+  prefix = '+',
+  size = 'md',
+}) => {
+  const classes = `inline-flex items-center gap-1.5 rounded-xl border border-purple-400/45 bg-gradient-to-br from-[#190c2b]/90 via-[#120a21]/92 to-[#090d18]/92 shadow-[0_0_16px_rgba(168,85,247,0.12)] backdrop-blur-sm ${
+    size === 'sm' ? 'min-h-[34px] px-2.5 py-1 text-xs' : 'min-h-[38px] px-3 py-1.5 text-xs sm:text-sm'
+  }`;
+
+  return (
+    <div className={classes}>
+      <ExpStarIcon className={size === 'sm' ? 'h-4 w-4 shrink-0' : 'h-[18px] w-[18px] shrink-0'} />
+      <span className="font-mono-num font-bold tracking-tight text-purple-200 whitespace-nowrap">
+        {prefix}
+        {amount.toLocaleString()} EXP
+      </span>
+    </div>
+  );
+};
+
 interface CompactCurrencyClusterProps {
   credits: number;
   crystals: number;
+  onOpenExchange?: (direction: 'credits_to_gems' | 'gems_to_credits') => void;
 }
 
 export const CompactCurrencyCluster: React.FC<CompactCurrencyClusterProps> = ({
   credits,
   crystals,
+  onOpenExchange,
 }) => {
+  if (onOpenExchange) {
+    return (
+      <div className="flex min-h-[42px] items-center rounded-xl border border-slate-700/65 bg-[#070f20]/84 p-0.5 backdrop-blur-sm">
+        <button
+          type="button"
+          onClick={() => onOpenExchange('credits_to_gems')}
+          aria-label={`Credits ${credits.toLocaleString()}. Open Currency Exchange`}
+          title="Open Exchange (Credit to Gems)"
+          className="flex min-h-[38px] items-center gap-1.5 rounded-[10px] px-2 sm:px-3 py-1 transition-[background-color,transform] duration-150 hover:bg-amber-400/12 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-amber-300"
+        >
+          <CreditCoinIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+          <span className="font-mono-num text-xs sm:text-[13px] font-semibold tracking-tight text-slate-100 whitespace-nowrap">
+            {credits.toLocaleString()}
+          </span>
+        </button>
+
+        <span aria-hidden="true" className="h-3.5 w-px shrink-0 bg-slate-700/80" />
+
+        <button
+          type="button"
+          onClick={() => onOpenExchange('gems_to_credits')}
+          aria-label={`Gems ${crystals.toLocaleString()}. Open Currency Exchange`}
+          title="Open Exchange (Gems to Credit)"
+          className="flex min-h-[38px] items-center gap-1.5 rounded-[10px] px-2 sm:px-3 py-1 transition-[background-color,transform] duration-150 hover:bg-cyan-400/12 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-cyan-300"
+        >
+          <CrystalGemIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+          <span className="font-mono-num text-xs sm:text-[13px] font-semibold tracking-tight text-cyan-200 whitespace-nowrap">
+            {crystals.toLocaleString()}
+          </span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
-      aria-label={`Credits ${credits.toLocaleString()}, Crystals ${crystals.toLocaleString()}`}
+      aria-label={`Credits ${credits.toLocaleString()}, Gems ${crystals.toLocaleString()}`}
       className="flex min-h-[42px] items-center gap-2 sm:gap-3 rounded-xl border border-slate-700/65 bg-[#070f20]/84 px-2.5 sm:px-3.5 py-1.5 backdrop-blur-sm select-none"
     >
       <div className="flex items-center gap-1.5">

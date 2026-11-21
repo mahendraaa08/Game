@@ -12,6 +12,7 @@ interface DedicatedScreenShellProps {
   credits?: number;
   crystals?: number;
   showCurrencies?: boolean;
+  onOpenExchange?: (direction: 'credits_to_gems' | 'gems_to_credits') => void;
   feedback?: ActionResult | null;
   subNav?: React.ReactNode;
   translucent?: boolean;
@@ -27,6 +28,7 @@ export const DedicatedScreenShell: React.FC<DedicatedScreenShellProps> = ({
   credits = 0,
   crystals = 0,
   showCurrencies = true,
+  onOpenExchange,
   feedback = null,
   subNav,
   translucent = false,
@@ -78,7 +80,19 @@ export const DedicatedScreenShell: React.FC<DedicatedScreenShellProps> = ({
 
           {showCurrencies && (
             <div className="shrink-0">
-              <CompactCurrencyCluster credits={credits} crystals={crystals} />
+              <CompactCurrencyCluster
+                credits={credits}
+                crystals={crystals}
+                onOpenExchange={
+                  onOpenExchange
+                    ? (dir) => {
+                        SoundManager.unlock();
+                        SoundManager.playButtonClick();
+                        onOpenExchange(dir);
+                      }
+                    : undefined
+                }
+              />
             </div>
           )}
         </div>

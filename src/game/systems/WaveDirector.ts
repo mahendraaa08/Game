@@ -2,7 +2,12 @@ import Phaser from 'phaser';
 import { getEndlessDifficulty } from '../config/EconomyConfig';
 import { EnemyBehavior, EnemyClass } from '../config/EnemyConfig';
 import { GameMode } from '../config/GameModeConfig';
-import { LevelDefinition, WaveDefinition, WaveSpawnGroup } from '../config/LevelConfig';
+import {
+  LevelDefinition,
+  WaveDefinition,
+  WavePhaseDefinition,
+  WaveSpawnGroup,
+} from '../config/LevelConfig';
 import { EnemyEntity } from '../entities/Enemy';
 import { ObjectPool } from '../utils/ObjectPool';
 
@@ -14,6 +19,9 @@ interface ScheduledSpawn {
   spawnAtMs: number;
 }
 
+const PHASE_TRANSITION_MS = 450;
+const WAVE_COOLDOWN_MS = 1050;
+
 export class WaveDirector {
   private scene: Phaser.Scene;
   private level: LevelDefinition;
@@ -21,10 +29,14 @@ export class WaveDirector {
   private enemyPool: ObjectPool<EnemyEntity>;
   private onEnemyEncounter?: (enemyClass: EnemyClass) => void;
   private onWaveCleared?: (waveNum: number) => void;
+  private onPhaseStarted?: (waveNum: number, phase: 1 | 2) => void;
 
   currentWaveIdx = 0;
   totalWaves: number;
-  private waveElapsedMs = 0;
+  private activeWave: WaveDefinition | null = null;
+  private currentPhaseIdx: 0 | 1 = 0;
+  private phaseElapsedMs = 0;
+  private phaseTransitionMs = 0;
   private waveCooldownMs = 900;
   private spawnQueue: ScheduledSpawn[] = [];
   private waveStarted = false;
@@ -35,7 +47,8 @@ export class WaveDirector {
     level: LevelDefinition,
     mode: GameMode = 'campaign',
     onEnemyEncounter?: (enemyClass: EnemyClass) => void,
-    onWaveCleared?: (waveNum: number) => void
+    onWaveCleared?: (waveNum: number) => void,
+    onPhaseStarted?: (waveNum: number, phase: 1 | 2) => void
   ) {
     this.scene = scene;
     this.level = level;
@@ -43,16 +56,21 @@ export class WaveDirector {
     this.totalWaves = mode === 'endless' ? 999 : mode === 'boss_rush' ? 0 : level.waves.length;
     this.onEnemyEncounter = onEnemyEncounter;
     this.onWaveCleared = onWaveCleared;
+    this.onPhaseStarted = onPhaseStarted;
 
     this.enemyPool = new ObjectPool<EnemyEntity>(
       () => new EnemyEntity(scene),
-      18,
-      70
+      24,
+      84
     );
 
     if (mode === 'boss_rush') {
       this.allWavesCompleted = true;
     }
+  }
+
+  get currentPhase(): 1 | 2 {
+    return this.currentPhaseIdx === 0 ? 1 : 2;
   }
 
   getActiveEnemies(): EnemyEntity[] {
@@ -70,7 +88,29 @@ export class WaveDirector {
       this.mode === 'endless'
         ? getEndlessDifficulty(this.currentWaveIdx)
         : this.level.difficultyMultiplier;
-    e.spawn(enemyClass, x, y, 'diving', diff);
+    const minionBehavior: EnemyBehavior =
+      enemyClass === 'scout'
+        ? Math.random() < 0.5
+          ? 'flank_sweep'
+          : 'diving'
+        : enemyClass === 'interceptor'
+        ? 'rush_weave'
+        : enemyClass === 'fighter'
+        ? 'orbit_harass'
+        : enemyClass === 'sniper'
+        ? 'sniper_perch'
+        : enemyClass === 'bomber'
+        ? 'diving'
+        : enemyClass === 'splitter'
+        ? 'pendulum_hover'
+        : enemyClass === 'bastion'
+        ? 'fortress_march'
+        : enemyClass === 'harbinger'
+        ? 'phase_weave'
+        : enemyClass === 'elite'
+        ? 'evasive'
+        : 'formation';
+    e.spawn(enemyClass, x, y, minionBehavior, diff);
     this.onEnemyEncounter?.(enemyClass);
   }
 
@@ -94,14 +134,25 @@ export class WaveDirector {
       return;
     }
 
-    this.waveElapsedMs += dtMs;
+    // Smooth inter-phase pause before Phase 2 reinforcements enter
+    if (this.phaseTransitionMs > 0) {
+      this.phaseTransitionMs -= dtMs;
+      if (this.phaseTransitionMs <= 0 && this.activeWave) {
+        this.phaseTransitionMs = 0;
+        this.enqueuePhase(this.activeWave.phases[1], this.activeWave.spawnIntervalMs);
+        this.onPhaseStarted?.(this.currentWaveIdx + 1, 2);
+      }
+      return;
+    }
+
+    this.phaseElapsedMs += dtMs;
     const w = this.scene.scale.width;
     const diff =
       this.mode === 'endless'
         ? getEndlessDifficulty(this.currentWaveIdx)
         : this.level.difficultyMultiplier;
 
-    while (this.spawnQueue.length > 0 && this.spawnQueue[0].spawnAtMs <= this.waveElapsedMs) {
+    while (this.spawnQueue.length > 0 && this.spawnQueue[0].spawnAtMs <= this.phaseElapsedMs) {
       const next = this.spawnQueue.shift()!;
       const e = this.enemyPool.acquire();
       if (e) {
@@ -111,59 +162,200 @@ export class WaveDirector {
       }
     }
 
-    // Check if wave cleared
+    // Check if current phase is cleared
     if (this.spawnQueue.length === 0 && !this.enemyPool.hasActive()) {
+      if (this.currentPhaseIdx === 0 && this.activeWave?.phases[1]) {
+        this.currentPhaseIdx = 1;
+        this.phaseTransitionMs = PHASE_TRANSITION_MS;
+        return;
+      }
+
+      // Both phases cleared -> complete wave & advance
       this.onWaveCleared?.(this.currentWaveIdx + 1);
       if (this.mode === 'endless' || this.currentWaveIdx < this.totalWaves - 1) {
         this.currentWaveIdx++;
         this.waveStarted = false;
-        this.waveCooldownMs = 1000;
+        this.activeWave = null;
+        this.currentPhaseIdx = 0;
+        this.waveCooldownMs = WAVE_COOLDOWN_MS;
       } else {
         this.allWavesCompleted = true;
+        this.activeWave = null;
       }
     }
   }
 
   private generateEndlessWave(waveNum: number): WaveDefinition {
-    const interval = Math.max(290, 620 - waveNum * 22);
-    const scoutCount = Math.min(14, 5 + Math.floor(waveNum * 0.8));
-    const fighterCount = Math.min(9, 2 + Math.floor(waveNum * 0.65));
-    const bomberCount = waveNum >= 2 ? Math.min(6, Math.floor(waveNum * 0.5)) : 0;
-    const tankCount = waveNum >= 3 ? Math.min(5, Math.floor(waveNum * 0.35)) : 0;
-    const eliteCount = waveNum >= 4 ? Math.min(6, Math.floor(waveNum * 0.4)) : 0;
+    const interval = Math.max(350, 710 - waveNum * 18);
+    const phaseTargetTotal = Math.min(22, 10 + Math.floor(waveNum * 1.1));
+
+    const interceptorCountP1 = Math.min(5, Math.max(1, Math.floor((waveNum + 1) * 0.45)));
+    const sniperCountP1 = waveNum >= 2 ? Math.min(3, Math.floor(waveNum * 0.3)) : 0;
+    const bomberCountP1 = waveNum >= 2 ? Math.min(4, Math.floor(waveNum * 0.4)) : 0;
+    const fighterCountP1 = Math.min(6, Math.max(2, Math.floor(phaseTargetTotal * 0.3)));
+    const scoutCountP1 = Math.max(
+      2,
+      phaseTargetTotal - interceptorCountP1 - sniperCountP1 - fighterCountP1 - bomberCountP1
+    );
+
+    const harbingerCountP2 = waveNum >= 6 ? Math.min(3, Math.floor((waveNum - 4) * 0.35)) : 0;
+    const splitterCountP2 = waveNum >= 3 ? Math.min(4, Math.floor(waveNum * 0.32)) : 0;
+    const bastionCountP2 = waveNum >= 4 ? Math.min(3, Math.floor((waveNum - 2) * 0.3)) : 0;
+    const eliteCountP2 = waveNum >= 3 ? Math.min(5, Math.max(1, Math.floor(waveNum * 0.35))) : 0;
+    const tankCountP2 = waveNum >= 2 ? Math.min(4, Math.max(1, Math.floor(waveNum * 0.3))) : 0;
+    const fighterCountP2 = Math.min(
+      6,
+      Math.max(2, Math.floor((phaseTargetTotal - eliteCountP2 - tankCountP2 - bastionCountP2) * 0.4))
+    );
+    const scoutCountP2 = Math.max(
+      2,
+      phaseTargetTotal -
+        harbingerCountP2 -
+        splitterCountP2 -
+        bastionCountP2 -
+        eliteCountP2 -
+        tankCountP2 -
+        fighterCountP2
+    );
 
     const formations: Array<'line' | 'vee' | 'stagger' | 'flank'> = ['vee', 'line', 'stagger', 'flank'];
-    const form = formations[waveNum % formations.length];
+    const formP1 = formations[waveNum % formations.length];
+    const formP2 = formations[(waveNum + 2) % formations.length];
 
-    const groups: WaveSpawnGroup[] = [
-      { enemyClass: 'scout', count: scoutCount, behavior: waveNum % 2 === 0 ? 'zigzag' : 'diving', formation: form },
-      { enemyClass: 'fighter', count: fighterCount, behavior: 'sine', formation: 'stagger', delayMs: 900 },
+    const scoutBehaviors: EnemyBehavior[] = ['zigzag', 'diving', 'flank_sweep', 'evasive'];
+    const fighterBehaviors: EnemyBehavior[] = ['sine', 'orbit_harass', 'retreat_strafe', 'formation'];
+    const bomberBehaviors: EnemyBehavior[] = ['diving', 'flank_sweep', 'sine'];
+    const eliteBehaviors: EnemyBehavior[] = ['tracking', 'evasive', 'orbit_harass', 'retreat_strafe'];
+
+    const phase1Groups: WaveSpawnGroup[] = [
+      {
+        enemyClass: 'scout',
+        count: scoutCountP1,
+        behavior: scoutBehaviors[waveNum % scoutBehaviors.length],
+        formation: formP1,
+      },
+      {
+        enemyClass: 'interceptor',
+        count: interceptorCountP1,
+        behavior: waveNum % 2 === 0 ? 'rush_weave' : 'flank_sweep',
+        formation: 'flank',
+        delayMs: 650,
+      },
+      {
+        enemyClass: 'fighter',
+        count: fighterCountP1,
+        behavior: fighterBehaviors[waveNum % fighterBehaviors.length],
+        formation: formP1 === 'flank' ? 'flank' : 'stagger',
+        delayMs: 1100,
+      },
     ];
-    if (bomberCount > 0) {
-      groups.push({ enemyClass: 'bomber', count: bomberCount, behavior: 'diving', delayMs: 1400 });
+    if (bomberCountP1 > 0) {
+      phase1Groups.push({
+        enemyClass: 'bomber',
+        count: bomberCountP1,
+        behavior: bomberBehaviors[waveNum % bomberBehaviors.length],
+        formation: 'line',
+        delayMs: 1550,
+      });
     }
-    if (tankCount > 0) {
-      groups.push({ enemyClass: 'tank', count: tankCount, behavior: 'straight', formation: 'line', delayMs: 1800 });
+    if (sniperCountP1 > 0) {
+      phase1Groups.push({
+        enemyClass: 'sniper',
+        count: sniperCountP1,
+        behavior: 'sniper_perch',
+        formation: 'line',
+        delayMs: 1850,
+      });
     }
-    if (eliteCount > 0) {
-      groups.push({ enemyClass: 'elite', count: eliteCount, behavior: 'tracking', delayMs: 2200 });
+
+    const phase2Groups: WaveSpawnGroup[] = [
+      {
+        enemyClass: 'fighter',
+        count: fighterCountP2,
+        behavior: fighterBehaviors[(waveNum + 1) % fighterBehaviors.length],
+        formation: formP2,
+      },
+      {
+        enemyClass: 'scout',
+        count: scoutCountP2,
+        behavior: scoutBehaviors[(waveNum + 2) % scoutBehaviors.length],
+        formation: 'flank',
+        delayMs: 850,
+      },
+    ];
+    if (tankCountP2 > 0) {
+      phase2Groups.push({
+        enemyClass: 'tank',
+        count: tankCountP2,
+        behavior: waveNum % 2 === 0 ? 'formation' : 'straight',
+        formation: 'line',
+        delayMs: 1150,
+      });
+    }
+    if (bastionCountP2 > 0) {
+      phase2Groups.push({
+        enemyClass: 'bastion',
+        count: bastionCountP2,
+        behavior: 'fortress_march',
+        formation: 'line',
+        delayMs: 1350,
+      });
+    }
+    if (splitterCountP2 > 0) {
+      phase2Groups.push({
+        enemyClass: 'splitter',
+        count: splitterCountP2,
+        behavior: 'pendulum_hover',
+        formation: 'stagger',
+        delayMs: 1550,
+      });
+    }
+    if (eliteCountP2 > 0) {
+      phase2Groups.push({
+        enemyClass: 'elite',
+        count: eliteCountP2,
+        behavior: eliteBehaviors[waveNum % eliteBehaviors.length],
+        formation: 'vee',
+        delayMs: 1750,
+      });
+    }
+    if (harbingerCountP2 > 0) {
+      phase2Groups.push({
+        enemyClass: 'harbinger',
+        count: harbingerCountP2,
+        behavior: 'phase_weave',
+        formation: 'flank',
+        delayMs: 1950,
+      });
     }
 
     return {
       id: waveNum,
       title: `Endless Wave ${waveNum}`,
       spawnIntervalMs: interval,
-      groups,
+      phases: [
+        { groups: phase1Groups, spawnIntervalMs: interval },
+        { groups: phase2Groups, spawnIntervalMs: Math.max(330, interval - 20) },
+      ],
     };
   }
 
   private startWave(wave: WaveDefinition): void {
     this.waveStarted = true;
-    this.waveElapsedMs = 0;
-    this.spawnQueue = [];
+    this.activeWave = wave;
+    this.currentPhaseIdx = 0;
+    this.phaseTransitionMs = 0;
+    this.enqueuePhase(wave.phases[0], wave.spawnIntervalMs);
+    this.onPhaseStarted?.(this.currentWaveIdx + 1, 1);
+  }
 
-    wave.groups.forEach((group) => {
-      this.enqueueGroup(group, wave.spawnIntervalMs);
+  private enqueuePhase(phase: WavePhaseDefinition, defaultIntervalMs: number): void {
+    this.phaseElapsedMs = 0;
+    this.spawnQueue = [];
+    const interval = phase.spawnIntervalMs ?? defaultIntervalMs;
+
+    phase.groups.forEach((group) => {
+      this.enqueueGroup(group, interval);
     });
 
     this.spawnQueue.sort((a, b) => a.spawnAtMs - b.spawnAtMs);
@@ -215,6 +407,7 @@ export class WaveDirector {
 
   clearAll(): void {
     this.spawnQueue = [];
+    this.phaseTransitionMs = 0;
     this.enemyPool.releaseAll();
   }
 

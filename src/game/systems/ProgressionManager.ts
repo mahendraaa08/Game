@@ -12,8 +12,12 @@ import {
 import {
   BOSS_RUSH_CLEAR_REWARD,
   ECONOMY_CAPS,
+  type ExchangeDirection,
+  PLAYER_NAME_CHANGE_COST_GEMS,
+  PLAYER_NAME_MAX_LENGTH,
   getCampaignClearReward,
   getChallengePayout,
+  previewCurrencyExchange,
 } from '../config/EconomyConfig';
 import type { EnemyClass } from '../config/EnemyConfig';
 import {
@@ -25,13 +29,28 @@ import {
 import { CHALLENGE_BY_ID, type ChallengeRule, type GameMode } from '../config/GameModeConfig';
 import { CAMPAIGN_LEVELS } from '../config/LevelConfig';
 import {
+  MAX_PLAYER_LEVEL,
+  PLAYER_EXP_SOURCES,
+  getExpRequiredForNextLevel,
+  getLevelUpReward,
+  getRankTitleForLevel,
+} from '../config/LevelProgressionConfig';
+import {
   selectDailyMissions,
   selectWeeklyChallenges,
 } from '../config/MissionConfig';
+import {
+  PROFILE_AVATAR_MAP,
+  PROFILE_BORDER_MAP,
+  type ProfileAvatarId,
+  type ProfileBorderId,
+  isValidAvatarId,
+  isValidBorderId,
+} from '../config/ProfileCosmeticsConfig';
 import { type ShipId, SHIPS } from '../config/ShipConfig';
 import { getUpgradeCost, getWeaponUpgradeCost, type UpgradeId, UPGRADES } from '../config/UpgradeConfig';
 import { type WeaponId, WEAPONS } from '../config/WeaponConfig';
-import { EventBus } from '../utils/EventBus';
+import { EventBus, type LevelUpPayload, type LevelUpStepSummary } from '../utils/EventBus';
 import { type PlayerProgress, StorageManager } from '../utils/StorageManager';
 
 export interface ActionResult {
@@ -43,6 +62,7 @@ export interface ClaimAllResult extends ActionResult {
   claimedCount: number;
   creditsGranted: number;
   crystalsGranted: number;
+  expGranted?: number;
 }
 
 export interface ComputedPlayerStats {
@@ -54,7 +74,6 @@ export interface ComputedPlayerStats {
   fireRateMult: number;
   critChance: number;
   critDamageMult: number;
-  missilePowerMult: number;
   specialPowerMult: number;
   specialCooldownMult: number;
   dashCooldownMult: number;
@@ -82,10 +101,18 @@ export function computePlayerStats(
   let damageMult = ship.stats.damageMult * (1 + u.weapon_damage * UPGRADES.weapon_damage.perLevelBonus);
   let fireRateMult = ship.stats.fireRateMult * (1 + u.fire_rate * UPGRADES.fire_rate.perLevelBonus);
   let critChance = ship.stats.critChance + u.critical_chance * UPGRADES.critical_chance.perLevelBonus;
-  let critDamageMult = ship.id === 'specter' ? 2.35 : ship.id === 'celestial' ? 1.95 : 1.75;
-  const missilePowerMult = 1 + u.missile_power * UPGRADES.missile_power.perLevelBonus;
-  let specialPowerMult = ship.stats.specialPowerMult * (1 + u.special_power * UPGRADES.special_power.perLevelBonus);
-  let specialCooldownMult = Math.max(0.65, 1 - u.special_power * 0.025);
+  let critDamageMult =
+    (ship.id === 'specter' ? 2.35 : ship.id === 'celestial' ? 1.95 : 1.75) +
+    u.critical_damage * UPGRADES.critical_damage.perLevelBonus;
+  let specialPowerMult = ship.stats.specialPowerMult;
+  const specialCdLvl = Math.max(
+    0,
+    Math.min(UPGRADES.special_cooldown.maxLevel, Math.floor(u.special_cooldown ?? 0))
+  );
+  let specialCooldownMult = Math.max(
+    0.76,
+    1 - specialCdLvl * UPGRADES.special_cooldown.perLevelBonus
+  );
   let dashCooldownMult = ship.id === 'phantom' ? 0.75 : 1.0;
   let damageReduction = ship.id === 'aegis' ? 0.16 : 0;
   const evasionChance = ship.id === 'phantom' ? 0.15 : 0;
@@ -152,11 +179,10 @@ export function computePlayerStats(
     moveSpeed: Math.round(moveSpeed),
     damageMult,
     fireRateMult,
-    critChance: Math.min(0.75, Math.max(0, critChance)),
+    critChance: Math.min(0.65, Math.max(0, critChance)),
     critDamageMult,
-    missilePowerMult,
     specialPowerMult,
-    specialCooldownMult: Math.max(0.5, specialCooldownMult),
+    specialCooldownMult: Math.max(0.55, specialCooldownMult),
     dashCooldownMult: Math.max(0.5, dashCooldownMult),
     damageReduction: Math.min(0.45, Math.max(0, damageReduction)),
     evasionChance,
@@ -167,6 +193,36 @@ export function computePlayerStats(
     extraChainTargets: ship.id === 'thunderbolt' ? 1 : 0,
     hasAstralWingBolts: ship.id === 'celestial',
     rotaryFireBonus: ship.id === 'thunderbolt' ? 0.22 : 0,
+  };
+}
+
+export interface CommanderRankInfo {
+  level: number;
+  title: string;
+  currentExp: number;
+  requiredExp: number;
+  isMaxLevel: boolean;
+  progressPct: number;
+}
+
+export function computeCommanderRank(progress: PlayerProgress): CommanderRankInfo {
+  const level = Math.max(1, Math.min(MAX_PLAYER_LEVEL, Math.floor(progress.playerLevel || 1)));
+  const isMaxLevel = level >= MAX_PLAYER_LEVEL;
+  const requiredExp = isMaxLevel ? 0 : getExpRequiredForNextLevel(level);
+  const currentExp = isMaxLevel ? 0 : Math.max(0, Math.floor(progress.playerExp || 0));
+  const progressPct = isMaxLevel
+    ? 100
+    : requiredExp > 0
+    ? Math.min(100, Math.round((currentExp / requiredExp) * 100))
+    : 0;
+
+  return {
+    level,
+    title: getRankTitleForLevel(level),
+    currentExp,
+    requiredExp,
+    isMaxLevel,
+    progressPct,
   };
 }
 
@@ -220,6 +276,98 @@ class ProgressionManagerImpl {
       },
       ...p.rewardHistory,
     ].slice(0, 15);
+  }
+
+  private applyExpAndRewards(
+    p: PlayerProgress,
+    rawExp: number
+  ): { expAdded: number; levelUp: LevelUpPayload | null } {
+    if (p.playerLevel >= MAX_PLAYER_LEVEL) {
+      p.playerLevel = MAX_PLAYER_LEVEL;
+      p.playerExp = 0;
+      p.highestRewardedLevel = MAX_PLAYER_LEVEL;
+      return { expAdded: 0, levelUp: null };
+    }
+
+    const expDelta = Math.max(0, Math.floor(rawExp));
+    if (expDelta <= 0) return { expAdded: 0, levelUp: null };
+
+    const previousLevel = Math.max(1, Math.floor(p.playerLevel || 1));
+    p.playerLevel = previousLevel;
+    p.highestRewardedLevel = Math.max(previousLevel, Math.floor(p.highestRewardedLevel || previousLevel));
+    p.playerExp = Math.max(0, Math.floor(p.playerExp || 0)) + expDelta;
+
+    let totalCreditsGranted = 0;
+    let totalCrystalsGranted = 0;
+    const newSteps: LevelUpStepSummary[] = [];
+
+    while (p.playerLevel < MAX_PLAYER_LEVEL) {
+      const needed = getExpRequiredForNextLevel(p.playerLevel);
+      if (needed <= 0 || p.playerExp < needed) {
+        break;
+      }
+      p.playerExp -= needed;
+      p.playerLevel += 1;
+
+      if (p.playerLevel > p.highestRewardedLevel) {
+        const reward = getLevelUpReward(p.playerLevel);
+        p.highestRewardedLevel = p.playerLevel;
+        totalCreditsGranted += reward.credits;
+        totalCrystalsGranted += reward.crystals;
+        newSteps.push({
+          level: p.playerLevel,
+          credits: reward.credits,
+          crystals: reward.crystals,
+        });
+        this.addRewardHistory(
+          p,
+          `Level ${p.playerLevel} Up`,
+          reward.credits,
+          reward.crystals
+        );
+      }
+    }
+
+    if (p.playerLevel >= MAX_PLAYER_LEVEL) {
+      p.playerLevel = MAX_PLAYER_LEVEL;
+      p.playerExp = 0;
+    }
+
+    if (p.playerLevel > previousLevel) {
+      const existing = p.pendingLevelUp;
+      const merged: LevelUpPayload = {
+        previousLevel: existing ? Math.min(existing.previousLevel, previousLevel) : previousLevel,
+        newLevel: Math.max(existing?.newLevel ?? 1, p.playerLevel),
+        creditsGranted: (existing?.creditsGranted ?? 0) + totalCreditsGranted,
+        crystalsGranted: (existing?.crystalsGranted ?? 0) + totalCrystalsGranted,
+        steps: [...(existing?.steps ?? []), ...newSteps],
+      };
+      p.pendingLevelUp = merged;
+      return { expAdded: expDelta, levelUp: merged };
+    }
+
+    return { expAdded: expDelta, levelUp: null };
+  }
+
+  grantPlayerExp(rawExp: number): LevelUpPayload | null {
+    const p = StorageManager.load();
+    const { levelUp } = this.applyExpAndRewards(p, rawExp);
+    StorageManager.save(p);
+    this.emitChanged();
+    if (levelUp) {
+      EventBus.emit('player:leveled-up', levelUp);
+    }
+    return levelUp;
+  }
+
+  consumePendingLevelUp(): LevelUpPayload | null {
+    const p = StorageManager.load();
+    if (!p.pendingLevelUp) return null;
+    const payload = p.pendingLevelUp;
+    p.pendingLevelUp = null;
+    StorageManager.save(p);
+    this.emitChanged();
+    return payload;
   }
 
   private trySpend(p: PlayerProgress, credits: number, crystals: number): ActionResult | null {
@@ -507,9 +655,14 @@ class ProgressionManagerImpl {
     }
     p.dailyMissions.claimedIds = [...p.dailyMissions.claimedIds, missionId];
     this.addRewardHistory(p, `Daily: ${tpl.title}`, tpl.rewardCredits, tpl.rewardCrystals);
+    const { expAdded, levelUp } = this.applyExpAndRewards(p, PLAYER_EXP_SOURCES.dailyMissionClaim);
     StorageManager.save(p);
     this.emitChanged();
-    return { ok: true, message: `Claimed +${tpl.rewardCredits} Credits, +${tpl.rewardCrystals} Crystals!` };
+    if (levelUp) EventBus.emit('player:leveled-up', levelUp);
+    return {
+      ok: true,
+      message: `Claimed +${tpl.rewardCredits} Credits, +${tpl.rewardCrystals} Gems${expAdded > 0 ? `, +${expAdded} EXP` : ''}!`,
+    };
   }
 
   claimWeeklyChallenge(challengeId: string): ActionResult {
@@ -526,9 +679,14 @@ class ProgressionManagerImpl {
     }
     p.weeklyChallenges.claimedIds = [...p.weeklyChallenges.claimedIds, challengeId];
     this.addRewardHistory(p, `Weekly: ${tpl.title}`, tpl.rewardCredits, tpl.rewardCrystals);
+    const { expAdded, levelUp } = this.applyExpAndRewards(p, PLAYER_EXP_SOURCES.weeklyChallengeClaim);
     StorageManager.save(p);
     this.emitChanged();
-    return { ok: true, message: `Claimed +${tpl.rewardCredits} Credits, +${tpl.rewardCrystals} Crystals!` };
+    if (levelUp) EventBus.emit('player:leveled-up', levelUp);
+    return {
+      ok: true,
+      message: `Claimed +${tpl.rewardCredits} Credits, +${tpl.rewardCrystals} Gems${expAdded > 0 ? `, +${expAdded} EXP` : ''}!`,
+    };
   }
 
   claimAchievement(achievementId: string): ActionResult {
@@ -544,9 +702,14 @@ class ProgressionManagerImpl {
     }
     p.claimedAchievements = [...p.claimedAchievements, achievementId];
     this.addRewardHistory(p, `Achievement: ${def.title}`, def.rewardCredits, def.rewardCrystals);
+    const { expAdded, levelUp } = this.applyExpAndRewards(p, PLAYER_EXP_SOURCES.achievementClaim);
     StorageManager.save(p);
     this.emitChanged();
-    return { ok: true, message: `Achievement claimed: +${def.rewardCredits} Credits, +${def.rewardCrystals} Crystals!` };
+    if (levelUp) EventBus.emit('player:leveled-up', levelUp);
+    return {
+      ok: true,
+      message: `Achievement claimed: +${def.rewardCredits} Credits, +${def.rewardCrystals} Gems${expAdded > 0 ? `, +${expAdded} EXP` : ''}!`,
+    };
   }
 
   claimAllDirectives(): ClaimAllResult {
@@ -593,6 +756,7 @@ class ProgressionManagerImpl {
         claimedCount: 0,
         creditsGranted: 0,
         crystalsGranted: 0,
+        expGranted: 0,
       };
     }
 
@@ -616,14 +780,21 @@ class ProgressionManagerImpl {
       );
     }
 
+    const expEarned =
+      newlyClaimedDailyIds.length * PLAYER_EXP_SOURCES.dailyMissionClaim +
+      newlyClaimedWeeklyIds.length * PLAYER_EXP_SOURCES.weeklyChallengeClaim;
+    const { expAdded, levelUp } = this.applyExpAndRewards(p, expEarned);
+
     const creditsGranted = dailyCredits + weeklyCredits;
     const crystalsGranted = dailyCrystals + weeklyCrystals;
     StorageManager.save(p);
     this.emitChanged();
+    if (levelUp) EventBus.emit('player:leveled-up', levelUp);
 
     const rewardParts: string[] = [];
     if (creditsGranted > 0) rewardParts.push(`+${creditsGranted.toLocaleString()} Credits`);
-    if (crystalsGranted > 0) rewardParts.push(`+${crystalsGranted.toLocaleString()} Crystals`);
+    if (crystalsGranted > 0) rewardParts.push(`+${crystalsGranted.toLocaleString()} Gems`);
+    if (expAdded > 0) rewardParts.push(`+${expAdded.toLocaleString()} EXP`);
 
     return {
       ok: true,
@@ -633,6 +804,7 @@ class ProgressionManagerImpl {
       claimedCount,
       creditsGranted,
       crystalsGranted,
+      expGranted: expAdded,
     };
   }
 
@@ -662,6 +834,7 @@ class ProgressionManagerImpl {
         claimedCount: 0,
         creditsGranted: 0,
         crystalsGranted: 0,
+        expGranted: 0,
       };
     }
 
@@ -672,12 +845,18 @@ class ProgressionManagerImpl {
       creditsGranted,
       crystalsGranted
     );
+    const { expAdded, levelUp } = this.applyExpAndRewards(
+      p,
+      claimedCount * PLAYER_EXP_SOURCES.achievementClaim
+    );
     StorageManager.save(p);
     this.emitChanged();
+    if (levelUp) EventBus.emit('player:leveled-up', levelUp);
 
     const rewardParts: string[] = [];
     if (creditsGranted > 0) rewardParts.push(`+${creditsGranted.toLocaleString()} Credits`);
-    if (crystalsGranted > 0) rewardParts.push(`+${crystalsGranted.toLocaleString()} Crystals`);
+    if (crystalsGranted > 0) rewardParts.push(`+${crystalsGranted.toLocaleString()} Gems`);
+    if (expAdded > 0) rewardParts.push(`+${expAdded.toLocaleString()} EXP`);
 
     return {
       ok: true,
@@ -687,7 +866,131 @@ class ProgressionManagerImpl {
       claimedCount,
       creditsGranted,
       crystalsGranted,
+      expGranted: expAdded,
     };
+  }
+
+  exchangeCurrency(direction: ExchangeDirection, gemUnits: number): ActionResult {
+    const p = StorageManager.load();
+    const preview = previewCurrencyExchange(direction, gemUnits, p.credits, p.crystals);
+    if (!preview.valid) {
+      return {
+        ok: false,
+        message: preview.reason ?? 'Unable to complete currency exchange.',
+      };
+    }
+
+    p.credits = preview.creditsAfter;
+    p.crystals = preview.crystalsAfter;
+    StorageManager.save(p);
+    this.emitChanged();
+
+    if (direction === 'credits_to_gems') {
+      return {
+        ok: true,
+        message: `Exchanged ${Math.abs(preview.creditDelta).toLocaleString()} Credits for +${preview.gemUnits.toLocaleString()} ${
+          preview.gemUnits === 1 ? 'Gem' : 'Gems'
+        }.`,
+      };
+    }
+
+    return {
+      ok: true,
+      message: `Exchanged ${preview.gemUnits.toLocaleString()} ${
+        preview.gemUnits === 1 ? 'Gem' : 'Gems'
+      } for +${preview.creditDelta.toLocaleString()} Credits.`,
+    };
+  }
+
+  changePlayerName(rawName: string): ActionResult {
+    const cleaned = rawName.trim().replace(/\s+/g, ' ');
+    if (cleaned.length === 0) {
+      return {
+        ok: false,
+        message: 'Name cannot be empty or contain spaces only.',
+      };
+    }
+
+    if (cleaned.length > PLAYER_NAME_MAX_LENGTH) {
+      return {
+        ok: false,
+        message: `Name must be ${PLAYER_NAME_MAX_LENGTH} characters or fewer.`,
+      };
+    }
+
+    const p = StorageManager.load();
+    if (cleaned === p.playerName) {
+      return {
+        ok: false,
+        message: 'Enter a different name from your current Commander name.',
+      };
+    }
+
+    if (p.crystals < PLAYER_NAME_CHANGE_COST_GEMS) {
+      return {
+        ok: false,
+        message: `Insufficient Void Gems. Need ${PLAYER_NAME_CHANGE_COST_GEMS} Gems to change name.`,
+      };
+    }
+
+    const err = this.trySpend(p, 0, PLAYER_NAME_CHANGE_COST_GEMS);
+    if (err) return err;
+
+    p.playerName = cleaned;
+    StorageManager.save(p);
+    this.emitChanged();
+    return {
+      ok: true,
+      message: `Commander name changed to "${cleaned}" (-${PLAYER_NAME_CHANGE_COST_GEMS} Gems).`,
+    };
+  }
+
+  setProfileCosmetics(avatarId: ProfileAvatarId, borderId: ProfileBorderId): ActionResult {
+    if (!isValidAvatarId(avatarId) || !isValidBorderId(borderId)) {
+      return { ok: false, message: 'Invalid profile customization selection.' };
+    }
+    const p = StorageManager.load();
+    const avatarChanged = p.avatarId !== avatarId;
+    const borderChanged = p.borderId !== borderId;
+    if (!avatarChanged && !borderChanged) {
+      return { ok: true, message: 'Profile appearance unchanged.' };
+    }
+    p.avatarId = avatarId;
+    p.borderId = borderId;
+    StorageManager.save(p);
+    this.emitChanged();
+    return {
+      ok: true,
+      message: `Profile updated (${PROFILE_AVATAR_MAP[avatarId].name} · ${PROFILE_BORDER_MAP[borderId].name}).`,
+    };
+  }
+
+  setProfileAvatar(avatarId: ProfileAvatarId): ActionResult {
+    if (!isValidAvatarId(avatarId)) {
+      return { ok: false, message: 'Invalid avatar selection.' };
+    }
+    const p = StorageManager.load();
+    if (p.avatarId === avatarId) {
+      return { ok: true, message: `${PROFILE_AVATAR_MAP[avatarId].name} is already equipped.` };
+    }
+    p.avatarId = avatarId;
+    StorageManager.save(p);
+    this.emitChanged();
+    return { ok: true, message: `Profile avatar set to ${PROFILE_AVATAR_MAP[avatarId].name}.` };
+  }
+
+  setProfileBorder(borderId: ProfileBorderId): ActionResult {
+    if (!isValidBorderId(borderId)) {
+      return { ok: false, message: 'Invalid profile border selection.' };
+    }
+    const p = StorageManager.load();
+    if (p.borderId === borderId) {
+      return { ok: true, message: `${PROFILE_BORDER_MAP[borderId].name} is already equipped.` };
+    }
+    p.borderId = borderId;
+    StorageManager.save(p);
+    this.emitChanged();
+    return { ok: true, message: `Profile border set to ${PROFILE_BORDER_MAP[borderId].name}.` };
   }
 
   // ---- REAL GAMEPLAY EVENT RECORDING ----
@@ -720,7 +1023,7 @@ class ProgressionManagerImpl {
     runScore?: number;
     completedLevel?: number;
     shipUsed?: ShipId;
-  }): void {
+  }): number {
     const p = StorageManager.load();
     if (events.kills) p.totalKills += events.kills;
     if (events.crits) p.stats.totalCrits += events.crits;
@@ -787,7 +1090,24 @@ class ProgressionManagerImpl {
     applyToBucket(dailyTemplates, p.dailyMissions);
     applyToBucket(weeklyTemplates, p.weeklyChallenges);
 
+    const combatExp =
+      (events.kills ?? 0) * PLAYER_EXP_SOURCES.enemyKillBase +
+      (events.eliteKills ?? 0) * PLAYER_EXP_SOURCES.eliteKillBonus +
+      (events.bossDefeatedId ? PLAYER_EXP_SOURCES.bossKillBonus : 0) +
+      (events.crits ?? 0) * PLAYER_EXP_SOURCES.critHitBonus +
+      (events.survivalSec ?? 0) * PLAYER_EXP_SOURCES.survivalSecondBonus +
+      (events.completedLevel
+        ? PLAYER_EXP_SOURCES.campaignSectorClearBase +
+          events.completedLevel * PLAYER_EXP_SOURCES.campaignSectorPerLevel
+        : 0);
+
+    const { expAdded, levelUp } = this.applyExpAndRewards(p, combatExp);
     StorageManager.save(p);
+    if (levelUp) {
+      this.emitChanged();
+      EventBus.emit('player:leveled-up', levelUp);
+    }
+    return expAdded;
   }
 
   recordRunReward(params: {
@@ -802,13 +1122,14 @@ class ProgressionManagerImpl {
     challengeCompleted?: boolean;
     bossRushCleared?: boolean;
     shipUsed: ShipId;
-  }): { creditsGranted: number; crystalsGranted: number } {
+  }): { creditsGranted: number; crystalsGranted: number; expGranted: number } {
     const p = StorageManager.load();
     p.stats.totalRuns += 1;
     if (params.score > p.highScore) p.highScore = params.score;
 
     let totalCredits = Math.max(0, Math.floor(params.creditsEarned));
     let totalCrystals = Math.max(0, Math.floor(params.crystalsEarned));
+    let runExp: number = PLAYER_EXP_SOURCES.runCompletionBase;
 
     if (params.mode === 'campaign' && params.levelNumber) {
       const lvl = params.levelNumber;
@@ -827,6 +1148,7 @@ class ProgressionManagerImpl {
       p.stats.bestEndlessScore = Math.max(p.stats.bestEndlessScore, params.score);
       if (params.endlessWave) {
         p.stats.bestEndlessWave = Math.max(p.stats.bestEndlessWave, params.endlessWave);
+        runExp += params.endlessWave * PLAYER_EXP_SOURCES.endlessPerWaveClear;
       }
     } else if (params.mode === 'boss_rush') {
       p.stats.bestBossRushScore = Math.max(p.stats.bestBossRushScore, params.score);
@@ -834,6 +1156,7 @@ class ProgressionManagerImpl {
         p.stats.bossRushClears += 1;
         totalCredits += BOSS_RUSH_CLEAR_REWARD.credits;
         totalCrystals += BOSS_RUSH_CLEAR_REWARD.crystals;
+        runExp += PLAYER_EXP_SOURCES.bossRushClearBonus;
       }
     } else if (params.mode === 'challenge' && params.challengeCompleted && params.challengeId) {
       const chal = CHALLENGE_BY_ID[params.challengeId];
@@ -846,6 +1169,7 @@ class ProgressionManagerImpl {
       if (!alreadyCompleted) {
         p.stats.completedChallenges = [...p.stats.completedChallenges, params.challengeId];
       }
+      runExp += PLAYER_EXP_SOURCES.challengeClearBonus;
     }
 
     const modeLabel =
@@ -858,9 +1182,13 @@ class ProgressionManagerImpl {
         : 'Challenge Mission';
 
     this.addRewardHistory(p, modeLabel, totalCredits, totalCrystals);
+    const { expAdded, levelUp } = this.applyExpAndRewards(p, runExp);
     StorageManager.save(p);
     this.emitChanged();
-    return { creditsGranted: totalCredits, crystalsGranted: totalCrystals };
+    if (levelUp) {
+      EventBus.emit('player:leveled-up', levelUp);
+    }
+    return { creditsGranted: totalCredits, crystalsGranted: totalCrystals, expGranted: expAdded };
   }
 }
 

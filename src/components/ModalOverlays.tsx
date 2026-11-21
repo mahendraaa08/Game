@@ -22,7 +22,7 @@ import { StorageManager } from '../game/utils/StorageManager';
 import { DedicatedScreenShell } from './DedicatedScreenShell';
 import { SettingsPanel } from './hub/SettingsPanel';
 import { ConfirmButtonPair } from './ui/ConfirmButtonPair';
-import { CreditsBadge, CrystalsBadge } from './ui/CurrencyBadges';
+import { CreditsBadge, CrystalsBadge, ExpBadge } from './ui/CurrencyBadges';
 
 type PauseView = 'pause' | 'settings' | 'confirm_exit';
 
@@ -210,6 +210,7 @@ interface ResultCardShellProps {
   rewardLabel: string;
   creditsEarned: number;
   crystalsEarned: number;
+  expEarned?: number;
   primaryAction: {
     label: string;
     icon: React.ReactNode;
@@ -231,6 +232,7 @@ const ResultCardShell: React.FC<ResultCardShellProps> = ({
   rewardLabel,
   creditsEarned,
   crystalsEarned,
+  expEarned = 0,
   primaryAction,
   secondaryActions,
 }) => {
@@ -260,7 +262,7 @@ const ResultCardShell: React.FC<ResultCardShellProps> = ({
     ? 'border border-rose-300/35 bg-rose-500 text-white hover:bg-rose-400'
     : 'border border-cyan-200/45 bg-sky-400 text-slate-950 hover:bg-sky-300';
 
-  const showRewards = creditsEarned > 0 || crystalsEarned > 0;
+  const showRewards = creditsEarned > 0 || crystalsEarned > 0 || expEarned > 0;
   const secondaryGridClass = secondaryActions.length === 3 ? 'grid-cols-3' : 'grid-cols-2';
 
   const triggerOnce = (fn: () => void) => {
@@ -330,16 +332,19 @@ const ResultCardShell: React.FC<ResultCardShellProps> = ({
 
         {/* Compact Rewards / Salvage Row */}
         {showRewards && (
-          <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 py-3 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 py-3 text-xs">
             <span className="font-mono-num text-[10.5px] font-medium uppercase tracking-wider text-slate-400">
               {rewardLabel}
             </span>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
               {creditsEarned > 0 && (
                 <CreditsBadge amount={creditsEarned} prefix="+" size="sm" />
               )}
               {crystalsEarned > 0 && (
                 <CrystalsBadge amount={crystalsEarned} prefix="+" size="sm" />
+              )}
+              {expEarned > 0 && (
+                <ExpBadge amount={expEarned} prefix="+" size="sm" />
               )}
             </div>
           </div>
@@ -447,6 +452,7 @@ export const LevelResultModal: React.FC<{ data: LevelResultPayload }> = ({ data 
       rewardLabel="Rewards"
       creditsEarned={data.creditsEarned}
       crystalsEarned={data.crystalsEarned}
+      expEarned={data.expEarned ?? 0}
       primaryAction={
         data.nextLevelNumber
           ? {
@@ -491,6 +497,7 @@ export const GameOverModal: React.FC<{ data: GameOverPayload }> = ({ data }) => 
       rewardLabel="Salvage"
       creditsEarned={data.creditsEarned}
       crystalsEarned={data.crystalsEarned}
+      expEarned={data.expEarned ?? 0}
       primaryAction={{
         label: 'Retry',
         icon: <RotateCcw className="h-4 w-4" />,
@@ -538,6 +545,7 @@ export const VictoryModal: React.FC<{ data: VictoryPayload }> = ({ data }) => {
       rewardLabel="Rewards"
       creditsEarned={data.creditsEarned}
       crystalsEarned={data.crystalsEarned}
+      expEarned={data.expEarned ?? 0}
       primaryAction={{
         label: 'Play Again',
         icon: <Play className="h-4 w-4 fill-current" />,

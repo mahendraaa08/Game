@@ -29,6 +29,7 @@ export interface LevelResultPayload {
   rewardText: string;
   creditsEarned: number;
   crystalsEarned: number;
+  expEarned?: number;
   nextLevelNumber: number | null;
   challengeId?: string;
 }
@@ -43,6 +44,7 @@ export interface GameOverPayload {
   enemiesDefeated: number;
   creditsEarned: number;
   crystalsEarned: number;
+  expEarned?: number;
   challengeId?: string;
 }
 
@@ -52,6 +54,7 @@ export interface VictoryPayload {
   enemiesDefeated: number;
   creditsEarned: number;
   crystalsEarned: number;
+  expEarned?: number;
 }
 
 export interface BossWarningPayload {
@@ -73,6 +76,25 @@ export interface BossPosePayload {
   viewportH: number;
 }
 
+export interface LevelUpStepSummary {
+  level: number;
+  credits: number;
+  crystals: number;
+}
+
+export interface LevelUpPayload {
+  previousLevel: number;
+  newLevel: number;
+  creditsGranted: number;
+  crystalsGranted: number;
+  steps?: LevelUpStepSummary[];
+}
+
+export interface PreloadProgressPayload {
+  progress: number;
+  stageLabel: string;
+}
+
 export type AppRoute =
   | 'menu'
   | 'modes'
@@ -81,9 +103,11 @@ export type AppRoute =
   | 'armory'
   | 'missions'
   | 'codex'
+  | 'exchange'
   | 'settings';
 
 type EventMap = {
+  'preload:progress': PreloadProgressPayload;
   'scene:changed': SceneId;
   'hud:update': HudSnapshot;
   'powerup:collected': PowerUpPickupPayload;
@@ -108,6 +132,7 @@ type EventMap = {
   'ui:trigger-dash': void;
   'ui:trigger-special': void;
   'progress:updated': void;
+  'player:leveled-up': LevelUpPayload;
   'settings:updated': GameSettings;
 };
 

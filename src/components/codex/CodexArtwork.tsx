@@ -68,6 +68,89 @@ const EnemySvgArtwork: React.FC<{ enemyId: string; size: number }> = ({ enemyId,
           <rect x="44" y="45" width="5" height="7" rx="1" fill="#C084FC" />
         </svg>
       );
+    case 'interceptor':
+      return (
+        <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" className="shrink-0">
+          <circle cx="32" cy="32" r="28" fill="#060c1c" stroke="#22D3EE" strokeOpacity="0.4" strokeWidth="1.5" />
+          <polygon
+            points="32,52 40,36 52,44 46,19 38,24 32,12 26,24 18,19 12,44 24,36"
+            fill="#083344"
+            stroke="#22D3EE"
+            strokeWidth="2"
+            strokeLinejoin="round"
+          />
+          <polygon points="32,46 27,26 37,26" fill="#06B6D4" fillOpacity="0.85" />
+          <circle cx="23" cy="21" r="2.4" fill="#F43F5E" />
+          <circle cx="41" cy="21" r="2.4" fill="#F43F5E" />
+          <circle cx="32" cy="35" r="3.2" fill="#A5F3FC" />
+        </svg>
+      );
+    case 'sniper':
+      return (
+        <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" className="shrink-0">
+          <circle cx="32" cy="32" r="28" fill="#060c1c" stroke="#818CF8" strokeOpacity="0.4" strokeWidth="1.5" />
+          <polygon
+            points="26,53 28,39 14,27 20,12 44,12 50,27 36,39 38,53 34,40 30,40"
+            fill="#1E1B4B"
+            stroke="#818CF8"
+            strokeWidth="2"
+            strokeLinejoin="round"
+          />
+          <rect x="28" y="17" width="8" height="20" rx="1.5" fill="#4338CA" />
+          <circle cx="32" cy="34" r="4.2" fill="#38BDF8" />
+          <circle cx="32" cy="34" r="1.8" fill="#FEF08A" />
+        </svg>
+      );
+    case 'splitter':
+      return (
+        <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" className="shrink-0">
+          <circle cx="32" cy="32" r="28" fill="#060c1c" stroke="#FACC15" strokeOpacity="0.4" strokeWidth="1.5" />
+          <polygon
+            points="32,52 51,41 51,21 32,11 13,21 13,41"
+            fill="#2A1807"
+            stroke="#FACC15"
+            strokeWidth="2.1"
+            strokeLinejoin="round"
+          />
+          <circle cx="32" cy="32" r="11" fill="none" stroke="#F97316" strokeWidth="1.6" />
+          <circle cx="32" cy="32" r="5.5" fill="#FEF08A" />
+          <circle cx="20" cy="34" r="2.6" fill="#F97316" />
+          <circle cx="44" cy="34" r="2.6" fill="#F97316" />
+        </svg>
+      );
+    case 'bastion':
+      return (
+        <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" className="shrink-0">
+          <circle cx="32" cy="32" r="28" fill="#060c1c" stroke="#10B981" strokeOpacity="0.42" strokeWidth="1.5" />
+          <polygon
+            points="19,50 45,50 56,37 52,18 40,12 24,12 12,18 8,37"
+            fill="#042F2E"
+            stroke="#10B981"
+            strokeWidth="2.2"
+            strokeLinejoin="round"
+          />
+          <rect x="18" y="20" width="28" height="22" rx="4" fill="#065F46" />
+          <circle cx="32" cy="32" r="5.5" fill="#6EE7B7" />
+          <rect x="14" y="42" width="5" height="8" rx="1" fill="#34D399" />
+          <rect x="45" y="42" width="5" height="8" rx="1" fill="#34D399" />
+        </svg>
+      );
+    case 'harbinger':
+      return (
+        <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" className="shrink-0">
+          <circle cx="32" cy="32" r="28" fill="#060c1c" stroke="#E879F9" strokeOpacity="0.45" strokeWidth="1.5" />
+          <polygon
+            points="32,54 41,37 54,46 51,20 40,12 35,23 32,14 29,23 24,12 13,20 10,46 23,37"
+            fill="#28052E"
+            stroke="#E879F9"
+            strokeWidth="2"
+            strokeLinejoin="round"
+          />
+          <circle cx="32" cy="32" r="8.5" fill="none" stroke="#F43F5E" strokeWidth="1.7" />
+          <circle cx="32" cy="32" r="4.8" fill="#F43F5E" />
+          <circle cx="32" cy="32" r="2.2" fill="#FEF08A" />
+        </svg>
+      );
     case 'elite':
     default:
       return (

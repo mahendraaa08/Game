@@ -12,6 +12,43 @@ export function generateAllTextures(scene: Phaser.Scene): void {
   createParticleAndEnvTextures(scene);
 }
 
+function yieldFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(() => resolve());
+    } else {
+      setTimeout(resolve, 16);
+    }
+  });
+}
+
+export async function generateAllTexturesAsync(
+  scene: Phaser.Scene,
+  onStep?: (ratio: number, stageLabel: string) => void
+): Promise<void> {
+  if (scene.textures.exists('player_ship')) {
+    onStep?.(1, 'Visual assets verified');
+    return;
+  }
+
+  const steps: Array<{ label: string; run: () => void }> = [
+    { label: 'Preparing starfighter hulls', run: () => createShipTextures(scene) },
+    { label: 'Calibrating companion drones', run: () => createDroneTextures(scene) },
+    { label: 'Loading hostile fleet assets', run: () => createEnemyTextures(scene) },
+    { label: 'Loading Void command carriers', run: () => createBossTextures(scene) },
+    { label: 'Charging weapon projectiles', run: () => createProjectileTextures(scene) },
+    { label: 'Preparing supply pods', run: () => createPowerUpTextures(scene) },
+    { label: 'Building sector environment', run: () => createParticleAndEnvTextures(scene) },
+  ];
+
+  for (let i = 0; i < steps.length; i++) {
+    if (!scene.sys || !scene.sys.isActive()) return;
+    steps[i].run();
+    onStep?.((i + 1) / steps.length, steps[i].label);
+    await yieldFrame();
+  }
+}
+
 function createShipTextures(scene: Phaser.Scene): void {
   // 1. Falcon X + default player_ship alias (Balanced Fighter)
   const drawFalcon = (key: string) => {
@@ -407,6 +444,166 @@ function createEnemyTextures(scene: Phaser.Scene): void {
     g.generateTexture('enemy_elite', 64, 64);
     g.destroy();
   }
+
+  // 6. Void Interceptor (Swept-forward high-speed twin-blade flanker)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    const cx = 26;
+    const cy = 26;
+    g.fillStyle(0x083344, 1);
+    g.lineStyle(2, 0x22d3ee, 1);
+    g.beginPath();
+    g.moveTo(cx, cy + 21);
+    g.lineTo(cx + 8, cy + 4);
+    g.lineTo(cx + 21, cy + 12);
+    g.lineTo(cx + 15, cy - 14);
+    g.lineTo(cx + 6, cy - 8);
+    g.lineTo(cx, cy - 20);
+    g.lineTo(cx - 6, cy - 8);
+    g.lineTo(cx - 15, cy - 14);
+    g.lineTo(cx - 21, cy + 12);
+    g.lineTo(cx - 8, cy + 4);
+    g.closePath();
+    g.fillPath();
+    g.strokePath();
+
+    g.fillStyle(0x06b6d4, 0.85);
+    g.fillTriangle(cx, cy + 15, cx - 5, cy - 6, cx + 5, cy - 6);
+    g.fillStyle(0xf43f5e, 1);
+    g.fillCircle(cx - 9, cy - 12, 2.5);
+    g.fillCircle(cx + 9, cy - 12, 2.5);
+    g.fillStyle(0xa5f3fc, 1);
+    g.fillCircle(cx, cy + 3, 3.2);
+    g.generateTexture('enemy_interceptor', 52, 52);
+    g.destroy();
+  }
+
+  // 7. Rail Sniper (Elongated precision marksman with twin rail prongs)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    const cx = 28;
+    const cy = 30;
+    g.fillStyle(0x1e1b4b, 1);
+    g.lineStyle(2, 0x818cf8, 1);
+    g.beginPath();
+    g.moveTo(cx - 6, cy + 24);
+    g.lineTo(cx - 4, cy + 8);
+    g.lineTo(cx - 18, cy - 6);
+    g.lineTo(cx - 12, cy - 22);
+    g.lineTo(cx + 12, cy - 22);
+    g.lineTo(cx + 18, cy - 6);
+    g.lineTo(cx + 4, cy + 8);
+    g.lineTo(cx + 6, cy + 24);
+    g.lineTo(cx + 2, cy + 10);
+    g.lineTo(cx - 2, cy + 10);
+    g.closePath();
+    g.fillPath();
+    g.strokePath();
+
+    g.fillStyle(0x4338ca, 1);
+    g.fillRect(cx - 4, cy - 16, 8, 22);
+    g.fillStyle(0x38bdf8, 1);
+    g.fillCircle(cx, cy + 2, 4.5);
+    g.fillStyle(0xfef08a, 1);
+    g.fillCircle(cx, cy + 2, 2);
+    g.generateTexture('enemy_sniper', 56, 60);
+    g.destroy();
+  }
+
+  // 8. Cluster Carrier (Hexagonal prism craft launching splitting void orbs)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    const cx = 32;
+    const cy = 32;
+    g.fillStyle(0x2a1807, 1);
+    g.lineStyle(2.2, 0xfacc15, 1);
+    g.beginPath();
+    g.moveTo(cx, cy + 23);
+    g.lineTo(cx + 22, cy + 10);
+    g.lineTo(cx + 22, cy - 12);
+    g.lineTo(cx, cy - 23);
+    g.lineTo(cx - 22, cy - 12);
+    g.lineTo(cx - 22, cy + 10);
+    g.closePath();
+    g.fillPath();
+    g.strokePath();
+
+    g.lineStyle(1.6, 0xf97316, 0.9);
+    g.strokeCircle(cx, cy, 12);
+    g.fillStyle(0xfef08a, 1);
+    g.fillCircle(cx, cy, 6);
+    g.fillStyle(0xf97316, 1);
+    g.fillCircle(cx - 14, cy + 2, 3);
+    g.fillCircle(cx + 14, cy + 2, 3);
+    g.fillCircle(cx, cy - 14, 3);
+    g.generateTexture('enemy_splitter', 64, 64);
+    g.destroy();
+  }
+
+  // 9. Aegis Bastion (Octagonal emerald fortress with twin shield emitters)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    const cx = 36;
+    const cy = 34;
+    g.fillStyle(0x042f2e, 1);
+    g.lineStyle(2.4, 0x10b981, 1);
+    g.beginPath();
+    g.moveTo(cx - 16, cy + 22);
+    g.lineTo(cx + 16, cy + 22);
+    g.lineTo(cx + 30, cy + 6);
+    g.lineTo(cx + 26, cy - 18);
+    g.lineTo(cx + 10, cy - 24);
+    g.lineTo(cx - 10, cy - 24);
+    g.lineTo(cx - 26, cy - 18);
+    g.lineTo(cx - 30, cy + 6);
+    g.closePath();
+    g.fillPath();
+    g.strokePath();
+
+    g.fillStyle(0x065f46, 1);
+    g.fillRoundedRect(cx - 18, cy - 14, 36, 28, 6);
+    g.fillStyle(0x6ee7b7, 1);
+    g.fillCircle(cx, cy + 1, 6.5);
+    g.fillStyle(0x34d399, 1);
+    g.fillRect(cx - 24, cy + 12, 7, 11);
+    g.fillRect(cx + 17, cy + 12, 7, 11);
+    g.generateTexture('enemy_bastion', 72, 68);
+    g.destroy();
+  }
+
+  // 10. Void Harbinger (Crescent-trident dread craft with singularity core)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    const cx = 34;
+    const cy = 34;
+    g.fillStyle(0x28052e, 1);
+    g.lineStyle(2.2, 0xe879f9, 1);
+    g.beginPath();
+    g.moveTo(cx, cy + 26);
+    g.lineTo(cx + 12, cy + 6);
+    g.lineTo(cx + 28, cy + 16);
+    g.lineTo(cx + 24, cy - 14);
+    g.lineTo(cx + 11, cy - 24);
+    g.lineTo(cx + 5, cy - 10);
+    g.lineTo(cx, cy - 22);
+    g.lineTo(cx - 5, cy - 10);
+    g.lineTo(cx - 11, cy - 24);
+    g.lineTo(cx - 24, cy - 14);
+    g.lineTo(cx - 28, cy + 16);
+    g.lineTo(cx - 12, cy + 6);
+    g.closePath();
+    g.fillPath();
+    g.strokePath();
+
+    g.lineStyle(1.8, 0xf43f5e, 0.95);
+    g.strokeCircle(cx, cy, 10);
+    g.fillStyle(0xf43f5e, 1);
+    g.fillCircle(cx, cy, 5.5);
+    g.fillStyle(0xfef08a, 1);
+    g.fillCircle(cx, cy, 2.5);
+    g.generateTexture('enemy_harbinger', 68, 68);
+    g.destroy();
+  }
 }
 
 function createBossTextures(scene: Phaser.Scene): void {
@@ -631,6 +828,61 @@ function createProjectileTextures(scene: Phaser.Scene): void {
     g.fillStyle(0xfef08a, 1);
     g.fillCircle(10, 10, 3);
     g.generateTexture('proj_enemy_bomb', 20, 20);
+    g.destroy();
+  }
+
+  // Enemy Homing Seeker Dart (distinct arrowhead silhouette)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0xf43f5e, 0.45);
+    g.fillCircle(10, 10, 9);
+    g.fillStyle(0xf97316, 1);
+    g.lineStyle(1.5, 0xfef08a, 1);
+    g.beginPath();
+    g.moveTo(10, 2);
+    g.lineTo(17, 17);
+    g.lineTo(10, 13);
+    g.lineTo(3, 17);
+    g.closePath();
+    g.fillPath();
+    g.strokePath();
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(10, 9, 2.3);
+    g.generateTexture('proj_enemy_seeker', 20, 20);
+    g.destroy();
+  }
+
+  // Enemy Splitting Prism Orb (crystalline burst core)
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0xfacc15, 0.35);
+    g.fillCircle(12, 12, 11);
+    g.fillStyle(0x311042, 1);
+    g.lineStyle(2, 0xfef08a, 1);
+    g.beginPath();
+    g.moveTo(12, 2);
+    g.lineTo(22, 12);
+    g.lineTo(12, 22);
+    g.lineTo(2, 12);
+    g.closePath();
+    g.fillPath();
+    g.strokePath();
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(12, 12, 3.8);
+    g.generateTexture('proj_enemy_splitter', 24, 24);
+    g.destroy();
+  }
+
+  // Enemy Shard / Sniper Needle
+  {
+    const g = scene.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0x38bdf8, 0.45);
+    g.fillEllipse(7, 9, 10, 16);
+    g.fillStyle(0xe0f2fe, 1);
+    g.fillTriangle(7, 1, 2, 14, 12, 14);
+    g.fillStyle(0xffffff, 1);
+    g.fillTriangle(7, 3, 4.5, 13, 9.5, 13);
+    g.generateTexture('proj_enemy_shard', 14, 18);
     g.destroy();
   }
 }

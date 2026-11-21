@@ -15,6 +15,7 @@ import { ActionResult } from '../../game/systems/ProgressionManager';
 import { EventBus } from '../../game/utils/EventBus';
 import { FxQuality, GameSettings, StorageManager } from '../../game/utils/StorageManager';
 import { ConfirmButtonPair } from '../ui/ConfirmButtonPair';
+import { DevToolsSettingsSection } from './DevToolsSettingsSection';
 
 interface SettingsPanelProps {
   onFeedback: (res: ActionResult) => void;
@@ -339,6 +340,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onFeedback }) => {
             <span>Reset Settings to Default</span>
           </button>
         </footer>
+
+        {/* Modular Developer Tools Section (Isolated from Core Settings & Economy) */}
+        <DevToolsSettingsSection onFeedback={onFeedback} />
       </div>
 
       {/* Confirmation Dialog for Settings Reset */}

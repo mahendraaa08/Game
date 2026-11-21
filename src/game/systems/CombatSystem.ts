@@ -469,7 +469,7 @@ export class CombatSystem {
     boss: BossEntity | null,
     onEnemyKilled: (enemy: EnemyEntity) => void,
     onBossHit: (dmg: number, isCrit: boolean) => void,
-    onPlayerDamaged: () => void,
+    onPlayerDamaged: (hpReduced: boolean) => void,
     onCritLanded?: () => void
   ): void {
     // 1. Player Bullets vs Enemies & Boss
@@ -543,9 +543,10 @@ export class CombatSystem {
       const dist = Math.hypot(b.sprite.x - player.x, b.sprite.y - player.y);
       if (dist < player.radius + b.radius - 2) {
         b.setActive(false).setVisible(false);
+        const prevHp = player.hp;
         if (player.takeDamage(b.damage)) {
           this.spawnExplosion(player.x, player.y, 0xef4444, 10, 170, 0.8);
-          onPlayerDamaged();
+          onPlayerDamaged(player.hp < prevHp);
         }
       }
     });
@@ -560,8 +561,9 @@ export class CombatSystem {
           const killed = e.takeDamage(999);
           if (killed) onEnemyKilled(e);
         } else {
+          const prevHp = player.hp;
           if (player.takeDamage(e.damage + 6)) {
-            onPlayerDamaged();
+            onPlayerDamaged(player.hp < prevHp);
           }
           const killed = e.takeDamage(45);
           if (killed) onEnemyKilled(e);
@@ -573,8 +575,9 @@ export class CombatSystem {
     if (boss && boss.active && !boss.entering) {
       const dist = Math.hypot(boss.x - player.x, boss.y - player.y);
       if (dist < player.radius + boss.radius - 8) {
+        const prevHp = player.hp;
         if (player.takeDamage(25)) {
-          onPlayerDamaged();
+          onPlayerDamaged(player.hp < prevHp);
         }
       }
     }

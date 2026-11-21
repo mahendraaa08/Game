@@ -9,6 +9,8 @@ export const CONFIRM_BUTTON_CLASS =
 interface ConfirmButtonPairProps {
   onCancel: () => void;
   onConfirm: () => void;
+  cancelLabel?: string;
+  confirmLabel?: string;
   cancelDisabled?: boolean;
   confirmDisabled?: boolean;
   className?: string;
@@ -17,6 +19,8 @@ interface ConfirmButtonPairProps {
 export const ConfirmButtonPair: React.FC<ConfirmButtonPairProps> = ({
   onCancel,
   onConfirm,
+  cancelLabel = 'Cancel',
+  confirmLabel = 'Confirm',
   cancelDisabled = false,
   confirmDisabled = false,
   className = 'mt-5 grid grid-cols-2 gap-3',
@@ -29,7 +33,7 @@ export const ConfirmButtonPair: React.FC<ConfirmButtonPairProps> = ({
         onClick={onCancel}
         className={CANCEL_BUTTON_CLASS}
       >
-        Cancel
+        {cancelLabel}
       </button>
       <button
         type="button"
@@ -37,7 +41,7 @@ export const ConfirmButtonPair: React.FC<ConfirmButtonPairProps> = ({
         onClick={onConfirm}
         className={CONFIRM_BUTTON_CLASS}
       >
-        Confirm
+        {confirmLabel}
       </button>
     </div>
   );

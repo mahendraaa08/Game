@@ -1,16 +1,22 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type Phaser from 'phaser';
+import { ExchangeDirection } from '../game/config/EconomyConfig';
 import { HudSnapshot, SceneId } from '../game/config/GameConfig';
 import { SHIPS, ShipId } from '../game/config/ShipConfig';
 import { WeaponId } from '../game/config/WeaponConfig';
 import { SoundManager } from '../game/audio/SoundManager';
-import { ActionResult, computePlayerStats } from '../game/systems/ProgressionManager';
+import {
+  ActionResult,
+  ProgressionManager,
+  computePlayerStats,
+} from '../game/systems/ProgressionManager';
 import {
   AppRoute,
   BossWarningPayload,
   EventBus,
   GameOverPayload,
   LevelResultPayload,
+  LevelUpPayload,
   StartRunRequest,
   VictoryPayload,
 } from '../game/utils/EventBus';
@@ -24,9 +30,11 @@ import {
   PauseModal,
   VictoryModal,
 } from './ModalOverlays';
+import { LevelUpModal } from './ui/LevelUpModal';
 import { TitleOverlay } from './TitleOverlay';
 import { CodexPanel } from './codex/CodexPanel';
 import { ArmoryDronesPanel } from './hub/ArmoryDronesPanel';
+import { ExchangePanel } from './hub/ExchangePanel';
 import { HangarShipsPanel } from './hub/HangarShipsPanel';
 import { HangarSubNav, HangarTabRoute } from './hub/HangarSubNav';
 import { MissionsAchievementsPanel } from './hub/MissionsAchievementsPanel';
@@ -46,7 +54,8 @@ const INITIAL_HUD: HudSnapshot = {
   levelName: 'EARTH DEFENSE',
   objective: '',
   waveIndex: 1,
-  totalWaves: 3,
+  wavePhase: 1,
+  totalWaves: 5,
   shipId: 'falcon_x',
   shipName: 'FALCON X',
   weaponId: 'plasma',
@@ -96,8 +105,11 @@ export const GameShell: React.FC = () => {
   const [levelResult, setLevelResult] = useState<LevelResultPayload | null>(null);
   const [gameOverData, setGameOverData] = useState<GameOverPayload | null>(null);
   const [victoryData, setVictoryData] = useState<VictoryPayload | null>(null);
+  const [activeLevelUpModal, setActiveLevelUpModal] = useState<LevelUpPayload | null>(null);
   const [inspectedShipId, setInspectedShipId] = useState<ShipId>(progress.selectedShip);
   const [inspectedWeaponId, setInspectedWeaponId] = useState<WeaponId>(progress.selectedWeapon);
+  const [exchangeDirection, setExchangeDirection] =
+    useState<ExchangeDirection>('credits_to_gems');
 
   const toastTimerRef = useRef<number | null>(null);
   const engineReadyRef = useRef(false);
@@ -140,6 +152,14 @@ export const GameShell: React.FC = () => {
       });
     },
     [clearFeedback]
+  );
+
+  const openExchange = useCallback(
+    (dir: ExchangeDirection) => {
+      setExchangeDirection(dir);
+      navigateTo('exchange');
+    },
+    [navigateTo]
   );
 
   const replaceHangarTab = useCallback(
@@ -191,6 +211,7 @@ export const GameShell: React.FC = () => {
       }),
       EventBus.on('scene:changed', (next) => {
         setSceneId(next);
+
         if (next === 'MainMenuScene') {
           engineReadyRef.current = true;
           syncProgress();
@@ -253,6 +274,7 @@ export const GameShell: React.FC = () => {
       EventBus.on('progress:updated', syncProgress),
       EventBus.on('ui:select-weapon', syncProgress),
       EventBus.on('ui:select-special', syncProgress),
+      EventBus.on('player:leveled-up', syncProgress),
       EventBus.on('hud:update', (snap) => setHud(snap)),
       EventBus.on('boss:warning', (warn) => setBossWarning(warn)),
       EventBus.on('level:result', (res) => setLevelResult(res)),
@@ -280,6 +302,26 @@ export const GameShell: React.FC = () => {
   }, []);
 
   const activeRoute: AppRoute = routeStack[routeStack.length - 1] ?? 'menu';
+
+  // Display Level-Up popup exclusively after returning to Main Menu and consume once so it never repeats
+  useEffect(() => {
+    if (sceneId === 'MainMenuScene' && activeRoute === 'menu' && progress.pendingLevelUp) {
+      const consumed = ProgressionManager.consumePendingLevelUp();
+      if (consumed) {
+        setActiveLevelUpModal((existing) =>
+          existing
+            ? {
+                previousLevel: Math.min(existing.previousLevel, consumed.previousLevel),
+                newLevel: Math.max(existing.newLevel, consumed.newLevel),
+                creditsGranted: existing.creditsGranted + consumed.creditsGranted,
+                crystalsGranted: existing.crystalsGranted + consumed.crystalsGranted,
+                steps: [...(existing.steps ?? []), ...(consumed.steps ?? [])],
+              }
+            : consumed
+        );
+      }
+    }
+  }, [sceneId, activeRoute, progress.pendingLevelUp]);
   const prevRoute: AppRoute = routeStack[routeStack.length - 2] ?? 'menu';
   const isNonCombatUiScene =
     sceneId === 'MainMenuScene' ||
@@ -289,6 +331,8 @@ export const GameShell: React.FC = () => {
   const backTargetLabel =
     prevRoute === 'modes'
       ? 'Game Modes'
+      : prevRoute === 'ships' || prevRoute === 'weapons' || prevRoute === 'armory'
+      ? 'Hangar'
       : prevRoute === 'missions'
       ? 'Missions'
       : prevRoute === 'codex'
@@ -310,6 +354,9 @@ export const GameShell: React.FC = () => {
           progress={progress}
           isActive={isNonCombatUiScene && activeRoute === 'menu'}
           onNavigate={navigateTo}
+          onOpenExchange={openExchange}
+          feedback={feedback}
+          onFeedback={showFeedback}
         />
       )}
 
@@ -328,6 +375,7 @@ export const GameShell: React.FC = () => {
           onBack={popRoute}
           credits={progress.credits}
           crystals={progress.crystals}
+          onOpenExchange={openExchange}
           subNav={
             <HangarSubNav activeTab="ships" onSelectTab={replaceHangarTab} progress={progress} />
           }
@@ -351,6 +399,7 @@ export const GameShell: React.FC = () => {
           onBack={popRoute}
           credits={progress.credits}
           crystals={progress.crystals}
+          onOpenExchange={openExchange}
           subNav={
             <HangarSubNav activeTab="weapons" onSelectTab={replaceHangarTab} progress={progress} />
           }
@@ -374,6 +423,7 @@ export const GameShell: React.FC = () => {
           onBack={popRoute}
           credits={progress.credits}
           crystals={progress.crystals}
+          onOpenExchange={openExchange}
           subNav={
             <HangarSubNav activeTab="armory" onSelectTab={replaceHangarTab} progress={progress} />
           }
@@ -392,6 +442,7 @@ export const GameShell: React.FC = () => {
           onBack={popRoute}
           credits={progress.credits}
           crystals={progress.crystals}
+          onOpenExchange={openExchange}
           feedback={feedback}
         >
           <MissionsAchievementsPanel progress={progress} onFeedback={showFeedback} />
@@ -408,6 +459,25 @@ export const GameShell: React.FC = () => {
           maxWidthClass="max-w-6xl"
         >
           <CodexPanel />
+        </DedicatedScreenShell>
+      )}
+
+      {isNonCombatUiScene && activeRoute === 'exchange' && (
+        <DedicatedScreenShell
+          title="Exchange"
+          subtitle="Vault Currency Terminal · Convert Credits & Void Gems"
+          backLabel={backTargetLabel}
+          onBack={popRoute}
+          credits={progress.credits}
+          crystals={progress.crystals}
+          feedback={feedback}
+          maxWidthClass="max-w-3xl"
+        >
+          <ExchangePanel
+            progress={progress}
+            initialDirection={exchangeDirection}
+            onFeedback={showFeedback}
+          />
         </DedicatedScreenShell>
       )}
 
@@ -442,6 +512,14 @@ export const GameShell: React.FC = () => {
       )}
       {sceneId === 'VictoryScene' && victoryData && (
         <VictoryModal data={victoryData} />
+      )}
+
+      {/* Level-Up Celebration Popup (Shown cleanly outside active combat) */}
+      {activeLevelUpModal && (
+        <LevelUpModal
+          data={activeLevelUpModal}
+          onClose={() => setActiveLevelUpModal(null)}
+        />
       )}
     </main>
   );

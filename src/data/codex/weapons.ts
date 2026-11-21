@@ -14,15 +14,15 @@ const WEAPON_RUNTIME_META: Record<
   }
 > = {
   plasma: {
-    projectileCount: '1 bolt (2 twin at Lv3+)',
+    projectileCount: '1 bolt (2 twin at Lv8+)',
     deliveryStats: [
       { label: 'Bolt Speed', value: '840 px/s', numericValue: 840, maxReference: 1050, tone: 'sky' },
       { label: 'Effective Range', value: 'Long', tone: 'cyan' },
     ],
     effects: [
       {
-        title: 'Lv3+ Twin Convergence',
-        description: 'Splits into twin slightly angled plasma bolts dealing 62% damage each for wider coverage.',
+        title: 'Lv8+ Twin Convergence',
+        description: 'Splits into twin slightly angled plasma bolts dealing 58% damage each for wider coverage.',
       },
       {
         title: 'Nova Prime Synergy',
@@ -31,41 +31,41 @@ const WEAPON_RUNTIME_META: Record<
     ],
   },
   dual_laser: {
-    projectileCount: '2 parallel bolts (3 at Lv4+)',
+    projectileCount: '2 parallel bolts (3 at Lv12+)',
     deliveryStats: [
       { label: 'Bolt Speed', value: '980 px/s', numericValue: 980, maxReference: 1050, tone: 'cyan' },
       { label: 'Effective Range', value: 'Full Screen', tone: 'sky' },
     ],
     effects: [
       {
-        title: 'Lv4+ Triple Laser Core',
-        description: 'Adds a high-speed 1040 px/s central lane bolt dealing 70% bolt damage.',
+        title: 'Lv12+ Triple Laser Core',
+        description: 'Adds a high-speed 1040 px/s central lane bolt dealing 60% bolt damage.',
       },
     ],
   },
   spread: {
-    projectileCount: '5-way cone (7-way at Lv4+)',
+    projectileCount: '5-way cone (7-way at Lv12+)',
     deliveryStats: [
       { label: 'Bolt Speed', value: '740 px/s', numericValue: 740, maxReference: 1050, tone: 'purple' },
       { label: 'Effective Range', value: 'Medium-Wide Cone', tone: 'sky' },
     ],
     effects: [
       {
-        title: 'Lv4+ Expanded Arc',
+        title: 'Lv12+ Expanded Arc',
         description: 'Widens fan from 5 projectiles (±0.36 rad) to 7 projectiles (±0.45 rad) for swarm clearing.',
       },
     ],
   },
   homing: {
-    projectileCount: '2 missiles (3 at Lv4+)',
+    projectileCount: '2 missiles (3 at Lv12+)',
     deliveryStats: [
       { label: 'Missile Speed', value: '540 px/s', numericValue: 540, maxReference: 1050, tone: 'amber' },
       { label: 'Seek Radius', value: '480 px', numericValue: 480, maxReference: 600, tone: 'cyan' },
     ],
     effects: [
       {
-        title: 'Missile Power Scaling',
-        description: 'Direct multiplier from Fleet Missile Power upgrades and Lv4+ third central warhead (85% DMG).',
+        title: 'Guided Twin Salvo',
+        description: 'Fires twin autonomous thermal seekers and unlocks a third central warhead (75% DMG) at Lv12+.',
       },
     ],
   },
@@ -73,7 +73,7 @@ const WEAPON_RUNTIME_META: Record<
     projectileCount: 'Instant Piercing Column',
     deliveryStats: [
       { label: 'Delivery', value: 'Instant Hitscan', tone: 'sky' },
-      { label: 'Beam Width', value: '28–48 px', tone: 'cyan' },
+      { label: 'Beam Width', value: '32–48 px', tone: 'cyan' },
     ],
     effects: [
       {
@@ -87,7 +87,7 @@ const WEAPON_RUNTIME_META: Record<
     ],
   },
   lightning: {
-    projectileCount: '4 chain jumps (5 at Lv4+)',
+    projectileCount: '4 chain jumps (5 at Lv12+)',
     deliveryStats: [
       { label: 'Initial Arc Range', value: '540 px', numericValue: 540, maxReference: 600, tone: 'cyan' },
       { label: 'Chain Jump Range', value: '270 px', numericValue: 270, maxReference: 600, tone: 'sky' },
@@ -95,7 +95,7 @@ const WEAPON_RUNTIME_META: Record<
     effects: [
       {
         title: 'Voltaic Chain Decay',
-        description: 'Jumps instantaneously between targets; each bounce retains 86% of the previous arc damage.',
+        description: 'Jumps instantaneously between targets; each bounce retains 82% of the previous arc damage.',
       },
       {
         title: 'Thunderbolt Synergy',
@@ -107,9 +107,9 @@ const WEAPON_RUNTIME_META: Record<
 
 export const WEAPONS_CODEX: CodexEntry[] = WEAPON_LIST.map((weapon) => {
   const dmgLv1 = getWeaponDamageAtLevel(weapon, 1);
-  const dmgLv5 = getWeaponDamageAtLevel(weapon, weapon.maxWeaponLevel);
+  const dmgLvMax = getWeaponDamageAtLevel(weapon, weapon.maxWeaponLevel);
   const rateLv1 = getWeaponFireRateAtLevel(weapon, 1);
-  const rateLv5 = getWeaponFireRateAtLevel(weapon, weapon.maxWeaponLevel);
+  const rateLvMax = getWeaponFireRateAtLevel(weapon, weapon.maxWeaponLevel);
   const meta = WEAPON_RUNTIME_META[weapon.id];
 
   const unlockParts: string[] = [];
@@ -131,15 +131,15 @@ export const WEAPONS_CODEX: CodexEntry[] = WEAPON_LIST.map((weapon) => {
     description: weapon.description,
     stats: [
       {
-        label: 'Base Damage (Lv1 → Lv5)',
-        value: `${dmgLv1} → ${dmgLv5} DMG`,
+        label: `Base Damage (Lv1 → Lv${weapon.maxWeaponLevel})`,
+        value: `${dmgLv1} → ${dmgLvMax} DMG`,
         numericValue: dmgLv1,
-        maxReference: 32,
+        maxReference: 26,
         tone: 'rose',
       },
       {
-        label: 'Cycle Delay (Lv1 → Lv5)',
-        value: `${rateLv1} → ${rateLv5} ms`,
+        label: `Cycle Delay (Lv1 → Lv${weapon.maxWeaponLevel})`,
+        value: `${rateLv1} → ${rateLvMax} ms`,
         numericValue: Math.round(1000 / rateLv1 * 10) / 10,
         maxReference: 11,
         tone: 'amber',
@@ -154,7 +154,7 @@ export const WEAPONS_CODEX: CodexEntry[] = WEAPON_LIST.map((weapon) => {
     specialEffects: [
       {
         title: 'Upgrade Progression',
-        description: '+16% base damage and +5% fire cadence per weapon level up to Level 5.',
+        description: `Scales smoothly up to +45% base damage and +15% fire cadence at Max Level ${weapon.maxWeaponLevel}.`,
       },
       ...(meta?.effects ?? []),
     ],

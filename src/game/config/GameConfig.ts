@@ -47,6 +47,7 @@ export interface HudSnapshot {
   levelName: string;
   objective: string;
   waveIndex: number;
+  wavePhase: 1 | 2;
   totalWaves: number;
   shipId: ShipId;
   shipName: string;

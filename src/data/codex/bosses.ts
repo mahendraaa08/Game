@@ -13,76 +13,76 @@ const BOSS_ORDER: BossId[] = [
 const BOSS_MECHANICS: Record<BossId, CodexSpecialEffect[]> = {
   iron_guardian: [
     {
-      title: 'Pattern 1 — Siege Bomb Fan',
-      description: 'Launches a 5-orb spread of heavy siege bombs (18 DMG each) across central lanes.',
+      title: 'Pattern 1 — Staggered Siege Fan & Homing Seekers',
+      description: 'Launches 5-orb siege fans, escalating in Phase 2–3 to a 2-beat staggered barrage paired with shoulder Homing Siege Seekers.',
     },
     {
-      title: 'Pattern 2 — Twin Pod Aimed Burst',
-      description: 'Fires twin 3-round aimed bursts simultaneously from left and right wing cannons (16 DMG each).',
+      title: 'Pattern 2 — Twin Pod Multi-Beat Salvo',
+      description: 'Fires twin 3-round aimed wing bursts with a rapid follow-up volley in Phase 2–3 while executing surge dips.',
     },
     {
-      title: 'Pattern 3 — Telegraphed Hyper-Lance',
-      description: 'Locks a 0.76s warning laser on player position before firing a 28 DMG piercing beam.',
+      title: 'Pattern 3 & Phase 3 — Twin Hyper-Lances & Splitting Mortars',
+      description: 'Projects amber Hyper-Lances (twin framing lances in Phase 3) alongside Splitting Mortar Orbs that burst into 4-way shrapnel.',
     },
   ],
   venom_queen: [
     {
-      title: 'Pattern 1 — Corrosive Bio-Ring',
-      description: 'Emits a rotating 12–16 orb spiral ring (scales with phase) dealing 18 DMG per orb.',
+      title: 'Pattern 1 — Counter-Rotating Bio-Rings',
+      description: 'Emits 12–16 orb corrosive rings while weaving in a Lissajous figure-8, adding a counter-curving inner ring in Phase 2–3.',
     },
     {
-      title: 'Pattern 2 — Scout Brood Summon',
-      description: 'Deploys twin Scout Drone escorts directly from its flanking brood bays.',
+      title: 'Pattern 2 — Brood Escort & Bio-Seekers',
+      description: 'Deploys Scout/Interceptor/Fighter broods from flanking bays alongside Homing Bio-Seekers in Phase 2–3.',
     },
     {
-      title: 'Pattern 3 — 7-Bolt Venom Fan',
-      description: 'Fires a dense 7-bolt aimed plasma cone directly toward the defender.',
+      title: 'Pattern 3 & Phase 3 — Wave Venom Fan & Splitting Spore Pods',
+      description: 'Fires undulating 7-bolt wave fans, Twin Splitting Spore Pods (5-shard blooms in Phase 3), and twin crossfire arcs.',
     },
   ],
   shadow_titan: [
     {
-      title: 'Pattern 1 — Cryo Hyper-Lance',
-      description: 'Locks a 0.76s cryo warning telegraph before discharging a 28 DMG piercing vertical lance.',
+      title: 'Pattern 1 — Cryo Hyper-Lances',
+      description: 'Smoothly tracks player position before locking a piercing cryo beam (dual V-angle lances in Phase 3).',
     },
     {
-      title: 'Pattern 2 — Rotating Spiral Nova',
-      description: 'Discharges a 12-bolt rotating nova (300 px/s) sweeping outward from its core.',
+      title: 'Pattern 2 — Curving Cryo Spiral & Homing Seekers',
+      description: 'Discharges a 12–14 shard curving spiral nova accompanied by twin Homing Cryo Seekers in Phase 2–3.',
     },
     {
-      title: 'Pattern 3 — Tri-Node Sniper Bolts',
-      description: 'Fires 3 high-velocity (410 px/s) aimed rounds from center and wing emitters (20 DMG each).',
+      title: 'Pattern 3 & Phase 3 — Phase-Shift Ambush, Wave Curtain & Cryo Cores',
+      description: 'Executes translucent phase-shift glides while firing 425 px/s tri-node sniper shards, wave curtains, and 6-shard Splitting Cryo Cores.',
     },
   ],
   cyber_leviathan: [
     {
-      title: 'Pattern 1 — Emerald Spiral Matrix',
-      description: 'Unleashes a 14-orb rotating spiral storm across the arena (19 DMG each).',
+      title: 'Pattern 1 — Weaving Accelerating Emerald Matrix',
+      description: 'Unleashes a 14–18 orb spiral storm whose projectiles accelerate and weave sinusoidally down-range in Phase 2–3.',
     },
     {
-      title: 'Pattern 2 — Orbital Hyper-Lance',
-      description: 'Tracks player X-axis for 0.76s then sweeps a 28 DMG piercing laser beam.',
+      title: 'Pattern 2 — Multi-Lane Security Beams & Splitting Data Orbs',
+      description: 'Escalates from a tracking Hyper-Lance to twin beams (Phase 2) and a 3-lane vertical security grid + Splitting Data Orbs (Phase 3).',
     },
     {
-      title: 'Pattern 3 — Interceptor Deployment & Volley',
-      description: 'Summons an Armored Fighter escort while firing a 5-bolt aimed plasma fan.',
+      title: 'Pattern 3 & Phase 3 — Sniper/Interceptor Escorts & Lock-On Swarm',
+      description: 'Deploys Rail Sniper & Interceptor escorts with 5-bolt fans, 2-beat matrix waves, and 3-seeker lock-on barrages.',
     },
   ],
   void_emperor: [
     {
-      title: 'Pattern 1 — Imperial Spiral Storm',
-      description: 'Fires 20–28 rotating void orbs (scales with phase) blanketing defensive lanes.',
+      title: 'Pattern 1 — Imperial Spiral Storm & Splitting Void Rifts',
+      description: 'Fires 18–26 void orbs, adding a counter-curving inner ring in Phase 2 and 3 Splitting Void Rifts (6 shards each) in Phase 3.',
     },
     {
-      title: 'Pattern 2 — Apocalypse Hyper-Lance',
-      description: 'Telegraphs a 0.76s target lock before blasting a 28 DMG piercing void beam.',
+      title: 'Pattern 2 — Tri-Beam Void Crown',
+      description: 'Escalates from a single Apocalypse Lance to dual framing beams (Phase 2) and a 3-beam Void Crown telegraph (Phase 3).',
     },
     {
-      title: 'Pattern 3 — Twin-Wing Crimson Salvo',
-      description: 'Both dreadnought wings fire 5-bolt aimed spreads simultaneously (10 total bolts at 380 px/s).',
+      title: 'Pattern 3 — Twin-Wing Crimson Salvo & Homing Void Seekers',
+      description: 'Both dreadnought wings unleash alternating 5-shard aimed spreads paired with twin Homing Void Seekers in Phase 2–3.',
     },
     {
-      title: 'Phase 3 Special — Elite Escort & Void Curtain',
-      description: 'Below 33% HP, summons an Elite Fighter and rains an 8-column vertical bomb curtain across the arena.',
+      title: 'Phase 2–3 Special — Harbinger Escort & Splitting Void Curtain',
+      description: 'Executes phase-shift glides in Phase 3 while summoning Cluster/Harbinger escorts and dropping staggered splitting/weaving Void Curtains.',
     },
   ],
 };
@@ -90,8 +90,9 @@ const BOSS_MECHANICS: Record<BossId, CodexSpecialEffect[]> = {
 export const BOSSES_CODEX: CodexEntry[] = BOSS_ORDER.map((id) => {
   const boss = BOSS_CONFIGS[id];
   const bounty = BOSS_DEFEAT_REWARDS[id];
-  const baseCdSec = (boss.id === 'void_emperor' ? 1.15 : 1.45).toFixed(2);
-  const p3CdSec = Math.max(0.58, (boss.id === 'void_emperor' ? 1.15 : 1.45) - 0.48).toFixed(2);
+  const baseCd = boss.id === 'void_emperor' ? 1.12 : boss.id === 'shadow_titan' ? 1.28 : 1.42;
+  const baseCdSec = baseCd.toFixed(2);
+  const p3CdSec = Math.max(0.58, baseCd - 0.46).toFixed(2);
 
   return {
     id: `boss_${boss.id}`,
@@ -106,12 +107,12 @@ export const BOSSES_CODEX: CodexEntry[] = BOSS_ORDER.map((id) => {
         label: 'Base Hull HP',
         value: `${boss.maxHp.toLocaleString()} HP`,
         numericValue: boss.maxHp,
-        maxReference: 6000,
+        maxReference: 9600,
         tone: 'rose',
       },
       {
         label: 'Move Speed (P1 → P3)',
-        value: `${boss.moveSpeed} → ${Math.round(boss.moveSpeed * 1.55)} px/s`,
+        value: `${boss.moveSpeed} → ${Math.round(boss.moveSpeed * 1.54)} px/s`,
         numericValue: boss.moveSpeed,
         maxReference: 200,
         tone: 'cyan',

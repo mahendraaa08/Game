@@ -290,7 +290,7 @@ export class Player {
         });
       });
     } else if (this.specialId === 'photon_barrage') {
-      const warheadDmg = Math.round((dmgBase * this.stats.missilePowerMult) / 4);
+      const warheadDmg = Math.round(dmgBase / 4);
       for (let i = 0; i < 14; i++) {
         const ang = -Math.PI / 2 + (i - 6.5) * 0.16;
         const spd = 560;
@@ -535,7 +535,6 @@ export class Player {
 
       projectiles.fireWeapon(this.weaponId, this.x, this.y, dmgMult, targets, onInstantHit, {
         weaponLevel: this.weaponLevel,
-        missilePowerMult: this.stats.missilePowerMult,
         extraChainTargets: this.stats.extraChainTargets,
         hasAstralWingBolts: this.stats.hasAstralWingBolts,
         heavyScaleMult: this.stats.shipId === 'destroyer' ? 1.25 : 1,

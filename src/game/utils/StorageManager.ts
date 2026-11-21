@@ -3,10 +3,21 @@ import { DRONE_SLOT_IDS, type DroneId, type DroneSlotId } from '../config/DroneC
 import { ECONOMY_START, getMigrationBonus } from '../config/EconomyConfig';
 import type { EnemyClass } from '../config/EnemyConfig';
 import type { EquipmentSlot } from '../config/EquipmentConfig';
+import {
+  MAX_PLAYER_LEVEL,
+  getExpRequiredForNextLevel,
+} from '../config/LevelProgressionConfig';
 import { getDailyResetKey, getWeeklyResetKey } from '../config/MissionConfig';
-import { ShipId, SHIPS } from '../config/ShipConfig';
-import { UpgradeId, UPGRADES } from '../config/UpgradeConfig';
-import { SpecialId, SPECIAL_ATTACKS, WeaponId, WEAPONS } from '../config/WeaponConfig';
+import {
+  type ProfileAvatarId,
+  type ProfileBorderId,
+  isValidAvatarId,
+  isValidBorderId,
+} from '../config/ProfileCosmeticsConfig';
+import { type ShipId, SHIPS } from '../config/ShipConfig';
+import { type UpgradeId, UPGRADES } from '../config/UpgradeConfig';
+import { type SpecialId, SPECIAL_ATTACKS, type WeaponId, WEAPONS } from '../config/WeaponConfig';
+import type { LevelUpPayload } from './EventBus';
 
 export type FxQuality = 'high' | 'medium' | 'low';
 
@@ -57,6 +68,15 @@ export interface CodexRecords {
 
 export interface PlayerProgress {
   version: number;
+  guestModeConfirmed?: boolean;
+  guestSessionCreatedAt?: number;
+  playerName: string;
+  avatarId: ProfileAvatarId;
+  borderId: ProfileBorderId;
+  playerLevel: number;
+  playerExp: number;
+  highestRewardedLevel: number;
+  pendingLevelUp: LevelUpPayload | null;
   highestUnlockedLevel: number;
   completedLevels: number[];
   highScore: number;
@@ -86,7 +106,21 @@ export interface PlayerProgress {
   totalKills: number;
 }
 
+export type StorageHealthStatus =
+  | 'empty'
+  | 'unconfirmed'
+  | 'ready'
+  | 'corrupted'
+  | 'unavailable';
+
+export interface StorageInspectionResult {
+  status: StorageHealthStatus;
+  hasConfirmedGuestSession: boolean;
+  storageAvailable: boolean;
+}
+
 const STORAGE_KEY = 'galactic_war_defender_save_v1';
+const CORRUPTED_BACKUP_KEY = 'galactic_war_defender_save_v1_backup';
 
 export const DEFAULT_SETTINGS: GameSettings = {
   masterVolume: 0.75,
@@ -107,8 +141,8 @@ const DEFAULT_UPGRADES: Record<UpgradeId, number> = {
   shield_capacity: 0,
   movement_speed: 0,
   critical_chance: 0,
-  missile_power: 0,
-  special_power: 0,
+  critical_damage: 0,
+  special_cooldown: 0,
 };
 
 const DEFAULT_WEAPON_LEVELS: Record<WeaponId, number> = {
@@ -132,9 +166,24 @@ const DEFAULT_EQUIPPED_DRONE_SLOTS: Record<DroneSlotId, DroneId | null> = {
   slot2: null,
 };
 
+export function sanitizePlayerName(raw: unknown): string {
+  if (typeof raw !== 'string') return 'Commander';
+  const cleaned = raw.trim().replace(/\s+/g, ' ').slice(0, 20);
+  return cleaned.length > 0 ? cleaned : 'Commander';
+}
+
 export function createDefaultProgress(): PlayerProgress {
   return {
     version: 2,
+    guestModeConfirmed: false,
+    guestSessionCreatedAt: undefined,
+    playerName: 'Commander',
+    avatarId: 'vanguard',
+    borderId: 'standard_alloy',
+    playerLevel: 1,
+    playerExp: 0,
+    highestRewardedLevel: 1,
+    pendingLevelUp: null,
     highestUnlockedLevel: 1,
     completedLevels: [],
     highScore: 0,
@@ -142,7 +191,7 @@ export function createDefaultProgress(): PlayerProgress {
     selectedShip: 'falcon_x',
     unlockedShips: ['falcon_x'],
     selectedWeapon: 'plasma',
-    unlockedWeapons: ['plasma', 'dual_laser', 'spread'],
+    unlockedWeapons: ['plasma'],
     weaponLevels: { ...DEFAULT_WEAPON_LEVELS },
     selectedSpecial: 'emp_nova',
     upgrades: { ...DEFAULT_UPGRADES },
@@ -201,6 +250,75 @@ function safeFloat(val: unknown, fallback: number, min: number, max: number): nu
 class StorageManagerImpl {
   private cache: PlayerProgress | null = null;
 
+  private hasSubstantiveGameplayProgress(parsed: Partial<PlayerProgress>): boolean {
+    return (
+      (Array.isArray(parsed.completedLevels) && parsed.completedLevels.length > 0) ||
+      (typeof parsed.highScore === 'number' && parsed.highScore > 0) ||
+      (typeof parsed.totalKills === 'number' && parsed.totalKills > 0) ||
+      (typeof parsed.playerLevel === 'number' && parsed.playerLevel > 1) ||
+      (typeof parsed.playerExp === 'number' && parsed.playerExp > 0) ||
+      (typeof parsed.stats?.totalRuns === 'number' && parsed.stats.totalRuns > 0) ||
+      (typeof parsed.stats?.totalUpgradesBought === 'number' && parsed.stats.totalUpgradesBought > 0)
+    );
+  }
+
+  inspectSavedState(): StorageInspectionResult {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (raw === null || raw.trim() === '') {
+        return {
+          status: 'empty',
+          hasConfirmedGuestSession: false,
+          storageAvailable: true,
+        };
+      }
+
+      const parsed = JSON.parse(raw) as Partial<PlayerProgress> | null;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return {
+          status: 'corrupted',
+          hasConfirmedGuestSession: false,
+          storageAvailable: true,
+        };
+      }
+
+      const hasProgress = this.hasSubstantiveGameplayProgress(parsed);
+      const isConfirmed =
+        parsed.guestModeConfirmed === true ||
+        parsed.guestModeConfirmed === undefined ||
+        hasProgress;
+
+      return {
+        status: isConfirmed ? 'ready' : 'unconfirmed',
+        hasConfirmedGuestSession: isConfirmed,
+        storageAvailable: true,
+      };
+    } catch (err) {
+      // Distinguish storage access error vs JSON parse error without deleting user data
+      try {
+        const rawCheck = window.localStorage.getItem(STORAGE_KEY);
+        if (rawCheck !== null && rawCheck.trim() !== '') {
+          return {
+            status: 'corrupted',
+            hasConfirmedGuestSession: false,
+            storageAvailable: true,
+          };
+        }
+      } catch {
+        return {
+          status: 'unavailable',
+          hasConfirmedGuestSession: false,
+          storageAvailable: false,
+        };
+      }
+      return {
+        status: err instanceof SyntaxError ? 'corrupted' : 'unavailable',
+        hasConfirmedGuestSession: false,
+        storageAvailable: false,
+      };
+    }
+  }
+
   load(): PlayerProgress {
     if (this.cache) {
       this.ensureFreshScheduleBuckets(this.cache);
@@ -215,7 +333,7 @@ class StorageManagerImpl {
         return this.cache;
       }
       const parsed = JSON.parse(raw) as Partial<PlayerProgress> | null;
-      if (!parsed || typeof parsed !== 'object') {
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         this.cache = base;
         return this.cache;
       }
@@ -256,8 +374,14 @@ class StorageManagerImpl {
 
       const upgrades = { ...DEFAULT_UPGRADES };
       if (parsed.upgrades && typeof parsed.upgrades === 'object') {
+        const rawUpgrades = parsed.upgrades as Record<string, unknown>;
         (Object.keys(DEFAULT_UPGRADES) as UpgradeId[]).forEach((k) => {
-          upgrades[k] = safeInt((parsed.upgrades as Record<string, unknown>)[k], 0, 0, UPGRADES[k].maxLevel);
+          let rawVal = rawUpgrades[k];
+          if (rawVal === undefined) {
+            if (k === 'critical_damage') rawVal = rawUpgrades.missile_power;
+            if (k === 'special_cooldown') rawVal = rawUpgrades.special_power;
+          }
+          upgrades[k] = safeInt(rawVal, 0, 0, UPGRADES[k].maxLevel);
         });
       }
 
@@ -372,8 +496,79 @@ class StorageManagerImpl {
             }
           : { resetKey: weeklyKey, progress: {}, claimedIds: [] };
 
+      const parsedPlayerLevel = safeInt(
+        (parsed as Partial<PlayerProgress>).playerLevel,
+        1,
+        1,
+        MAX_PLAYER_LEVEL
+      );
+      const maxExpForParsedLevel =
+        parsedPlayerLevel >= MAX_PLAYER_LEVEL
+          ? 0
+          : Math.max(0, getExpRequiredForNextLevel(parsedPlayerLevel) - 1);
+      const parsedPlayerExp =
+        parsedPlayerLevel >= MAX_PLAYER_LEVEL
+          ? 0
+          : safeInt((parsed as Partial<PlayerProgress>).playerExp, 0, 0, maxExpForParsedLevel);
+      const parsedHighestRewarded = safeInt(
+        (parsed as Partial<PlayerProgress>).highestRewardedLevel,
+        parsedPlayerLevel,
+        1,
+        MAX_PLAYER_LEVEL
+      );
+
+      const rawPending = (parsed as Partial<PlayerProgress>).pendingLevelUp;
+      const sanitizedPending: LevelUpPayload | null =
+        rawPending &&
+        typeof rawPending === 'object' &&
+        typeof rawPending.previousLevel === 'number' &&
+        typeof rawPending.newLevel === 'number' &&
+        rawPending.newLevel > rawPending.previousLevel &&
+        rawPending.newLevel <= parsedPlayerLevel
+          ? {
+              previousLevel: Math.max(1, Math.floor(rawPending.previousLevel)),
+              newLevel: Math.min(MAX_PLAYER_LEVEL, Math.floor(rawPending.newLevel)),
+              creditsGranted: Math.max(0, Math.floor(rawPending.creditsGranted || 0)),
+              crystalsGranted: Math.max(0, Math.floor(rawPending.crystalsGranted || 0)),
+              steps: Array.isArray(rawPending.steps)
+                ? rawPending.steps
+                    .filter(
+                      (s): s is { level: number; credits: number; crystals: number } =>
+                        Boolean(s) && typeof s.level === 'number'
+                    )
+                    .map((s) => ({
+                      level: Math.max(2, Math.min(MAX_PLAYER_LEVEL, Math.floor(s.level))),
+                      credits: Math.max(0, Math.floor(s.credits || 0)),
+                      crystals: Math.max(0, Math.floor(s.crystals || 0)),
+                    }))
+                : undefined,
+            }
+          : null;
+
+      const isConfirmedSession =
+        typeof parsed.guestModeConfirmed === 'boolean'
+          ? parsed.guestModeConfirmed || this.hasSubstantiveGameplayProgress(parsed)
+          : true;
+
       const merged: PlayerProgress = {
         version: 2,
+        guestModeConfirmed: isConfirmedSession,
+        guestSessionCreatedAt:
+          typeof parsed.guestSessionCreatedAt === 'number' &&
+          Number.isFinite(parsed.guestSessionCreatedAt)
+            ? parsed.guestSessionCreatedAt
+            : undefined,
+        playerName: sanitizePlayerName(parsed.playerName),
+        avatarId: isValidAvatarId((parsed as Partial<PlayerProgress>).avatarId)
+          ? (parsed as Partial<PlayerProgress>).avatarId!
+          : 'vanguard',
+        borderId: isValidBorderId((parsed as Partial<PlayerProgress>).borderId)
+          ? (parsed as Partial<PlayerProgress>).borderId!
+          : 'standard_alloy',
+        playerLevel: parsedPlayerLevel,
+        playerExp: parsedPlayerExp,
+        highestRewardedLevel: Math.max(parsedPlayerLevel, parsedHighestRewarded),
+        pendingLevelUp: sanitizedPending,
         highestUnlockedLevel: safeInt(parsed.highestUnlockedLevel, 1, 1, 10),
         completedLevels,
         highScore: safeInt(parsed.highScore, 0, 0),
@@ -457,9 +652,28 @@ class StorageManagerImpl {
     const syncedDrones = DRONE_SLOT_IDS.map((id) => slots[id]).filter(
       (d): d is DroneId => d !== null
     );
+    const clampedLevel = Math.max(1, Math.min(MAX_PLAYER_LEVEL, Math.floor(next.playerLevel || 1)));
     const sanitized: PlayerProgress = {
       ...next,
       version: 2,
+      guestModeConfirmed: Boolean(next.guestModeConfirmed),
+      guestSessionCreatedAt:
+        typeof next.guestSessionCreatedAt === 'number' && Number.isFinite(next.guestSessionCreatedAt)
+          ? next.guestSessionCreatedAt
+          : undefined,
+      playerName: sanitizePlayerName(next.playerName),
+      avatarId: isValidAvatarId(next.avatarId) ? next.avatarId : 'vanguard',
+      borderId: isValidBorderId(next.borderId) ? next.borderId : 'standard_alloy',
+      playerLevel: clampedLevel,
+      playerExp: clampedLevel >= MAX_PLAYER_LEVEL ? 0 : Math.max(0, Math.floor(next.playerExp || 0)),
+      highestRewardedLevel: Math.max(
+        clampedLevel,
+        Math.min(MAX_PLAYER_LEVEL, Math.floor(next.highestRewardedLevel || clampedLevel))
+      ),
+      pendingLevelUp:
+        next.pendingLevelUp && next.pendingLevelUp.newLevel > next.pendingLevelUp.previousLevel
+          ? next.pendingLevelUp
+          : null,
       equippedDroneSlots: slots,
       equippedDrones: syncedDrones,
       credits: Math.max(0, Math.floor(next.credits)),
@@ -472,6 +686,40 @@ class StorageManagerImpl {
     } catch {
       // Ignore storage quota errors gracefully
     }
+  }
+
+  confirmGuestMode(): PlayerProgress {
+    const inspection = this.inspectSavedState();
+    // Preserve unreadable raw payload as backup before writing a fresh profile
+    if (inspection.status === 'corrupted') {
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          window.localStorage.setItem(CORRUPTED_BACKUP_KEY, raw);
+        }
+      } catch {
+        // Ignore backup quota errors
+      }
+    }
+
+    const current = this.load();
+    const fresh = createDefaultProgress();
+    const confirmed: PlayerProgress = {
+      ...fresh,
+      guestModeConfirmed: true,
+      guestSessionCreatedAt: Date.now(),
+      settings: { ...current.settings },
+      muted: current.settings.muted,
+    };
+    this.save(confirmed);
+    return confirmed;
+  }
+
+  retryLoadSavedState(): { inspection: StorageInspectionResult; progress: PlayerProgress } {
+    this.cache = null;
+    const inspection = this.inspectSavedState();
+    const progress = this.load();
+    return { inspection, progress };
   }
 
   update(mutator: (draft: PlayerProgress) => void): PlayerProgress {
@@ -509,6 +757,21 @@ class StorageManagerImpl {
     const nextSettings: GameSettings = { ...DEFAULT_SETTINGS };
     this.save({ ...p, muted: nextSettings.muted, settings: nextSettings });
     return nextSettings;
+  }
+
+  resetAllProgress(): PlayerProgress {
+    const current = this.load();
+    const fresh = createDefaultProgress();
+    const preservedSettings: GameSettings = { ...current.settings };
+    const resetState: PlayerProgress = {
+      ...fresh,
+      guestModeConfirmed: current.guestModeConfirmed ?? true,
+      guestSessionCreatedAt: current.guestSessionCreatedAt ?? Date.now(),
+      settings: preservedSettings,
+      muted: preservedSettings.muted,
+    };
+    this.save(resetState);
+    return resetState;
   }
 }
 

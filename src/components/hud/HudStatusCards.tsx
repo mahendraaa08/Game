@@ -322,11 +322,22 @@ export const ScoreHudCard = memo<{
       </div>
 
       <div className="mt-1 flex items-baseline justify-end gap-1.5">
-        {combo > 1 && (
-          <span className="font-mono-num text-[11px] font-bold text-amber-300">
-            x{combo}
-          </span>
-        )}
+        <span
+          aria-label={`Score multiplier ${combo}x`}
+          className={`font-mono-num text-[11px] font-bold tracking-tight ${
+            combo >= 5
+              ? 'text-fuchsia-300'
+              : combo === 4
+              ? 'text-amber-300'
+              : combo === 3
+              ? 'text-emerald-300'
+              : combo === 2
+              ? 'text-cyan-300'
+              : 'text-slate-400'
+          }`}
+        >
+          {combo}x
+        </span>
         <span className="font-mono-num text-base sm:text-xl font-bold leading-none tracking-tight text-white">
           {score.toLocaleString()}
         </span>

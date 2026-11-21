@@ -22,8 +22,8 @@ const SPECIAL_METADATA: Record<
         description: 'Instantly vaporizes every active hostile projectile in the arena on activation.',
       },
       {
-        title: 'Crit & Power Scaling',
-        description: 'Scales with Special Power upgrades, ship multipliers, and player Critical Strike rolls.',
+        title: 'Crit & Cooldown Scaling',
+        description: 'Scales with Ship/Gear Special Power, Fleet Critical Damage & Cooldown Reduction upgrades, and Critical rolls.',
       },
     ],
   },
@@ -39,8 +39,8 @@ const SPECIAL_METADATA: Record<
         description: 'Fires twin flanking orbital beams (±110 px) plus a centered lance spanning full arena height.',
       },
       {
-        title: 'Crit & Power Scaling',
-        description: 'Scales with Special Power upgrades, ship multipliers, and player Critical Strike rolls.',
+        title: 'Crit & Cooldown Scaling',
+        description: 'Scales with Ship/Gear Special Power, Fleet Critical Damage & Cooldown Reduction upgrades, and Critical rolls.',
       },
     ],
   },
@@ -53,8 +53,8 @@ const SPECIAL_METADATA: Record<
     ],
     effects: [
       {
-        title: 'Missile Synergy',
-        description: 'Each warhead deals 25% of Special Base Damage multiplied by Missile Power upgrades and Critical rolls.',
+        title: 'Warhead Payload & Crit Scaling',
+        description: 'Each warhead deals 25% of Special Base Damage multiplied by Ship/Gear Special Power and Critical Damage rolls.',
       },
       {
         title: 'Autonomous Tracking',

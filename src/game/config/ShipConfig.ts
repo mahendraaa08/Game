@@ -286,9 +286,9 @@ export const SHIP_LIST: ShipDefinition[] = [
   SHIPS.falcon_x,
   SHIPS.destroyer,
   SHIPS.phantom,
-  SHIPS.nova_prime,
   SHIPS.thunderbolt,
   SHIPS.aegis,
   SHIPS.specter,
+  SHIPS.nova_prime,
   SHIPS.celestial,
 ];

@@ -1,37 +1,62 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { BookOpen, ChevronRight, Play, Settings, Trophy, Wrench } from 'lucide-react';
 import titleKeyArt from '../assets/images/title_key_art_1794922504898.jpg';
-import { SHIPS } from '../game/config/ShipConfig';
+import { ExchangeDirection } from '../game/config/EconomyConfig';
 import { SoundManager } from '../game/audio/SoundManager';
 import { evaluateGlobalNotifications } from '../game/systems/NotificationStatus';
+import {
+  ActionResult,
+  computeCommanderRank,
+} from '../game/systems/ProgressionManager';
 import { AppRoute } from '../game/utils/EventBus';
 import { PlayerProgress } from '../game/utils/StorageManager';
 import { CreditCoinIcon, CrystalGemIcon } from './ui/CurrencyBadges';
 import { NotificationDot } from './ui/NotificationDot';
+import { PlayerProfileCard } from './ui/PlayerProfileCard';
+import { ProfileAvatarBadge } from './ui/ProfileAvatarBadge';
 
 interface TitleOverlayProps {
   progress: PlayerProgress;
   isActive: boolean;
   onNavigate: (route: Exclude<AppRoute, 'menu'>) => void;
+  onOpenExchange: (direction: ExchangeDirection) => void;
+  feedback?: ActionResult | null;
+  onFeedback?: (res: ActionResult) => void;
 }
 
 export const TitleOverlay: React.FC<TitleOverlayProps> = ({
   progress,
   isActive,
   onNavigate,
+  onOpenExchange,
+  feedback,
+  onFeedback,
 }) => {
-  const activeShip = SHIPS[progress.selectedShip] ?? SHIPS.falcon_x;
+  const rank = useMemo(() => computeCommanderRank(progress), [progress]);
   const notifications = useMemo(() => evaluateGlobalNotifications(progress), [progress]);
+  const [showProfile, setShowProfile] = useState(false);
 
   const navigateTo = (route: Exclude<AppRoute, 'menu'>) => {
+    setShowProfile(false);
     SoundManager.unlock();
     SoundManager.playButtonClick();
     onNavigate(route);
   };
 
+  const openExchange = (dir: ExchangeDirection) => {
+    setShowProfile(false);
+    SoundManager.unlock();
+    SoundManager.playButtonClick();
+    onOpenExchange(dir);
+  };
+
   useEffect(() => {
-    if (!isActive) return;
+    if (!isActive) {
+      setShowProfile(false);
+      return;
+    }
     const onKey = (e: KeyboardEvent) => {
+      if (showProfile) return;
       const targetTag = (e.target as HTMLElement | null)?.tagName;
       if (targetTag === 'BUTTON' || targetTag === 'A' || targetTag === 'INPUT') {
         return;
@@ -43,7 +68,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isActive]);
+  }, [isActive, showProfile]);
 
   return (
     <div className="scroll-panel absolute inset-0 z-20 overflow-y-auto overflow-x-hidden">
@@ -58,42 +83,88 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
       <div className="fixed inset-0 bg-gradient-to-t from-[#040711]/88 via-transparent to-[#040711]/52" />
 
       <div className="relative z-10 flex min-h-full flex-col">
-        {/* TOP HEADER: Ship + Sector (Left) | Non-Interactive Currency Cluster + Settings (Right) */}
+        {/* TOP HEADER: Profile Icon + Player Name & Level (Left) | Exchange & Settings (Right) */}
         <header className="relative z-10 flex items-center justify-between gap-2.5 sm:gap-4 px-4 pt-[max(0.875rem,env(safe-area-inset-top))] pb-2 sm:px-8 lg:px-12">
-          {/* Top-Left: Active Ship & Current Sector Only */}
-          <div className="flex min-w-0 flex-col leading-tight sm:flex-row sm:items-center sm:gap-2">
-            <span className="truncate font-display text-xs sm:text-sm font-semibold tracking-wider text-slate-100">
-              {activeShip.name}
-            </span>
-            <span aria-hidden="true" className="hidden sm:inline text-slate-600">
-              ·
-            </span>
-            <span className="font-mono-num text-[11px] sm:text-xs font-medium text-sky-300/90 whitespace-nowrap">
-              Sector {progress.highestUnlockedLevel}/10
-            </span>
+          {/* Top-Left: Profile Icon + Player Name & Level */}
+          <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                SoundManager.unlock();
+                SoundManager.playButtonClick();
+                setShowProfile((prev) => !prev);
+              }}
+              aria-label="Open Player Profile"
+              aria-expanded={showProfile}
+              title="Player Profile"
+              className={`shrink-0 rounded-xl transition-transform duration-150 hover:scale-[1.04] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-cyan-400 ${
+                showProfile ? 'ring-2 ring-cyan-300/60 ring-offset-2 ring-offset-[#040711]' : ''
+              }`}
+            >
+              <ProfileAvatarBadge
+                avatarId={progress.avatarId}
+                borderId={progress.borderId}
+                size="md"
+              />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                SoundManager.unlock();
+                SoundManager.playButtonClick();
+                setShowProfile(true);
+              }}
+              className="group flex min-w-0 flex-col items-start text-left leading-tight focus-visible:outline-none"
+            >
+              <span className="max-w-[140px] sm:max-w-[220px] truncate font-display text-xs sm:text-sm font-bold tracking-wide text-slate-100 transition-colors group-hover:text-cyan-200">
+                {progress.playerName}
+              </span>
+              <span className="mt-0.5 flex items-center gap-1.5 font-mono-num text-[11px] font-semibold text-cyan-300/95 whitespace-nowrap">
+                <span>
+                  Lv.{rank.level}
+                  {rank.isMaxLevel ? ' MAX' : ''}
+                </span>
+                <span aria-hidden="true" className="hidden sm:inline text-slate-600">
+                  ·
+                </span>
+                <span className="hidden sm:inline font-normal text-slate-400">
+                  {rank.title}
+                </span>
+              </span>
+            </button>
           </div>
 
-          {/* Top-Right: Compact Read-Only Credits & Crystals + Settings Button */}
+          {/* Top-Right: Interactive Credits & Gems Exchange Triggers + Settings Button */}
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            <div
-              aria-label={`Credits ${progress.credits.toLocaleString()}, Crystals ${progress.crystals.toLocaleString()}`}
-              className="flex min-h-[44px] items-center gap-2 sm:gap-3 rounded-xl border border-slate-700/65 bg-[#070f20]/82 px-2.5 sm:px-3.5 py-1.5 backdrop-blur-sm select-none"
-            >
-              <div className="flex items-center gap-1.5">
+            <div className="flex min-h-[44px] items-center rounded-xl border border-slate-700/65 bg-[#070f20]/82 p-0.5 backdrop-blur-sm">
+              <button
+                type="button"
+                onClick={() => openExchange('credits_to_gems')}
+                aria-label={`Credits ${progress.credits.toLocaleString()}. Open Currency Exchange`}
+                title="Open Exchange (Credit to Gems)"
+                className="flex min-h-[40px] items-center gap-1.5 rounded-[10px] px-2.5 sm:px-3 py-1 transition-[background-color,transform] duration-150 hover:bg-amber-400/12 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-amber-300"
+              >
                 <CreditCoinIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
                 <span className="font-mono-num text-xs sm:text-[13px] font-semibold tracking-tight text-slate-100 whitespace-nowrap">
                   {progress.credits.toLocaleString()}
                 </span>
-              </div>
+              </button>
 
               <span aria-hidden="true" className="h-3.5 w-px shrink-0 bg-slate-700/80" />
 
-              <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => openExchange('gems_to_credits')}
+                aria-label={`Gems ${progress.crystals.toLocaleString()}. Open Currency Exchange`}
+                title="Open Exchange (Gems to Credit)"
+                className="flex min-h-[40px] items-center gap-1.5 rounded-[10px] px-2.5 sm:px-3 py-1 transition-[background-color,transform] duration-150 hover:bg-cyan-400/12 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-cyan-300"
+              >
                 <CrystalGemIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
                 <span className="font-mono-num text-xs sm:text-[13px] font-semibold tracking-tight text-cyan-200 whitespace-nowrap">
                   {progress.crystals.toLocaleString()}
                 </span>
-              </div>
+              </button>
             </div>
 
             <button
@@ -259,6 +330,29 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
           </nav>
         </section>
       </div>
+
+      {/* Main Menu Toast Notification (e.g. Name Change Confirmation) */}
+      {feedback && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`pointer-events-none fixed left-1/2 top-20 z-50 -translate-x-1/2 rounded-xl border px-4 py-2 font-mono-num text-xs font-semibold shadow-xl backdrop-blur-md transition-all duration-200 ${
+            feedback.ok
+              ? 'border-emerald-300/45 bg-emerald-950/90 text-emerald-200'
+              : 'border-rose-400/45 bg-rose-950/90 text-rose-200'
+          }`}
+        >
+          {feedback.message}
+        </div>
+      )}
+
+      {/* Player Profile Popup Card */}
+      <PlayerProfileCard
+        open={showProfile}
+        progress={progress}
+        onClose={() => setShowProfile(false)}
+        onFeedback={onFeedback}
+      />
     </div>
   );
 };

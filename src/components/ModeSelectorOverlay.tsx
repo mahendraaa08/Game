@@ -13,10 +13,15 @@ import { BOSS_CONFIGS } from '../game/config/BossConfig';
 import { BOSS_RUSH_CLEAR_REWARD, getChallengePayout } from '../game/config/EconomyConfig';
 import { BOSS_RUSH_ORDER, CHALLENGES, GameMode } from '../game/config/GameModeConfig';
 import { CAMPAIGN_LEVELS } from '../game/config/LevelConfig';
+import {
+  PLAYER_EXP_SOURCES,
+  getCampaignClearTotalExp,
+} from '../game/config/LevelProgressionConfig';
 import { SoundManager } from '../game/audio/SoundManager';
 import { EventBus } from '../game/utils/EventBus';
 import { PlayerProgress } from '../game/utils/StorageManager';
 import { DedicatedScreenShell } from './DedicatedScreenShell';
+import { ExpStarIcon } from './ui/CurrencyBadges';
 
 interface ModeSelectorOverlayProps {
   progress: PlayerProgress;
@@ -48,6 +53,10 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
     selectedChallenge.rewardCrystals,
     selectedChallengeCompleted
   );
+  const challengeClearExp =
+    PLAYER_EXP_SOURCES.challengeClearBonus + PLAYER_EXP_SOURCES.runCompletionBase;
+  const bossRushClearExp =
+    PLAYER_EXP_SOURCES.bossRushClearBonus + PLAYER_EXP_SOURCES.runCompletionBase;
 
   const selectMode = (mode: GameMode) => {
     if (selectedMode === mode) return;
@@ -233,6 +242,10 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
                       </strong>
                     </span>
                     <span className="text-emerald-300">{sectorDef.rewardText}</span>
+                    <span className="inline-flex items-center gap-1 font-semibold text-purple-300">
+                      <ExpStarIcon className="h-3.5 w-3.5 shrink-0" />
+                      +{getCampaignClearTotalExp(selectedSector).toLocaleString()} Clear EXP
+                    </span>
                   </div>
 
                   {/* Clean Sector Selector (01-10) */}
@@ -351,6 +364,17 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
                       </div>
                     </div>
                   </div>
+
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono-num text-xs text-slate-400">
+                    <span className="inline-flex items-center gap-1.5 font-semibold text-purple-300">
+                      <ExpStarIcon className="h-3.5 w-3.5 shrink-0" />
+                      +{PLAYER_EXP_SOURCES.endlessPerWaveClear} EXP / Wave Cleared
+                    </span>
+                    <span className="text-slate-600">·</span>
+                    <span>
+                      +{PLAYER_EXP_SOURCES.runCompletionBase} Run Bonus EXP &amp; Combat Kill EXP
+                    </span>
+                  </div>
                 </div>
 
                 <div className="flex justify-end border-t border-slate-800/80 pt-4">
@@ -406,6 +430,10 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
                       </span>
                       <span className="text-amber-300">+{selectedChallengePayout.credits} CR</span>
                       <span className="text-cyan-300">+{selectedChallengePayout.crystals} Gems</span>
+                      <span className="inline-flex items-center gap-1 font-semibold text-purple-300">
+                        <ExpStarIcon className="h-3.5 w-3.5 shrink-0" />
+                        +{challengeClearExp} EXP
+                      </span>
                     </div>
                   </div>
 
@@ -449,11 +477,16 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
                             {c.title}
                           </div>
 
-                          <div className="font-mono-num text-[11px] text-slate-400">
-                            {payout.isReplay && <span className="mr-1.5 text-slate-400">Replay</span>}
+                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-mono-num text-[11px] text-slate-400">
+                            {payout.isReplay && <span className="text-slate-400">Replay</span>}
                             <span className="text-amber-300">+{payout.credits} CR</span>
-                            <span className="mx-1.5 text-slate-600">·</span>
+                            <span className="text-slate-600">·</span>
                             <span className="text-cyan-300">+{payout.crystals} Gems</span>
+                            <span className="text-slate-600">·</span>
+                            <span className="inline-flex items-center gap-0.5 text-purple-300">
+                              <ExpStarIcon className="h-3 w-3 shrink-0" />
+                              +{challengeClearExp} EXP
+                            </span>
                           </div>
                         </button>
                       );
@@ -495,6 +528,16 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
                     <p className="mt-2 max-w-2xl text-xs sm:text-sm leading-relaxed text-slate-300">
                       Engage all {BOSS_RUSH_ORDER.length} Void Empire dreadnought commanders back-to-back in a single gauntlet. Clearing the full sequence awards +{BOSS_RUSH_CLEAR_REWARD.credits.toLocaleString()} CR and +{BOSS_RUSH_CLEAR_REWARD.crystals} Gems.
                     </p>
+                    <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono-num text-xs">
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-purple-300">
+                        <ExpStarIcon className="h-3.5 w-3.5 shrink-0" />
+                        +{bossRushClearExp} Clear EXP
+                      </span>
+                      <span className="text-slate-600">·</span>
+                      <span className="text-slate-400">
+                        +{PLAYER_EXP_SOURCES.bossKillBonus} EXP per Void Commander defeated
+                      </span>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-5">

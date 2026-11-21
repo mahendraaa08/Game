@@ -340,7 +340,7 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                 </p>
 
                 {/* Level Pips */}
-                <div className="mt-3.5 flex items-center gap-1.5">
+                <div className="mt-3.5 flex items-center gap-1">
                   {Array.from({ length: def.maxWeaponLevel }).map((_, i) => (
                     <span
                       key={i}
@@ -453,11 +453,11 @@ export const WeaponsUpgradesPanel: React.FC<WeaponsUpgradesPanelProps> = ({
                     className="flex flex-col justify-between rounded-2xl border border-slate-800/90 bg-[#081122]/90 p-4"
                   >
                     <div>
-                      <div className="flex items-center justify-between gap-2 text-xs">
-                        <span className="truncate font-display text-sm font-bold text-white">
+                      <div className="flex items-start justify-between gap-2 text-xs">
+                        <span className="font-display text-[13px] leading-snug font-bold text-white">
                           {u.name}
                         </span>
-                        <span className="shrink-0 font-mono-num text-[11px] font-semibold text-cyan-300">
+                        <span className="shrink-0 pt-0.5 font-mono-num text-[11px] font-semibold text-cyan-300">
                           Lv.{cur}/{u.maxLevel}
                         </span>
                       </div>

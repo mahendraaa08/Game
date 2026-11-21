@@ -51,7 +51,6 @@ export class GameScene extends Phaser.Scene {
 
   private score = 0;
   private combo = 1;
-  private comboTimerMs = 0;
   private enemiesDefeated = 0;
   private bossSpawned = false;
   private bossRushIdx = 0;
@@ -64,6 +63,7 @@ export class GameScene extends Phaser.Scene {
   private pendingCrits = 0;
   private creditsEarnedRun = 0;
   private crystalsEarnedRun = 0;
+  private expEarnedRun = 0;
 
   private escKey?: Phaser.Input.Keyboard.Key;
   private numberKeys: Phaser.Input.Keyboard.Key[] = [];
@@ -162,7 +162,6 @@ export class GameScene extends Phaser.Scene {
 
     this.score = this.currentData.carryScore ?? 0;
     this.combo = 1;
-    this.comboTimerMs = 0;
     this.enemiesDefeated = 0;
     this.boss = null;
     this.bossSpawned = false;
@@ -177,6 +176,7 @@ export class GameScene extends Phaser.Scene {
     this.pendingCrits = 0;
     this.creditsEarnedRun = 0;
     this.crystalsEarnedRun = 0;
+    this.expEarnedRun = 0;
 
     EventBus.emit('scene:changed', 'GameScene');
     EventBus.emit('boss:warning', null);
@@ -194,23 +194,8 @@ export class GameScene extends Phaser.Scene {
       this.levelDef,
       this.mode,
       (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass),
-      (waveNum) => {
-        if (this.mode === 'endless') {
-          const waveReward = getEndlessWaveReward(waveNum, this.player.stats.creditBonusMult);
-          this.creditsEarnedRun += waveReward.credits;
-          this.crystalsEarnedRun += waveReward.crystals;
-          ProgressionManager.recordCombatProgress({
-            survivalWaves: 1,
-            runScore: this.score,
-          });
-          // Endless milestone boss every 5 waves
-          if (waveNum % 5 === 0 && !this.boss) {
-            const bossPool = BOSS_RUSH_ORDER;
-            const bId = bossPool[(Math.floor(waveNum / 5) - 1) % bossPool.length];
-            this.spawnBossEncounter(bId);
-          }
-        }
-      }
+      (waveNum) => this.handleWaveCleared(waveNum),
+      (waveNum, phase) => this.handleWavePhaseStarted(waveNum, phase)
     );
 
     const stats = computePlayerStats(saved, this.challengeDef?.rules);
@@ -390,7 +375,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    ProgressionManager.recordCombatProgress({
+    this.expEarnedRun += ProgressionManager.recordCombatProgress({
       kills: this.pendingKills,
       eliteKills: this.pendingEliteKills,
       powerUps: this.pendingPowerUps,
@@ -410,9 +395,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleEnemyKilled(enemy: EnemyEntity): void {
+    if (!enemy.claimKillReward()) return;
+
     this.enemiesDefeated++;
     this.pendingKills++;
-    if (enemy.def.id === 'elite' || enemy.def.id === 'tank') {
+    if (
+      enemy.def.id === 'elite' ||
+      enemy.def.id === 'tank' ||
+      enemy.def.id === 'bastion' ||
+      enemy.def.id === 'harbinger'
+    ) {
       this.pendingEliteKills++;
     }
 
@@ -420,9 +412,7 @@ export class GameScene extends Phaser.Scene {
       this.player.restoreShield(this.player.stats.shieldOnKill);
     }
 
-    this.combo = Math.min(8, this.combo + 1);
-    this.comboTimerMs = 3400;
-    this.score += enemy.scoreReward * Math.max(1, Math.floor(this.combo * 0.5));
+    this.score += enemy.scoreReward * this.combo;
 
     const activeDiff =
       this.mode === 'endless'
@@ -435,7 +425,13 @@ export class GameScene extends Phaser.Scene {
     );
     this.creditsEarnedRun += creditGain;
 
-    const isHeavy = enemy.def.id === 'tank' || enemy.def.id === 'elite' || enemy.def.id === 'bomber';
+    const isHeavy =
+      enemy.def.id === 'tank' ||
+      enemy.def.id === 'elite' ||
+      enemy.def.id === 'bomber' ||
+      enemy.def.id === 'bastion' ||
+      enemy.def.id === 'harbinger' ||
+      enemy.def.id === 'splitter';
     SoundManager.playExplosion(isHeavy ? 'medium' : 'small');
     this.combat.spawnExplosion(
       enemy.x,
@@ -505,10 +501,59 @@ export class GameScene extends Phaser.Scene {
     EventBus.emit('boss:pose', this.bossPoseScratch);
   }
 
+  private handleWavePhaseStarted(_waveNum: number, _phase: 1 | 2): void {
+    if (this.levelEnding) return;
+    this.emitHud();
+  }
+
+  private handleWaveCleared(waveNum: number): void {
+    if (this.levelEnding) return;
+
+    if (this.combo < 5) {
+      this.combo = Math.min(5, this.combo + 1);
+      this.combat?.spawnFloatingLabel(
+        this.player.x,
+        this.player.y - 12,
+        `SCORE ${this.combo}x!`,
+        '#38BDF8'
+      );
+      this.emitHud();
+    }
+
+    if (this.mode === 'endless') {
+      const waveReward = getEndlessWaveReward(waveNum, this.player.stats.creditBonusMult);
+      this.creditsEarnedRun += waveReward.credits;
+      this.crystalsEarnedRun += waveReward.crystals;
+      this.expEarnedRun += ProgressionManager.recordCombatProgress({
+        survivalWaves: 1,
+        runScore: this.score,
+      });
+      // Endless milestone boss every 5 waves
+      if (waveNum % 5 === 0 && !this.boss) {
+        const bossPool = BOSS_RUSH_ORDER;
+        const bId = bossPool[(Math.floor(waveNum / 5) - 1) % bossPool.length];
+        this.spawnBossEncounter(bId);
+      }
+    }
+  }
+
+  private resetScoreMultiplierOnHpLoss(): void {
+    if (this.combo > 1) {
+      this.combo = 1;
+      this.combat?.spawnFloatingLabel(
+        this.player.x,
+        this.player.y - 10,
+        'MULTIPLIER 1x',
+        '#FB7185'
+      );
+    }
+    this.emitHud();
+  }
+
   private handleBossDefeated(boss: BossEntity): void {
     if (this.levelEnding) return;
 
-    this.score += boss.def.scoreReward;
+    this.score += boss.def.scoreReward * this.combo;
     const endlessBossTier =
       this.mode === 'endless'
         ? Math.max(1, Math.floor((this.waveDirector.currentWaveIdx + 1) / 5))
@@ -522,7 +567,7 @@ export class GameScene extends Phaser.Scene {
     this.creditsEarnedRun += bossReward.credits;
     this.crystalsEarnedRun += bossReward.crystals;
 
-    ProgressionManager.recordCombatProgress({
+    this.expEarnedRun += ProgressionManager.recordCombatProgress({
       bossDefeatedId: boss.def.id,
       runScore: this.score,
     });
@@ -615,6 +660,7 @@ export class GameScene extends Phaser.Scene {
       levelNumber: this.levelDef.levelNumber,
       shipUsed: this.player.stats.shipId,
     });
+    this.expEarnedRun += granted.expGranted;
 
     SoundManager.playVictory();
     SoundManager.playMusic('victory');
@@ -626,6 +672,7 @@ export class GameScene extends Phaser.Scene {
         enemiesDefeated: this.enemiesDefeated,
         creditsEarned: granted.creditsGranted,
         crystalsEarned: granted.crystalsGranted,
+        expEarned: this.expEarnedRun,
       });
     } else {
       this.scene.start('LevelResultScene', {
@@ -639,6 +686,7 @@ export class GameScene extends Phaser.Scene {
         rewardText: this.levelDef.rewardText,
         creditsEarned: granted.creditsGranted,
         crystalsEarned: granted.crystalsGranted,
+        expEarned: this.expEarnedRun,
         nextLevelNumber: this.levelDef.levelNumber + 1,
         weaponId: this.player.weaponId,
         specialId: this.player.specialId,
@@ -662,6 +710,7 @@ export class GameScene extends Phaser.Scene {
       challengeCompleted: won,
       shipUsed: this.player.stats.shipId,
     });
+    this.expEarnedRun += granted.expGranted;
 
     SoundManager.playVictory();
     SoundManager.playMusic('victory');
@@ -677,6 +726,7 @@ export class GameScene extends Phaser.Scene {
       rewardText: `Challenge Complete · ${chal.objective}`,
       creditsEarned: granted.creditsGranted,
       crystalsEarned: granted.crystalsGranted,
+      expEarned: this.expEarnedRun,
       nextLevelNumber: null,
       weaponId: this.player.weaponId,
       specialId: this.player.specialId,
@@ -696,6 +746,7 @@ export class GameScene extends Phaser.Scene {
       bossRushCleared: true,
       shipUsed: this.player.stats.shipId,
     });
+    this.expEarnedRun += granted.expGranted;
 
     SoundManager.playVictory();
     SoundManager.playMusic('victory');
@@ -705,6 +756,7 @@ export class GameScene extends Phaser.Scene {
       enemiesDefeated: this.enemiesDefeated,
       creditsEarned: granted.creditsGranted,
       crystalsEarned: granted.crystalsGranted,
+      expEarned: this.expEarnedRun,
     });
   }
 
@@ -730,6 +782,7 @@ export class GameScene extends Phaser.Scene {
       endlessWave: this.mode === 'endless' ? this.waveDirector.currentWaveIdx + 1 : undefined,
       shipUsed: this.player.stats.shipId,
     });
+    this.expEarnedRun += granted.expGranted;
 
     if (this.scene.isActive('BossScene')) {
       this.scene.stop('BossScene');
@@ -752,6 +805,7 @@ export class GameScene extends Phaser.Scene {
         enemiesDefeated: this.enemiesDefeated,
         creditsEarned: granted.creditsGranted,
         crystalsEarned: granted.crystalsGranted,
+        expEarned: this.expEarnedRun,
         weaponId: this.player.weaponId,
         specialId: this.player.specialId,
       });
@@ -786,13 +840,6 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.bg.update(dt);
-
-    if (this.comboTimerMs > 0) {
-      this.comboTimerMs -= dt * 1000;
-      if (this.comboTimerMs <= 0) {
-        this.combo = 1;
-      }
-    }
 
     if (this.levelEnding) {
       this.combat.updateParticlesAndPowerUps(
@@ -857,14 +904,18 @@ export class GameScene extends Phaser.Scene {
           this,
           this.levelDef,
           'endless',
-          (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass)
+          (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass),
+          (waveNum) => this.handleWaveCleared(waveNum),
+          (waveNum, phase) => this.handleWavePhaseStarted(waveNum, phase)
         );
       } else if (this.mode === 'challenge' && this.challengeDef?.rules.timeLimitSec) {
         this.waveDirector = new WaveDirector(
           this,
           this.levelDef,
           'endless',
-          (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass)
+          (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass),
+          (waveNum) => this.handleWaveCleared(waveNum),
+          (waveNum, phase) => this.handleWavePhaseStarted(waveNum, phase)
         );
       } else if (this.mode === 'campaign') {
         this.levelEnding = true;
@@ -881,7 +932,11 @@ export class GameScene extends Phaser.Scene {
     // Update Boss & stream real-time 60fps pose to BossHealthBar
     if (this.boss && this.boss.active) {
       this.boss.update(dt, this.player.x, this.player.y, this.projectiles, (laserDmg) => {
+        const prevHp = this.player.hp;
         if (this.player.takeDamage(laserDmg)) {
+          if (this.player.hp < prevHp) {
+            this.resetScoreMultiplierOnHpLoss();
+          }
           this.shakeCamera(200, 0.012);
           if (this.player.hp <= 0) this.triggerGameOver();
         }
@@ -891,8 +946,8 @@ export class GameScene extends Phaser.Scene {
       this.emitBossPose();
     }
 
-    // Update Projectiles & Collisions
-    this.projectiles.update(dt, targets);
+    // Update Projectiles & Collisions (pass player coords for enemy homing seekers & aimed splitters)
+    this.projectiles.update(dt, targets, this.player.x, this.player.y);
 
     this.combat.resolveCollisions(
       this.player,
@@ -901,9 +956,12 @@ export class GameScene extends Phaser.Scene {
       this.boss,
       (enemy) => this.handleEnemyKilled(enemy),
       (dmg) => {
-        this.score += Math.max(8, Math.round(dmg * 0.6));
+        this.score += Math.max(8, Math.round(dmg * 0.6)) * this.combo;
       },
-      () => {
+      (hpReduced) => {
+        if (hpReduced) {
+          this.resetScoreMultiplierOnHpLoss();
+        }
         this.shakeCamera(160, 0.009);
         if (this.player.hp <= 0) {
           this.triggerGameOver();
@@ -922,7 +980,7 @@ export class GameScene extends Phaser.Scene {
       (type, info) => {
         this.pendingPowerUps += 1;
         if (type === 'mega_bomb') {
-          this.score += 400;
+          this.score += 400 * this.combo;
         }
         EventBus.emit('powerup:collected', {
           type,
@@ -996,6 +1054,7 @@ export class GameScene extends Phaser.Scene {
           : this.challengeDef?.title ?? this.levelDef.name,
       objective: this.challengeDef?.objective ?? this.levelDef.objective,
       waveIndex: this.waveDirector.currentWaveIdx + 1,
+      wavePhase: this.waveDirector.currentPhase,
       totalWaves: this.waveDirector.totalWaves,
       shipId: shipDef.id,
       shipName: shipDef.name,
