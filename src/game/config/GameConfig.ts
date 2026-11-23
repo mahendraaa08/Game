@@ -38,6 +38,7 @@ export interface HudSnapshot {
   hp: number;
   maxHp: number;
   shield: number;
+  tempShield?: number;
   maxShield: number;
   score: number;
   combo: number;

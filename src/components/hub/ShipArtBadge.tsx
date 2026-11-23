@@ -21,32 +21,32 @@ export const ShipArtBadge: React.FC<{ shipId: ShipId; size?: number }> = ({
       {shipId === 'destroyer' && (
         <>
           <polygon points="32,10 52,44 42,50 32,44 22,50 12,44" fill={c} fillOpacity="0.88" />
-          <rect x="26" y="18" width="12" height="24" rx="3" fill="#fef08a" fillOpacity="0.8" />
+          <rect x="26" y="18" width="12" height="24" rx="3" fill="#f97316" fillOpacity="0.85" />
         </>
       )}
       {shipId === 'phantom' && (
         <>
           <polygon points="32,8 50,52 32,42 14,52" fill={c} fillOpacity="0.9" />
-          <polygon points="32,16 39,40 32,36 25,40" fill="#ecfeff" fillOpacity="0.9" />
+          <polygon points="32,16 39,40 32,36 25,40" fill="#d8b4fe" fillOpacity="0.9" />
         </>
       )}
       {shipId === 'aegis' && (
         <>
           <polygon points="32,11 51,28 46,50 18,50 13,28" fill={c} fillOpacity="0.88" />
-          <path d="M16 24 Q32 10 48 24" fill="none" stroke="#a7f3d0" strokeWidth="2.5" />
+          <path d="M16 24 Q32 10 48 24" fill="none" stroke="#f8fafc" strokeWidth="2.5" />
         </>
       )}
       {shipId === 'thunderbolt' && (
         <>
           <polygon points="32,9 54,40 44,48 32,38 20,48 10,40" fill={c} fillOpacity="0.9" />
-          <polygon points="32,18 38,34 26,34" fill="#38bdf8" />
+          <polygon points="32,18 38,34 26,34" fill="#facc15" />
         </>
       )}
       {shipId === 'celestial' && (
         <>
           <polygon points="32,7 55,38 43,52 32,42 21,52 9,38" fill={c} fillOpacity="0.92" />
-          <polygon points="32,14 40,36 32,32 24,36" fill="#fef08a" />
-          <circle cx="32" cy="28" r="4" fill="#38bdf8" />
+          <polygon points="32,14 40,36 32,32 24,36" fill="#fef9c3" />
+          <circle cx="32" cy="28" r="4" fill="#ffffff" />
         </>
       )}
       {(shipId === 'falcon_x' || shipId === 'nova_prime' || shipId === 'specter') && (

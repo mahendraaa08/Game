@@ -500,6 +500,39 @@ export function formatShipUnlockLabel(shipId: ShipId): string {
   return parts.join(' · ');
 }
 
+export const MAX_SHIP_LEVEL = 7;
+
+export const SHIP_UPGRADE_TIER_MULT: Record<ShipId, number> = {
+  falcon_x: 1.0,
+  destroyer: 1.18,
+  phantom: 1.28,
+  thunderbolt: 1.42,
+  aegis: 1.65,
+  specter: 1.82,
+  nova_prime: 2.0,
+  celestial: 2.25,
+};
+
+const SHIP_UPGRADE_STEP_COSTS: ReadonlyArray<{ credits: number; crystals: number }> = [
+  { credits: 320, crystals: 0 }, // Lv.1 -> Lv.2
+  { credits: 540, crystals: 0 }, // Lv.2 -> Lv.3
+  { credits: 860, crystals: 1 }, // Lv.3 -> Lv.4
+  { credits: 1300, crystals: 2 }, // Lv.4 -> Lv.5
+  { credits: 1850, crystals: 4 }, // Lv.5 -> Lv.6
+  { credits: 2600, crystals: 6 }, // Lv.6 -> Lv.7
+];
+
+export function calculateShipUpgradeCost(shipId: ShipId, currentLevel: number): CurrencyAmount {
+  const lvl = Math.max(1, Math.floor(currentLevel));
+  if (lvl >= MAX_SHIP_LEVEL) return { credits: 0, crystals: 0 };
+  const step = SHIP_UPGRADE_STEP_COSTS[lvl - 1] ?? SHIP_UPGRADE_STEP_COSTS[SHIP_UPGRADE_STEP_COSTS.length - 1];
+  const tierMult = SHIP_UPGRADE_TIER_MULT[shipId] ?? 1.0;
+  return {
+    credits: roundCredits(step.credits * tierMult, 10),
+    crystals: step.crystals > 0 ? Math.max(1, Math.round(step.crystals * tierMult)) : 0,
+  };
+}
+
 /** Armory Equipment purchase & rarity/power-differentiated upgrade cost formulas */
 export const EQUIPMENT_PRICING: Record<string, CurrencyAmount> = {
   util_ion_thruster: { credits: 680, crystals: 0 },

@@ -4,7 +4,7 @@ import { EnemyClass } from '../config/EnemyConfig';
 import { WEAPON_RUNTIME_TUNING } from '../config/WeaponEvolutionConfig';
 import { SoundManager } from '../audio/SoundManager';
 import { ProjectileManager } from './ProjectileManager';
-import { Targetable } from './Targetable';
+import { allocateTargetId, Targetable } from './Targetable';
 
 type BossMoveMode = 'patrol' | 'reposition' | 'stalk' | 'surge_dip' | 'phase_glide';
 
@@ -34,6 +34,7 @@ export class BossEntity implements Targetable {
   private telegraphGfx: Phaser.GameObjects.Graphics;
   private auraGfx: Phaser.GameObjects.Graphics;
 
+  readonly targetId: number = allocateTargetId();
   active = false;
   hp = 1000;
   maxHp = 1000;

@@ -14,10 +14,11 @@ import {
 } from '../config/WeaponEvolutionConfig';
 import { SoundManager } from '../audio/SoundManager';
 import { ComputedPlayerStats } from '../systems/ProgressionManager';
+import { DamageSource, PassiveSystem } from '../systems/PassiveSystem';
 import { EventBus } from '../utils/EventBus';
 import { GameSettings, StorageManager } from '../utils/StorageManager';
-import { ProjectileManager } from './ProjectileManager';
-import { Targetable } from './Targetable';
+import { BeamHitMeta, ProjectileManager } from './ProjectileManager';
+import { allocateEnemyAttackId, Targetable } from './Targetable';
 
 export class Player {
   scene: Phaser.Scene;
@@ -50,7 +51,7 @@ export class Player {
   private doubleDamageMs = 0;
   private timeSinceHitMs = 0;
   private afterimageTimerMs = 0;
-  private continuousFireTimeSec = 0;
+  private passiveSystem: PassiveSystem | null = null;
 
   // Evolution II proc & barrage runtime timers
   private plasmaBurstCooldownMs = 0;
@@ -58,6 +59,7 @@ export class Player {
   private dualBarrageActiveMs = 0;
   private dualBarrageCooldownMs = 0;
   private dualBarrageShotTimerMs = 0;
+  private lastWeaponActionId = 0;
   private beamSoundCooldownMs = 0;
 
   autoFire = true;
@@ -139,8 +141,28 @@ export class Player {
     return 16;
   }
 
+  setPassiveSystem(ps: PassiveSystem | null): void {
+    this.passiveSystem = ps;
+  }
+
   get weaponLevel(): number {
     return this.weaponLevels[this.weaponId] ?? 1;
+  }
+
+  getEffectiveCritChance(): number {
+    return Math.min(0.65, this.stats.critChance + (this.passiveSystem?.getCritChanceBonus() ?? 0));
+  }
+
+  getEffectiveFireRateMult(): number {
+    return this.stats.fireRateMult * (this.rapidFireMs > 0 ? 1.75 : 1);
+  }
+
+  getNormalDamageMult(): number {
+    return this.stats.damageMult * (this.doubleDamageMs > 0 ? 2 : 1);
+  }
+
+  isWantingFire(): boolean {
+    return this.autoFire || Boolean(this.keys && this.keys.SPACE.isDown);
   }
 
   isInvulnerable(): boolean {
@@ -216,6 +238,7 @@ export class Player {
     if (amount <= 0) return 0;
     const prevDisplayed = Math.ceil(this.hp);
     this.hp = Math.min(this.maxHp, this.hp + amount);
+    this.passiveSystem?.syncHpState(this.hp, this.maxHp);
     return Math.max(0, Math.ceil(this.hp) - prevDisplayed);
   }
 
@@ -227,7 +250,7 @@ export class Player {
   }
 
   rollCrit(): { isCrit: boolean; mult: number } {
-    const isCrit = Math.random() < this.stats.critChance;
+    const isCrit = Math.random() < this.getEffectiveCritChance();
     return {
       isCrit,
       mult: isCrit ? this.stats.critDamageMult : 1,
@@ -253,6 +276,7 @@ export class Player {
 
     this.dashTimerMs = GAME_CONSTANTS.DASH_DURATION_MS;
     this.dashCooldownMs = Math.round(GAME_CONSTANTS.DASH_COOLDOWN_MS * this.stats.dashCooldownMult);
+    this.passiveSystem?.onPlayerDash();
     SoundManager.playDash();
     return true;
   }
@@ -260,13 +284,18 @@ export class Player {
   tryTriggerSpecial(
     projectiles: ProjectileManager,
     targets: Targetable[],
-    onHitTarget: (t: Targetable, dmg: number, isCrit?: boolean) => void,
+    onHitTarget: (t: Targetable, dmg: number, isCrit?: boolean, hitMeta?: BeamHitMeta) => void,
     onCameraShake: (intensity: number) => void
   ): boolean {
     if (this.specialCooldownMs > 0) return false;
     const spec = SPECIAL_ATTACKS[this.specialId];
     this.specialCooldownMs = Math.round(spec.cooldownMs * this.stats.specialCooldownMult);
-    const dmgBase = Math.round(spec.damage * this.stats.specialPowerMult);
+    const dmgBase = Math.round(spec.damage * this.stats.specialDamageMultiplier);
+    const specialMeta: BeamHitMeta = {
+      source: 'special',
+      firingActionId: 0,
+      countsForFiringAction: false,
+    };
 
     SoundManager.playSpecial(this.specialId);
     onCameraShake(0.012);
@@ -289,7 +318,7 @@ export class Player {
         const d = Math.hypot(t.x - this.x, t.y - this.y);
         if (d < 500) {
           const crit = this.rollCrit();
-          onHitTarget(t, Math.round(dmgBase * crit.mult), crit.isCrit);
+          onHitTarget(t, Math.round(dmgBase * crit.mult), crit.isCrit, specialMeta);
         }
       });
     } else if (this.specialId === 'orbital_strike') {
@@ -301,7 +330,7 @@ export class Player {
         targets.forEach((t) => {
           if (t.active && Math.abs(t.x - lx) <= t.radius + 44) {
             const crit = this.rollCrit();
-            onHitTarget(t, Math.round(dmgBase * crit.mult), crit.isCrit);
+            onHitTarget(t, Math.round(dmgBase * crit.mult), crit.isCrit, specialMeta);
           }
         });
       });
@@ -318,11 +347,20 @@ export class Player {
           Math.sin(ang) * spd,
           Math.round(warheadDmg * crit.mult),
           'proj_missile',
-          { homing: true, radius: 10, scale: 1.15, isCrit: crit.isCrit }
+          {
+            homing: true,
+            radius: 10,
+            scale: 1.15,
+            isCrit: crit.isCrit,
+            source: 'special',
+            firingActionId: 0,
+            countsForFiringAction: false,
+          }
         );
       }
     }
 
+    this.passiveSystem?.onPlayerSpecialActivated();
     return true;
   }
 
@@ -352,19 +390,31 @@ export class Player {
     }
   }
 
-  takeDamage(amount: number): boolean {
+  takeDamage(amount: number, attackId?: number): boolean {
     if (this.isInvulnerable()) return false;
-    if (this.stats.evasionChance > 0 && Math.random() < this.stats.evasionChance) {
-      // Phantom Phase Thruster evade flash
-      this.invulnTimerMs = 260;
-      this.sprite.setAlpha(0.5);
-      return false;
+
+    const resolvedAttackId = attackId ?? allocateEnemyAttackId();
+    const prevHp = this.hp;
+    const prevShield = this.shield;
+
+    let mitigated = Math.max(
+      1,
+      Math.round(amount * (1 - Math.min(0.6, Math.max(0, this.stats.damageReduction))))
+    );
+    if (this.passiveSystem) {
+      const drRes = this.passiveSystem.computeIncomingPlayerDamage({
+        rawAmount: amount,
+        attackId: resolvedAttackId,
+        prevShield,
+        equipmentDR: this.stats.damageReduction,
+      });
+      if (drRes.duplicated) return false;
+      mitigated = drRes.mitigatedDamage;
     }
 
     this.timeSinceHitMs = 0;
     this.invulnTimerMs = GAME_CONSTANTS.INVULN_HIT_MS;
 
-    const mitigated = Math.max(1, Math.round(amount * (1 - this.stats.damageReduction)));
     let remaining = mitigated;
     let absorbedByShield = 0;
     if (this.shield > 0) {
@@ -381,6 +431,16 @@ export class Player {
     this.sprite.setTint(0xff4d6d).setTintMode(Phaser.TintModes.FILL);
     this.scene.time.delayedCall(95, () => {
       if (this.sprite.active) this.sprite.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
+    });
+
+    this.passiveSystem?.onPlayerDamagedPostApply({
+      prevHp,
+      newHp: this.hp,
+      maxHp: this.maxHp,
+      prevShield,
+      newShield: this.shield,
+      maxShield: this.maxShield,
+      actualDamageTaken: mitigated,
     });
     return true;
   }
@@ -410,7 +470,7 @@ export class Player {
     dt: number,
     projectiles: ProjectileManager,
     targets: Targetable[],
-    onInstantHit: (t: Targetable, dmg: number, isCrit?: boolean) => void,
+    onInstantHit: (t: Targetable, dmg: number, isCrit?: boolean, hitMeta?: BeamHitMeta) => void,
     onSpecialUsed: () => void,
     onCameraShake: (intensity: number) => void,
     onStunApplied?: (t: Targetable) => void
@@ -533,29 +593,17 @@ export class Player {
     }
 
     // Automatic & manual firing
-    const wantFire = this.autoFire || Boolean(this.keys && this.keys.SPACE.isDown);
-    if (wantFire) {
-      this.continuousFireTimeSec = Math.min(4, this.continuousFireTimeSec + dt);
-    } else {
-      this.continuousFireTimeSec = 0;
-    }
-
+    const wantFire = this.isWantingFire();
     const weaponDef = WEAPONS[this.weaponId];
-    const rotaryBonus = 1 + this.stats.rotaryFireBonus * Math.min(1, this.continuousFireTimeSec / 2);
-    const totalFireRateMult = this.stats.fireRateMult * rotaryBonus * (this.rapidFireMs > 0 ? 1.75 : 1);
-
-    let shipWeaponDmgBonus = 1;
-    if (this.stats.shipId === 'nova_prime' && (this.weaponId === 'beam' || this.weaponId === 'plasma')) {
-      shipWeaponDmgBonus = 1.18;
-    }
-
-    const dmgMult =
-      this.stats.damageMult * shipWeaponDmgBonus * (this.doubleDamageMs > 0 ? 2 : 1);
-    const heavyScaleMult = this.stats.shipId === 'destroyer' ? 1.25 : 1;
+    const totalFireRateMult = this.getEffectiveFireRateMult();
+    const dmgMult = this.getNormalDamageMult();
     const weaponStage = getWeaponEvolutionStage(this.weaponLevel);
 
     // Continuous Beam runs smoothly every frame while firing Energy Beam
     if (this.weaponId === 'beam') {
+      if (!wantFire) {
+        this.passiveSystem?.resetBeamFiringAction();
+      }
       projectiles.updateContinuousBeam(dt, {
         firing: wantFire,
         x: this.x,
@@ -564,6 +612,12 @@ export class Player {
         damageMult: dmgMult,
         totalFireRateMult,
         targets,
+        acquireBeamAction: (accumMs, effFireRate) =>
+          this.passiveSystem?.acquireBeamFiringAction(accumMs, effFireRate) ?? {
+            firingActionId: 0,
+            actionDamageMult: 1,
+            isCycleStart: true,
+          },
         onInstantHit,
         rollCrit: () => this.rollCrit(),
       });
@@ -571,16 +625,8 @@ export class Player {
         this.beamSoundCooldownMs = 155;
         SoundManager.playWeaponFire('beam');
       }
-      // Preserve Celestial Astral Wing-Bolts while firing Beam
-      if (wantFire && this.stats.hasAstralWingBolts && this.fireTimerMs <= 0) {
-        const baseCycleMs = getWeaponFireRateAtLevel(weaponDef, this.weaponLevel);
-        this.fireTimerMs = Math.max(95, baseCycleMs / totalFireRateMult);
-        projectiles.fireWeapon('beam', this.x, this.y, dmgMult, targets, onInstantHit, {
-          weaponLevel: this.weaponLevel,
-          hasAstralWingBolts: true,
-        });
-      }
     } else {
+      this.passiveSystem?.resetBeamFiringAction();
       projectiles.updateContinuousBeam(dt, {
         firing: false,
         x: this.x,
@@ -597,22 +643,41 @@ export class Player {
         const baseCycleMs = getWeaponFireRateAtLevel(weaponDef, this.weaponLevel);
         this.fireTimerMs = Math.max(55, baseCycleMs / totalFireRateMult);
 
-        projectiles.fireWeapon(this.weaponId, this.x, this.y, dmgMult, targets, onInstantHit, {
-          weaponLevel: this.weaponLevel,
-          extraChainTargets: this.stats.extraChainTargets,
-          hasAstralWingBolts: this.stats.hasAstralWingBolts,
-          heavyScaleMult,
-          plasmaBurstProcReady: this.plasmaBurstCooldownMs <= 0,
-          onPlasmaBurstTriggered: () => {
-            this.plasmaBurstCooldownMs = WEAPON_RUNTIME_TUNING.plasma.evo2BurstCooldownMs;
-          },
-          heavyMissileProcReady: this.heavyMissileCooldownMs <= 0,
-          onHeavyMissileTriggered: () => {
-            this.heavyMissileCooldownMs = WEAPON_RUNTIME_TUNING.homing.evo2HeavyCooldownMs;
-          },
-          onLightningStunApplied: (t) => onStunApplied?.(t),
-          rollCrit: () => this.rollCrit(),
-        });
+        const action = this.passiveSystem?.beginPlayerFiringAction() ?? {
+          firingActionId: 0,
+          actionDamageMult: 1,
+        };
+        this.lastWeaponActionId = action.firingActionId;
+        const shotMeta: BeamHitMeta = {
+          source: 'player_weapon' as DamageSource,
+          firingActionId: action.firingActionId,
+          countsForFiringAction: true,
+        };
+
+        projectiles.fireWeapon(
+          this.weaponId,
+          this.x,
+          this.y,
+          dmgMult * action.actionDamageMult,
+          targets,
+          (t, dmg, isCrit) => onInstantHit(t, dmg, isCrit, shotMeta),
+          {
+            weaponLevel: this.weaponLevel,
+            source: 'player_weapon',
+            firingActionId: action.firingActionId,
+            countsForFiringAction: true,
+            plasmaBurstProcReady: this.plasmaBurstCooldownMs <= 0,
+            onPlasmaBurstTriggered: () => {
+              this.plasmaBurstCooldownMs = WEAPON_RUNTIME_TUNING.plasma.evo2BurstCooldownMs;
+            },
+            heavyMissileProcReady: this.heavyMissileCooldownMs <= 0,
+            onHeavyMissileTriggered: () => {
+              this.heavyMissileCooldownMs = WEAPON_RUNTIME_TUNING.homing.evo2HeavyCooldownMs;
+            },
+            onLightningStunApplied: (t) => onStunApplied?.(t),
+            rollCrit: () => this.rollCrit(),
+          }
+        );
 
         // Dual Laser Evolution II (Lv20): Chance to ignite Central Rapid Barrage window
         if (
@@ -645,8 +710,12 @@ export class Player {
             this.y,
             this.weaponLevel,
             dmgMult,
-            heavyScaleMult,
-            () => this.rollCrit()
+            () => this.rollCrit(),
+            {
+              source: 'player_weapon',
+              firingActionId: this.lastWeaponActionId,
+              countsForFiringAction: false,
+            }
           );
         }
       }

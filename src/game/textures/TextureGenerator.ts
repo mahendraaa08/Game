@@ -24,7 +24,7 @@ const TEXTURE_STEPS: readonly TextureStep[] = [
   },
   {
     label: 'Calibrating companion drones',
-    keys: ['drone_assault', 'drone_shield', 'drone_repair', 'drone_collector'],
+    keys: ['drone_assault', 'drone_shield', 'drone_repair', 'drone_collector', 'drone_nova_evo'],
     run: createDroneTextures,
   },
   {
@@ -222,13 +222,13 @@ function createShipTextures(scene: Phaser.Scene): void {
   drawFalcon('player_ship');
   drawFalcon('ship_falcon_x');
 
-  // 2. Destroyer (Heavy Assault twin-prow gunship)
+  // 2. Destroyer (Heavy Assault twin-prow gunship — Red & Dark Orange)
   {
     const g = scene.make.graphics({ x: 0, y: 0 });
     const cx = 32;
     const cy = 32;
-    g.fillStyle(0x431407, 1);
-    g.lineStyle(2.2, 0xf97316, 1);
+    g.fillStyle(0x450a0a, 1);
+    g.lineStyle(2.2, 0xef4444, 1);
     g.beginPath();
     g.moveTo(cx - 12, cy - 26);
     g.lineTo(cx + 12, cy - 26);
@@ -241,22 +241,22 @@ function createShipTextures(scene: Phaser.Scene): void {
     g.strokePath();
     g.fillStyle(0x9a3412, 1);
     g.fillRect(cx - 14, cy - 20, 28, 36);
-    g.fillStyle(0xfef08a, 1);
+    g.fillStyle(0xc2410c, 1);
     g.fillRect(cx - 22, cy - 12, 4, 20);
     g.fillRect(cx + 18, cy - 12, 4, 20);
-    g.fillStyle(0xf97316, 1);
+    g.fillStyle(0xef4444, 1);
     g.fillEllipse(cx, cy - 6, 10, 14);
     g.generateTexture('ship_destroyer', 64, 64);
     g.destroy();
   }
 
-  // 3. Phantom (Needle-thin High-Speed Interceptor)
+  // 3. Phantom (Needle-thin Phase Interceptor — Purple & Black)
   {
     const g = scene.make.graphics({ x: 0, y: 0 });
     const cx = 32;
     const cy = 32;
-    g.fillStyle(0x082f49, 1);
-    g.lineStyle(2, 0x22d3ee, 1);
+    g.fillStyle(0x0f172a, 1);
+    g.lineStyle(2, 0xa855f7, 1);
     g.beginPath();
     g.moveTo(cx, cy - 30);
     g.lineTo(cx + 22, cy + 16);
@@ -267,21 +267,21 @@ function createShipTextures(scene: Phaser.Scene): void {
     g.closePath();
     g.fillPath();
     g.strokePath();
-    g.fillStyle(0xa5f3fc, 1);
+    g.fillStyle(0xd8b4fe, 1);
     g.fillTriangle(cx, cy - 24, cx - 5, cy + 8, cx + 5, cy + 8);
-    g.fillStyle(0x06b6d4, 1);
+    g.fillStyle(0xa855f7, 1);
     g.fillEllipse(cx, cy - 6, 5, 13);
     g.generateTexture('ship_phantom', 64, 64);
     g.destroy();
   }
 
-  // 4. Nova Prime (Forward-swept Advanced Balanced)
+  // 4. Nova Prime (Forward-swept Drone Support Command — Cyan & White)
   {
     const g = scene.make.graphics({ x: 0, y: 0 });
     const cx = 32;
     const cy = 32;
-    g.fillStyle(0x1e1b4b, 1);
-    g.lineStyle(2, 0x818cf8, 1);
+    g.fillStyle(0x083344, 1);
+    g.lineStyle(2, 0x22d3ee, 1);
     g.beginPath();
     g.moveTo(cx, cy - 28);
     g.lineTo(cx + 10, cy - 6);
@@ -295,21 +295,21 @@ function createShipTextures(scene: Phaser.Scene): void {
     g.closePath();
     g.fillPath();
     g.strokePath();
-    g.fillStyle(0xc7d2fe, 1);
+    g.fillStyle(0xf8fafc, 1);
     g.fillTriangle(cx, cy - 23, cx - 8, cy + 14, cx + 8, cy + 14);
-    g.fillStyle(0x60a5fa, 1);
+    g.fillStyle(0x22d3ee, 1);
     g.fillCircle(cx, cy - 2, 5);
     g.generateTexture('ship_nova_prime', 64, 64);
     g.destroy();
   }
 
-  // 5. Thunderbolt (Multi-wing Rapid-Fire Specialist)
+  // 5. Thunderbolt (Multi-wing Rapid Assault — Electric Blue & Gold)
   {
     const g = scene.make.graphics({ x: 0, y: 0 });
     const cx = 32;
     const cy = 32;
-    g.fillStyle(0x1e293b, 1);
-    g.lineStyle(2, 0xfacc15, 1);
+    g.fillStyle(0x0f172a, 1);
+    g.lineStyle(2, 0x0ea5e9, 1);
     g.beginPath();
     g.moveTo(cx, cy - 28);
     g.lineTo(cx + 27, cy + 4);
@@ -323,7 +323,7 @@ function createShipTextures(scene: Phaser.Scene): void {
     g.closePath();
     g.fillPath();
     g.strokePath();
-    g.fillStyle(0xfef08a, 1);
+    g.fillStyle(0xfacc15, 1);
     g.fillRect(cx - 25, cy - 6, 3, 18);
     g.fillRect(cx + 22, cy - 6, 3, 18);
     g.fillRect(cx - 14, cy - 12, 3, 16);
@@ -334,31 +334,31 @@ function createShipTextures(scene: Phaser.Scene): void {
     g.destroy();
   }
 
-  // 6. Aegis (Broad Defensive Guardian)
+  // 6. Aegis (Broad Defensive Guardian — Blue & White)
   {
     const g = scene.make.graphics({ x: 0, y: 0 });
     const cx = 32;
     const cy = 32;
-    g.fillStyle(0x064e3b, 1);
-    g.lineStyle(2.4, 0x10b981, 1);
+    g.fillStyle(0x0f274a, 1);
+    g.lineStyle(2.4, 0x3b82f6, 1);
     g.fillRoundedRect(cx - 26, cy - 14, 52, 34, 12);
     g.strokeRoundedRect(cx - 26, cy - 14, 52, 34, 12);
-    g.fillStyle(0x065f46, 1);
+    g.fillStyle(0x1e3a8a, 1);
     g.fillTriangle(cx, cy - 28, cx - 14, cy + 10, cx + 14, cy + 10);
-    g.lineStyle(2, 0x6ee7b7, 1);
+    g.lineStyle(2, 0xf8fafc, 1);
     g.strokeTriangle(cx, cy - 28, cx - 14, cy + 10, cx + 14, cy + 10);
-    g.fillStyle(0x34d399, 1);
+    g.fillStyle(0x93c5fd, 1);
     g.fillCircle(cx, cy, 6);
     g.generateTexture('ship_aegis', 64, 64);
     g.destroy();
   }
 
-  // 7. Specter (Crimson Critical Striker)
+  // 7. Specter (Crimson Critical Striker — Red & Black)
   {
     const g = scene.make.graphics({ x: 0, y: 0 });
     const cx = 32;
     const cy = 32;
-    g.fillStyle(0x1f0715, 1);
+    g.fillStyle(0x090d16, 1);
     g.lineStyle(2, 0xf43f5e, 1);
     g.beginPath();
     g.moveTo(cx, cy - 29);
@@ -380,15 +380,15 @@ function createShipTextures(scene: Phaser.Scene): void {
     g.destroy();
   }
 
-  // 8. Celestial (Legendary Sovereign Starcore Wing)
+  // 8. Celestial (Astral Sovereign — Astral Gold & White)
   {
     const g = scene.make.graphics({ x: 0, y: 0 });
     const cx = 32;
     const cy = 32;
-    g.fillStyle(0xe879f9, 0.22);
+    g.fillStyle(0xfacc15, 0.22);
     g.fillCircle(cx, cy, 28);
-    g.fillStyle(0x2e1065, 1);
-    g.lineStyle(2.2, 0xfef08a, 1);
+    g.fillStyle(0x422006, 1);
+    g.lineStyle(2.2, 0xfacc15, 1);
     g.beginPath();
     g.moveTo(cx, cy - 30);
     g.lineTo(cx + 11, cy - 8);
@@ -403,9 +403,9 @@ function createShipTextures(scene: Phaser.Scene): void {
     g.closePath();
     g.fillPath();
     g.strokePath();
-    g.fillStyle(0xfef08a, 1);
+    g.fillStyle(0xfef9c3, 1);
     g.fillTriangle(cx, cy - 22, cx - 7, cy + 8, cx + 7, cy + 8);
-    g.fillStyle(0x38bdf8, 1);
+    g.fillStyle(0xfacc15, 1);
     g.fillCircle(cx, cy - 2, 5);
     g.generateTexture('ship_celestial', 64, 64);
     g.destroy();
@@ -438,6 +438,25 @@ function createDroneTextures(scene: Phaser.Scene): void {
     g.generateTexture(key, 28, 28);
     g.destroy();
   });
+
+  // Nova Prime Evolution Support Drone chassis (white & cyan geometric wing)
+  const ng = scene.make.graphics({ x: 0, y: 0 });
+  const nc = 14;
+  ng.fillStyle(0x083344, 0.95);
+  ng.lineStyle(1.8, 0x22d3ee, 1);
+  ng.beginPath();
+  ng.moveTo(nc, nc - 11);
+  ng.lineTo(nc + 10, nc + 4);
+  ng.lineTo(nc + 4, nc + 9);
+  ng.lineTo(nc - 4, nc + 9);
+  ng.lineTo(nc - 10, nc + 4);
+  ng.closePath();
+  ng.fillPath();
+  ng.strokePath();
+  ng.fillStyle(0xf8fafc, 1);
+  ng.fillCircle(nc, nc, 3.5);
+  ng.generateTexture('drone_nova_evo', 28, 28);
+  ng.destroy();
 }
 
 function createEnemyTextures(scene: Phaser.Scene): void {

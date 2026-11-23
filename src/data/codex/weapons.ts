@@ -29,12 +29,7 @@ const WEAPON_RUNTIME_META: Record<
       },
       { label: 'Effective Range', value: 'Long', tone: 'cyan' },
     ],
-    effects: [
-      {
-        title: 'Nova Prime Synergy',
-        description: 'Gains +18% bonus weapon damage when mounted on Nova Prime.',
-      },
-    ],
+    effects: [],
   },
   dual_laser: {
     projectileCount: '2 Parallel Bolts (Evo II: +Central Barrage)',
@@ -82,10 +77,6 @@ const WEAPON_RUNTIME_META: Record<
         description:
           'Fire Rate bonuses smoothly shorten the Beam damage tick interval down to 52ms without double-dipping.',
       },
-      {
-        title: 'Nova Prime Synergy',
-        description: 'Gains +18% bonus weapon damage when mounted on Nova Prime.',
-      },
     ],
   },
   homing: {
@@ -126,12 +117,7 @@ const WEAPON_RUNTIME_META: Record<
         tone: 'sky',
       },
     ],
-    effects: [
-      {
-        title: 'Thunderbolt Synergy',
-        description: 'Thunderbolt chassis adds +1 extra chain bounce per volley.',
-      },
-    ],
+    effects: [],
   },
 };
 

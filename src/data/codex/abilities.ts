@@ -23,7 +23,7 @@ const SPECIAL_METADATA: Record<
       },
       {
         title: 'Crit & Cooldown Scaling',
-        description: 'Scales with Ship/Gear Special Power, Fleet Critical Damage & Cooldown Reduction upgrades, and Critical rolls.',
+        description: 'Scales with Equipment Special Power, Fleet Critical Damage & Cooldown Reduction upgrades, and Critical rolls.',
       },
     ],
   },
@@ -40,7 +40,7 @@ const SPECIAL_METADATA: Record<
       },
       {
         title: 'Crit & Cooldown Scaling',
-        description: 'Scales with Ship/Gear Special Power, Fleet Critical Damage & Cooldown Reduction upgrades, and Critical rolls.',
+        description: 'Scales with Equipment Special Power, Fleet Critical Damage & Cooldown Reduction upgrades, and Critical rolls.',
       },
     ],
   },
@@ -54,7 +54,7 @@ const SPECIAL_METADATA: Record<
     effects: [
       {
         title: 'Warhead Payload & Crit Scaling',
-        description: 'Each warhead deals 25% of Special Base Damage multiplied by Ship/Gear Special Power and Critical Damage rolls.',
+        description: 'Each warhead deals 25% of Special Base Damage multiplied by Equipment Special Power and Critical Damage rolls.',
       },
       {
         title: 'Autonomous Tracking',
@@ -136,7 +136,7 @@ const DASH_ABILITY: CodexEntry = {
     },
     {
       title: 'Cooldown Reduction Scaling',
-      description: 'Cooldown is reduced by Phantom’s Phase Thrusters (-25%) and Utility Dash Actuator gear.',
+      description: 'Cooldown is reduced by Utility Dash Actuator equipment upgrades.',
     },
   ],
   acquisition: 'Standard flight system on all aircraft (Shift / HUD Dash button)',

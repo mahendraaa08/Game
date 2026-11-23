@@ -1,5 +1,6 @@
 import { EnemyClass } from '../config/EnemyConfig';
 import { PowerUpType } from '../config/PowerUpConfig';
+import { ShipId } from '../config/ShipConfig';
 import { SpecialId, WeaponId } from '../config/WeaponConfig';
 import { GameSettings, StorageManager } from '../utils/StorageManager';
 
@@ -1274,6 +1275,102 @@ class SoundManagerImpl {
 
   playAchievementUnlock(): void {
     this.playVictory();
+  }
+
+  playEvolutionNearFull(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.sfxGain) return;
+    const t = ctx.currentTime;
+    [620, 880].forEach((freq, idx) => {
+      if (!this.sfxGain) return;
+      const start = t + idx * 0.055;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, start);
+      gain.gain.setValueAtTime(0.085, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.11);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(start);
+      osc.stop(start + 0.12);
+    });
+  }
+
+  playEvolutionActivate(shipId: ShipId): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.sfxGain) return;
+    const t = ctx.currentTime;
+
+    const profileMap: Record<ShipId, { notes: number[]; wave: OscillatorType }> = {
+      falcon_x: { notes: [440, 554.37, 659.25, 880], wave: 'triangle' },
+      phantom: { notes: [523.25, 783.99, 1046.5, 1318.51], wave: 'sine' },
+      destroyer: { notes: [196, 293.66, 392, 587.33], wave: 'sawtooth' },
+      thunderbolt: { notes: [587.33, 880, 1174.66, 1567.98], wave: 'triangle' },
+      aegis: { notes: [329.63, 440, 587.33, 783.99], wave: 'triangle' },
+      specter: { notes: [392, 587.33, 880, 1174.66], wave: 'sawtooth' },
+      nova_prime: { notes: [493.88, 659.25, 880, 1174.66], wave: 'sine' },
+      celestial: { notes: [523.25, 659.25, 987.77, 1318.51, 1567.98], wave: 'triangle' },
+    };
+    const prof = profileMap[shipId] ?? profileMap.falcon_x;
+
+    prof.notes.forEach((freq, idx) => {
+      if (!this.sfxGain) return;
+      const start = t + idx * 0.048;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = prof.wave;
+      osc.frequency.setValueAtTime(freq, start);
+      gain.gain.setValueAtTime(prof.wave === 'sawtooth' ? 0.11 : 0.15, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.24);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(start);
+      osc.stop(start + 0.25);
+    });
+  }
+
+  playEvolutionEnd(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.sfxGain) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(520, t);
+    osc.frequency.exponentialRampToValueAtTime(190, t + 0.22);
+    gain.gain.setValueAtTime(0.11, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(t);
+    osc.stop(t + 0.25);
+  }
+
+  playAstralExplosion(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.sfxGain) return;
+    const t = ctx.currentTime;
+
+    const sub = ctx.createOscillator();
+    const shimmer = ctx.createOscillator();
+    const gain = ctx.createGain();
+    sub.type = 'sine';
+    shimmer.type = 'triangle';
+    sub.frequency.setValueAtTime(220, t);
+    sub.frequency.exponentialRampToValueAtTime(48, t + 0.44);
+    shimmer.frequency.setValueAtTime(880, t);
+    shimmer.frequency.exponentialRampToValueAtTime(1760, t + 0.18);
+    shimmer.frequency.exponentialRampToValueAtTime(440, t + 0.45);
+    gain.gain.setValueAtTime(0.22, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.48);
+    sub.connect(gain);
+    shimmer.connect(gain);
+    gain.connect(this.sfxGain);
+    sub.start(t);
+    shimmer.start(t);
+    sub.stop(t + 0.5);
+    shimmer.stop(t + 0.5);
   }
 }
 

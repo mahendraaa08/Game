@@ -47,6 +47,7 @@ import {
   isValidAvatarId,
   isValidBorderId,
 } from '../config/ProfileCosmeticsConfig';
+import { GAME_CONSTANTS } from '../config/GameConfig';
 import { type ShipId, SHIPS } from '../config/ShipConfig';
 import { getUpgradeCost, getWeaponUpgradeCost, type UpgradeId, UPGRADES } from '../config/UpgradeConfig';
 import { type WeaponId, WEAPONS } from '../config/WeaponConfig';
@@ -74,18 +75,13 @@ export interface ComputedPlayerStats {
   fireRateMult: number;
   critChance: number;
   critDamageMult: number;
-  specialPowerMult: number;
+  specialDamageMultiplier: number;
   specialCooldownMult: number;
   dashCooldownMult: number;
   damageReduction: number;
-  evasionChance: number;
   shieldRegenMult: number;
   pickupRadiusBonus: number;
   creditBonusMult: number;
-  shieldOnKill: number;
-  extraChainTargets: number;
-  hasAstralWingBolts: boolean;
-  rotaryFireBonus: number;
 }
 
 export function computePlayerStats(
@@ -97,14 +93,15 @@ export function computePlayerStats(
 
   let maxHp = ship.stats.maxHp + u.max_health * UPGRADES.max_health.perLevelBonus;
   let maxShield = ship.stats.maxShield + u.shield_capacity * UPGRADES.shield_capacity.perLevelBonus;
-  let moveSpeed = ship.stats.moveSpeed + u.movement_speed * UPGRADES.movement_speed.perLevelBonus;
+  let moveSpeed =
+    GAME_CONSTANTS.PLAYER_SPEED * ship.stats.moveSpeed +
+    u.movement_speed * UPGRADES.movement_speed.perLevelBonus;
   let damageMult = ship.stats.damageMult * (1 + u.weapon_damage * UPGRADES.weapon_damage.perLevelBonus);
   let fireRateMult = ship.stats.fireRateMult * (1 + u.fire_rate * UPGRADES.fire_rate.perLevelBonus);
   let critChance = ship.stats.critChance + u.critical_chance * UPGRADES.critical_chance.perLevelBonus;
   let critDamageMult =
-    (ship.id === 'specter' ? 2.35 : ship.id === 'celestial' ? 1.95 : 1.75) +
-    u.critical_damage * UPGRADES.critical_damage.perLevelBonus;
-  let specialPowerMult = ship.stats.specialPowerMult;
+    ship.stats.critDamage + u.critical_damage * UPGRADES.critical_damage.perLevelBonus;
+  let specialDamageMultiplier = 1.0;
   const specialCdLvl = Math.max(
     0,
     Math.min(UPGRADES.special_cooldown.maxLevel, Math.floor(u.special_cooldown ?? 0))
@@ -113,16 +110,11 @@ export function computePlayerStats(
     0.76,
     1 - specialCdLvl * UPGRADES.special_cooldown.perLevelBonus
   );
-  let dashCooldownMult = ship.id === 'phantom' ? 0.75 : 1.0;
-  let damageReduction = ship.id === 'aegis' ? 0.16 : 0;
-  const evasionChance = ship.id === 'phantom' ? 0.15 : 0;
-  let shieldRegenMult = ship.id === 'aegis' ? 1.45 : ship.id === 'falcon_x' ? 1.12 : 1.0;
+  let dashCooldownMult = 1.0;
+  let damageReduction = 0;
+  let shieldRegenMult = 1.0;
   let pickupRadiusBonus = 0;
   let creditBonusMult = 1.0;
-
-  if (ship.id === 'nova_prime') {
-    specialCooldownMult *= 0.82;
-  }
 
   // Apply 4 Equipped Gear Items
   (['offensive', 'defensive', 'utility', 'special'] as EquipmentSlot[]).forEach((slot) => {
@@ -142,7 +134,7 @@ export function computePlayerStats(
     if (b.moveSpeedFlat) moveSpeed += b.moveSpeedFlat;
     if (b.pickupRangePct) pickupRadiusBonus += Math.round(140 * (b.pickupRangePct / 100));
     if (b.creditBonusPct) creditBonusMult += b.creditBonusPct / 100;
-    if (b.specialPowerPct) specialPowerMult *= 1 + b.specialPowerPct / 100;
+    if (b.specialPowerPct) specialDamageMultiplier *= 1 + b.specialPowerPct / 100;
     if (b.specialCooldownPct) specialCooldownMult *= Math.max(0.6, 1 - b.specialCooldownPct / 100);
     if (b.dashCooldownPct) dashCooldownMult *= Math.max(0.55, 1 - b.dashCooldownPct / 100);
   });
@@ -181,18 +173,13 @@ export function computePlayerStats(
     fireRateMult,
     critChance: Math.min(0.65, Math.max(0, critChance)),
     critDamageMult,
-    specialPowerMult,
+    specialDamageMultiplier,
     specialCooldownMult: Math.max(0.55, specialCooldownMult),
     dashCooldownMult: Math.max(0.5, dashCooldownMult),
-    damageReduction: Math.min(0.45, Math.max(0, damageReduction)),
-    evasionChance,
+    damageReduction: Math.min(0.6, Math.max(0, damageReduction)),
     shieldRegenMult,
     pickupRadiusBonus,
     creditBonusMult: Math.min(ECONOMY_CAPS.maxCreditBonusMult, Math.max(1, creditBonusMult)),
-    shieldOnKill: ship.id === 'aegis' ? 4 : 0,
-    extraChainTargets: ship.id === 'thunderbolt' ? 1 : 0,
-    hasAstralWingBolts: ship.id === 'celestial',
-    rotaryFireBonus: ship.id === 'thunderbolt' ? 0.22 : 0,
   };
 }
 

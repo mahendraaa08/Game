@@ -3,7 +3,7 @@ import { ENEMY_CONFIGS, EnemyBehavior, EnemyClass, EnemyDefinition } from '../co
 import { WEAPON_RUNTIME_TUNING } from '../config/WeaponEvolutionConfig';
 import { SoundManager } from '../audio/SoundManager';
 import { ProjectileManager } from './ProjectileManager';
-import { Targetable } from './Targetable';
+import { allocateTargetId, Targetable } from './Targetable';
 
 export class EnemyEntity implements Targetable {
   scene: Phaser.Scene;
@@ -11,6 +11,7 @@ export class EnemyEntity implements Targetable {
   private hpBarGfx: Phaser.GameObjects.Graphics;
   private telegraphGfx: Phaser.GameObjects.Graphics;
 
+  targetId = 0;
   def: EnemyDefinition;
   behavior: EnemyBehavior = 'straight';
   active = false;
@@ -94,6 +95,7 @@ export class EnemyEntity implements Targetable {
     behavior?: EnemyBehavior,
     difficultyMult = 1
   ): void {
+    this.targetId = allocateTargetId();
     this.def = ENEMY_CONFIGS[enemyClass];
     this.behavior = behavior ?? this.def.defaultBehavior;
     this.difficultyMult = Math.max(0.85, difficultyMult);

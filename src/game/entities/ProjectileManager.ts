@@ -10,7 +10,8 @@ import {
   WEAPON_RUNTIME_TUNING,
 } from '../config/WeaponEvolutionConfig';
 import { ObjectPool } from '../utils/ObjectPool';
-import { Targetable } from './Targetable';
+import { DamageSource } from '../systems/PassiveSystem';
+import { allocateEnemyAttackId, Targetable } from './Targetable';
 
 export interface PlayerBullet {
   sprite: Phaser.GameObjects.Sprite;
@@ -35,6 +36,10 @@ export interface PlayerBullet {
   impactColor: number;
   isHeavyMissile: boolean;
   ignoreTarget: Targetable | null;
+  source: DamageSource;
+  firingActionId: number;
+  cloneActionId: number;
+  countsForFiringAction: boolean;
   setActive(v: boolean): this;
   setVisible(v: boolean): this;
 }
@@ -68,6 +73,7 @@ export interface EnemyBullet {
   age: number;
   damage: number;
   radius: number;
+  attackId: number;
   setActive(v: boolean): this;
   setVisible(v: boolean): this;
 }
@@ -103,8 +109,23 @@ interface ContinuousBeamState {
   y: number;
   stage: 0 | 1 | 2;
   tickTimerMs: number;
+  actionCycleAccumMs: number;
+  currentBeamActionId: number;
   maxRampVisual: number;
   contactPoints: Array<{ x: number; y: number; intensity: number }>;
+  ramps: Map<Targetable, BeamRampEntry>;
+}
+
+interface CloneBeamState {
+  active: boolean;
+  x: number;
+  y: number;
+  endX: number;
+  endY: number;
+  stage: 0 | 1 | 2;
+  tickTimerMs: number;
+  cycleElapsedMs: number;
+  contactPoints: Array<{ x: number; y: number }>;
   ramps: Map<Targetable, BeamRampEntry>;
 }
 
@@ -124,15 +145,24 @@ interface BeamDroneState {
 
 export interface WeaponFireOptions {
   weaponLevel?: number;
-  extraChainTargets?: number;
-  hasAstralWingBolts?: boolean;
-  heavyScaleMult?: number;
+  source?: DamageSource;
+  firingActionId?: number;
+  cloneActionId?: number;
+  countsForFiringAction?: boolean;
+  damageScale?: number;
+  aimAngleRad?: number;
   plasmaBurstProcReady?: boolean;
   onPlasmaBurstTriggered?: () => void;
   heavyMissileProcReady?: boolean;
   onHeavyMissileTriggered?: () => void;
   onLightningStunApplied?: (target: Targetable) => void;
   rollCrit?: () => { isCrit: boolean; mult: number };
+}
+
+export interface BeamHitMeta {
+  source: DamageSource;
+  firingActionId: number;
+  countsForFiringAction: boolean;
 }
 
 export interface BeamFrameContext {
@@ -143,8 +173,39 @@ export interface BeamFrameContext {
   damageMult: number;
   totalFireRateMult: number;
   targets: Targetable[];
-  onInstantHit: (target: Targetable, dmg: number, isCrit?: boolean) => void;
+  acquireBeamAction?: (
+    dtMs: number,
+    effectiveFireRateMult: number
+  ) => { firingActionId: number; actionDamageMult: number; isCycleStart: boolean };
+  onInstantHit: (
+    target: Targetable,
+    dmg: number,
+    isCrit?: boolean,
+    hitMeta?: BeamHitMeta
+  ) => void;
   rollCrit: () => { isCrit: boolean; mult: number };
+}
+
+export interface CloneBeamFrameContext {
+  firing: boolean;
+  x: number;
+  y: number;
+  aimX: number;
+  aimY: number;
+  weaponLevel: number;
+  damageMult: number;
+  totalFireRateMult: number;
+  targets: Targetable[];
+  acquireCloneAction: (
+    dtMs: number,
+    effectivePlayerFireRate: number
+  ) => { cloneActionId: number; countsForFiringAction: boolean };
+  onCloneInstantHit: (
+    target: Targetable,
+    dmg: number,
+    cloneActionId: number,
+    countsForFiringAction: boolean
+  ) => void;
 }
 
 export class ProjectileManager {
@@ -157,6 +218,7 @@ export class ProjectileManager {
   private simTimeSec = 0;
 
   private continuousBeam: ContinuousBeamState;
+  private cloneBeam: CloneBeamState;
   private beamDrone: BeamDroneState;
 
   constructor(scene: Phaser.Scene) {
@@ -169,7 +231,22 @@ export class ProjectileManager {
       y: 0,
       stage: 0,
       tickTimerMs: 0,
+      actionCycleAccumMs: 0,
+      currentBeamActionId: 0,
       maxRampVisual: 0,
+      contactPoints: [],
+      ramps: new Map<Targetable, BeamRampEntry>(),
+    };
+
+    this.cloneBeam = {
+      active: false,
+      x: 0,
+      y: 0,
+      endX: 0,
+      endY: 0,
+      stage: 0,
+      tickTimerMs: 0,
+      cycleElapsedMs: 0,
       contactPoints: [],
       ramps: new Map<Targetable, BeamRampEntry>(),
     };
@@ -220,6 +297,10 @@ export class ProjectileManager {
           impactColor: 0,
           isHeavyMissile: false,
           ignoreTarget: null,
+          source: 'player_weapon',
+          firingActionId: 0,
+          cloneActionId: 0,
+          countsForFiringAction: true,
           setActive(v: boolean) {
             this.active = v;
             sprite.setActive(v);
@@ -268,6 +349,7 @@ export class ProjectileManager {
           damage: 12,
           age: 0,
           radius: 7,
+          attackId: 0,
           setActive(v: boolean) {
             this.active = v;
             sprite.setActive(v);
@@ -311,6 +393,10 @@ export class ProjectileManager {
       impactColor?: number;
       isHeavyMissile?: boolean;
       ignoreTarget?: Targetable | null;
+      source?: DamageSource;
+      firingActionId?: number;
+      cloneActionId?: number;
+      countsForFiringAction?: boolean;
     }
   ): void {
     const b = this.playerPool.acquire();
@@ -347,6 +433,10 @@ export class ProjectileManager {
     b.impactColor = options?.impactColor ?? 0;
     b.isHeavyMissile = options?.isHeavyMissile ?? false;
     b.ignoreTarget = options?.ignoreTarget ?? null;
+    b.source = options?.source ?? 'player_weapon';
+    b.firingActionId = options?.firingActionId ?? 0;
+    b.cloneActionId = options?.cloneActionId ?? 0;
+    b.countsForFiringAction = options?.countsForFiringAction ?? true;
   }
 
   spawnPlasmaBurstShards(
@@ -355,7 +445,10 @@ export class ProjectileManager {
     count: number,
     shardDamage: number,
     isCrit: boolean,
-    ignoreTarget: Targetable | null
+    ignoreTarget: Targetable | null,
+    source: DamageSource = 'player_weapon',
+    firingActionId = 0,
+    cloneActionId = 0
   ): void {
     const speed = WEAPON_RUNTIME_TUNING.plasma.evo2MiniBoltSpeed;
     const rotOff = Math.random() * Math.PI * 0.35;
@@ -378,6 +471,10 @@ export class ProjectileManager {
           impactScale: 0.9,
           impactColor: 0x38bdf8,
           ignoreTarget,
+          source,
+          firingActionId,
+          cloneActionId,
+          countsForFiringAction: false,
         }
       );
     }
@@ -414,6 +511,7 @@ export class ProjectileManager {
       splitRadius?: number;
       spinRate?: number;
       scale?: number;
+      attackId?: number;
     }
   ): void {
     const b = this.enemyPool.acquire();
@@ -454,6 +552,7 @@ export class ProjectileManager {
     b.damage = damage;
     b.age = 0;
     b.radius = radius;
+    b.attackId = options?.attackId ?? allocateEnemyAttackId();
     b.sprite.setRotation(Math.atan2(vy, vx) + Math.PI / 2);
   }
 
@@ -469,13 +568,23 @@ export class ProjectileManager {
     const wLevel = options?.weaponLevel ?? 1;
     const stage = getWeaponEvolutionStage(wLevel);
     const baseWeaponDmg = getWeaponDamageAtLevel(WEAPONS[weapon], wLevel);
-    const scaleMult = options?.heavyScaleMult ?? 1;
+    const dmgScale = options?.damageScale ?? 1;
+    const source: DamageSource = options?.source ?? 'player_weapon';
+    const firingActionId = options?.firingActionId ?? 0;
+    const cloneActionId = options?.cloneActionId ?? 0;
+    const countsForFiringAction = options?.countsForFiringAction ?? true;
+    const aimAngle = options?.aimAngleRad ?? -Math.PI / 2;
+    const dirX = Math.cos(aimAngle);
+    const dirY = Math.sin(aimAngle);
+    const perpX = -dirY;
+    const perpY = dirX;
     const rollCrit = options?.rollCrit ?? (() => ({ isCrit: false, mult: 1 }));
+    const bulletTint = source === 'clone' ? 0xa5b4fc : undefined;
 
     switch (weapon) {
       case 'plasma': {
         const crit = rollCrit();
-        const dmg = Math.round(baseWeaponDmg * damageMult * crit.mult);
+        const dmg = Math.max(1, Math.round(baseWeaponDmg * damageMult * dmgScale * crit.mult));
         const cfg = WEAPON_RUNTIME_TUNING.plasma;
 
         // Evolution II (Lv20): Plasma Burst special sphere proc
@@ -485,89 +594,155 @@ export class ProjectileManager {
           Math.random() < cfg.evo2BurstProcChance
         ) {
           options.onPlasmaBurstTriggered?.();
-          const burstDmg = Math.round(dmg * cfg.evo2BurstMainDamageMult);
-          const shardDmg = Math.max(4, Math.round(dmg * cfg.evo2MiniBoltDamageRatio));
-          this.spawnPlayerBullet(x, y - 26, 0, -cfg.evo1Speed, burstDmg, 'proj_plasma_burst', {
-            isCrit: crit.isCrit,
-            radius: 13 * scaleMult,
-            scale: scaleMult,
-            trailColor: 0x7dd3fc,
-            trailWidth: 5.5,
-            trailLength: 34,
-            splashRadius: cfg.evo2BurstSplashRadius,
-            splashDamageRatio: cfg.evo2BurstSplashDamageRatio,
-            splashColor: 0x38bdf8,
-            burstShardCount: cfg.evo2MiniBoltCount,
-            burstShardDamage: shardDmg,
-            impactScale: 1.55,
-            impactColor: 0x7dd3fc,
-          });
+          const burstDmg = Math.max(1, Math.round(dmg * cfg.evo2BurstMainDamageMult));
+          const shardDmg = Math.max(2, Math.round(dmg * cfg.evo2MiniBoltDamageRatio));
+          this.spawnPlayerBullet(
+            x + dirX * 26,
+            y + dirY * 26,
+            dirX * cfg.evo1Speed,
+            dirY * cfg.evo1Speed,
+            burstDmg,
+            'proj_plasma_burst',
+            {
+              isCrit: crit.isCrit,
+              radius: 13,
+              scale: source === 'clone' ? 0.85 : 1,
+              tint: bulletTint,
+              trailColor: source === 'clone' ? 0x818cf8 : 0x7dd3fc,
+              trailWidth: 5.5,
+              trailLength: 34,
+              splashRadius: cfg.evo2BurstSplashRadius,
+              splashDamageRatio: cfg.evo2BurstSplashDamageRatio,
+              splashColor: 0x38bdf8,
+              burstShardCount: cfg.evo2MiniBoltCount,
+              burstShardDamage: shardDmg,
+              impactScale: 1.55,
+              impactColor: 0x7dd3fc,
+              source,
+              firingActionId,
+              cloneActionId,
+              countsForFiringAction,
+            }
+          );
         } else if (stage >= 1) {
           // Evolution I (Lv12–19) & Lv20 standard bolts: Enhanced Plasma
-          this.spawnPlayerBullet(x, y - 24, 0, -cfg.evo1Speed, dmg, 'proj_plasma_evo1', {
-            isCrit: crit.isCrit,
-            radius: 10 * scaleMult,
-            scale: scaleMult,
-            trailColor: 0x38bdf8,
-            trailWidth: 4.2,
-            trailLength: 26,
-            impactScale: 1.25,
-            impactColor: 0x38bdf8,
-          });
+          this.spawnPlayerBullet(
+            x + dirX * 24,
+            y + dirY * 24,
+            dirX * cfg.evo1Speed,
+            dirY * cfg.evo1Speed,
+            dmg,
+            'proj_plasma_evo1',
+            {
+              isCrit: crit.isCrit,
+              radius: 10,
+              scale: source === 'clone' ? 0.85 : 1,
+              tint: bulletTint,
+              trailColor: source === 'clone' ? 0x818cf8 : 0x38bdf8,
+              trailWidth: 4.2,
+              trailLength: 26,
+              impactScale: 1.25,
+              impactColor: 0x38bdf8,
+              source,
+              firingActionId,
+              cloneActionId,
+              countsForFiringAction,
+            }
+          );
         } else {
           // Base Form (Lv1–11): single balanced Plasma Bolt
-          this.spawnPlayerBullet(x, y - 24, 0, -cfg.baseSpeed, dmg, 'proj_plasma', {
-            isCrit: crit.isCrit,
-            radius: 8 * scaleMult,
-            scale: scaleMult,
-            trailColor: 0x0284c7,
-            trailWidth: 2.4,
-            trailLength: 14,
-            impactColor: 0x38bdf8,
-          });
+          this.spawnPlayerBullet(
+            x + dirX * 24,
+            y + dirY * 24,
+            dirX * cfg.baseSpeed,
+            dirY * cfg.baseSpeed,
+            dmg,
+            'proj_plasma',
+            {
+              isCrit: crit.isCrit,
+              radius: 8,
+              scale: source === 'clone' ? 0.85 : 1,
+              tint: bulletTint,
+              trailColor: source === 'clone' ? 0x6366f1 : 0x0284c7,
+              trailWidth: 2.4,
+              trailLength: 14,
+              impactColor: 0x38bdf8,
+              source,
+              firingActionId,
+              cloneActionId,
+              countsForFiringAction,
+            }
+          );
         }
         break;
       }
 
       case 'dual_laser': {
         const crit = rollCrit();
-        const dmg = Math.round(baseWeaponDmg * damageMult * crit.mult);
+        const dmg = Math.max(1, Math.round(baseWeaponDmg * damageMult * dmgScale * crit.mult));
         const cfg = WEAPON_RUNTIME_TUNING.dual_laser;
         const speed = stage >= 1 ? cfg.evo1Speed : cfg.baseSpeed;
         const tex = stage >= 1 ? 'proj_laser_evo1' : 'proj_laser';
         const trailLen = stage >= 1 ? 28 : 16;
         const trailW = stage >= 1 ? 3.5 : 2.2;
         const impactScale = stage >= 1 ? 1.22 : 0.95;
+        const off = source === 'clone' ? cfg.wingOffsetPx * 0.8 : cfg.wingOffsetPx;
 
-        this.spawnPlayerBullet(x - cfg.wingOffsetPx, y - 16, 0, -speed, dmg, tex, {
-          isCrit: crit.isCrit,
-          radius: (stage >= 1 ? 9 : 8) * scaleMult,
-          scale: scaleMult,
-          trailColor: stage >= 1 ? 0x67e8f9 : 0x22d3ee,
-          trailWidth: trailW,
-          trailLength: trailLen,
-          impactScale,
-          impactColor: 0x22d3ee,
-        });
-        this.spawnPlayerBullet(x + cfg.wingOffsetPx, y - 16, 0, -speed, dmg, tex, {
-          isCrit: crit.isCrit,
-          radius: (stage >= 1 ? 9 : 8) * scaleMult,
-          scale: scaleMult,
-          trailColor: stage >= 1 ? 0x67e8f9 : 0x22d3ee,
-          trailWidth: trailW,
-          trailLength: trailLen,
-          impactScale,
-          impactColor: 0x22d3ee,
-        });
+        this.spawnPlayerBullet(
+          x - perpX * off + dirX * 16,
+          y - perpY * off + dirY * 16,
+          dirX * speed,
+          dirY * speed,
+          dmg,
+          tex,
+          {
+            isCrit: crit.isCrit,
+            radius: stage >= 1 ? 9 : 8,
+            scale: source === 'clone' ? 0.85 : 1,
+            tint: bulletTint,
+            trailColor: source === 'clone' ? 0x818cf8 : stage >= 1 ? 0x67e8f9 : 0x22d3ee,
+            trailWidth: trailW,
+            trailLength: trailLen,
+            impactScale,
+            impactColor: 0x22d3ee,
+            source,
+            firingActionId,
+            cloneActionId,
+            countsForFiringAction,
+          }
+        );
+        this.spawnPlayerBullet(
+          x + perpX * off + dirX * 16,
+          y + perpY * off + dirY * 16,
+          dirX * speed,
+          dirY * speed,
+          dmg,
+          tex,
+          {
+            isCrit: crit.isCrit,
+            radius: stage >= 1 ? 9 : 8,
+            scale: source === 'clone' ? 0.85 : 1,
+            tint: bulletTint,
+            trailColor: source === 'clone' ? 0x818cf8 : stage >= 1 ? 0x67e8f9 : 0x22d3ee,
+            trailWidth: trailW,
+            trailLength: trailLen,
+            impactScale,
+            impactColor: 0x22d3ee,
+            source,
+            firingActionId,
+            cloneActionId,
+            countsForFiringAction,
+          }
+        );
         break;
       }
 
       case 'spread': {
         const crit = rollCrit();
         const cfg = WEAPON_RUNTIME_TUNING.spread;
-        const rawDmg = Math.round(baseWeaponDmg * damageMult * crit.mult);
+        const rawDmg = Math.max(1, Math.round(baseWeaponDmg * damageMult * dmgScale * crit.mult));
         const boltDmg =
-          stage === 2 ? Math.max(4, Math.round(rawDmg * cfg.evo2PerBoltDamageMult)) : rawDmg;
+          stage === 2 ? Math.max(2, Math.round(rawDmg * cfg.evo2PerBoltDamageMult)) : rawDmg;
         const angles =
           stage === 2
             ? cfg.evo2AnglesRad
@@ -579,23 +754,28 @@ export class ProjectileManager {
         const tex = stage >= 1 ? 'proj_spread_evo1' : 'proj_spread';
 
         for (let i = 0; i < angles.length; i++) {
-          const ang = angles[i];
+          const shotAngle = aimAngle + angles[i];
           this.spawnPlayerBullet(
-            x,
-            y - 18,
-            Math.sin(ang) * speed,
-            -Math.cos(ang) * speed,
+            x + dirX * 18,
+            y + dirY * 18,
+            Math.cos(shotAngle) * speed,
+            Math.sin(shotAngle) * speed,
             boltDmg,
             tex,
             {
-              radius: (stage >= 1 ? 8.5 : 7) * scaleMult,
+              radius: stage >= 1 ? 8.5 : 7,
               isCrit: crit.isCrit,
-              scale: scaleMult,
-              trailColor: stage >= 1 ? 0xc084fc : 0xa855f7,
+              scale: source === 'clone' ? 0.85 : 1,
+              tint: bulletTint,
+              trailColor: source === 'clone' ? 0x818cf8 : stage >= 1 ? 0xc084fc : 0xa855f7,
               trailWidth: stage >= 1 ? 3.4 : 2.1,
               trailLength: stage >= 1 ? 22 : 12,
               impactScale: stage >= 1 ? 1.25 : 0.95,
               impactColor: 0xc084fc,
+              source,
+              firingActionId,
+              cloneActionId,
+              countsForFiringAction,
             }
           );
         }
@@ -604,41 +784,69 @@ export class ProjectileManager {
 
       case 'homing': {
         const crit = rollCrit();
-        const dmg = Math.round(baseWeaponDmg * damageMult * crit.mult);
+        const dmg = Math.max(1, Math.round(baseWeaponDmg * damageMult * dmgScale * crit.mult));
         const cfg = WEAPON_RUNTIME_TUNING.homing;
         const speed = stage >= 1 ? cfg.evo1Speed : cfg.baseSpeed;
         const tex = stage >= 1 ? 'proj_missile_evo1' : 'proj_missile';
         const splashRad = stage >= 1 ? cfg.evo1SplashRadiusPx : cfg.baseSplashRadiusPx;
         const splashRatio = stage >= 1 ? cfg.evo1SplashDamageRatio : cfg.baseSplashDamageRatio;
+        const leftAng = aimAngle - 0.14;
+        const rightAng = aimAngle + 0.14;
 
-        this.spawnPlayerBullet(x - 16, y - 12, -70, -speed, dmg, tex, {
-          homing: true,
-          radius: (stage >= 1 ? 10 : 9) * scaleMult,
-          scale: scaleMult,
-          isCrit: crit.isCrit,
-          trailColor: stage >= 1 ? 0xfde047 : 0xf59e0b,
-          trailWidth: stage >= 1 ? 4.2 : 2.8,
-          trailLength: stage >= 1 ? 28 : 18,
-          splashRadius: splashRad,
-          splashDamageRatio: splashRatio,
-          splashColor: stage >= 1 ? 0xfbbf24 : 0xf59e0b,
-          impactScale: stage >= 1 ? 1.35 : 1.05,
-          impactColor: 0xf59e0b,
-        });
-        this.spawnPlayerBullet(x + 16, y - 12, 70, -speed, dmg, tex, {
-          homing: true,
-          radius: (stage >= 1 ? 10 : 9) * scaleMult,
-          scale: scaleMult,
-          isCrit: crit.isCrit,
-          trailColor: stage >= 1 ? 0xfde047 : 0xf59e0b,
-          trailWidth: stage >= 1 ? 4.2 : 2.8,
-          trailLength: stage >= 1 ? 28 : 18,
-          splashRadius: splashRad,
-          splashDamageRatio: splashRatio,
-          splashColor: stage >= 1 ? 0xfbbf24 : 0xf59e0b,
-          impactScale: stage >= 1 ? 1.35 : 1.05,
-          impactColor: 0xf59e0b,
-        });
+        this.spawnPlayerBullet(
+          x - perpX * 16 + dirX * 12,
+          y - perpY * 16 + dirY * 12,
+          Math.cos(leftAng) * speed,
+          Math.sin(leftAng) * speed,
+          dmg,
+          tex,
+          {
+            homing: true,
+            radius: stage >= 1 ? 10 : 9,
+            scale: source === 'clone' ? 0.85 : 1,
+            tint: bulletTint,
+            isCrit: crit.isCrit,
+            trailColor: source === 'clone' ? 0x818cf8 : stage >= 1 ? 0xfde047 : 0xf59e0b,
+            trailWidth: stage >= 1 ? 4.2 : 2.8,
+            trailLength: stage >= 1 ? 28 : 18,
+            splashRadius: splashRad,
+            splashDamageRatio: splashRatio,
+            splashColor: stage >= 1 ? 0xfbbf24 : 0xf59e0b,
+            impactScale: stage >= 1 ? 1.35 : 1.05,
+            impactColor: 0xf59e0b,
+            source,
+            firingActionId,
+            cloneActionId,
+            countsForFiringAction,
+          }
+        );
+        this.spawnPlayerBullet(
+          x + perpX * 16 + dirX * 12,
+          y + perpY * 16 + dirY * 12,
+          Math.cos(rightAng) * speed,
+          Math.sin(rightAng) * speed,
+          dmg,
+          tex,
+          {
+            homing: true,
+            radius: stage >= 1 ? 10 : 9,
+            scale: source === 'clone' ? 0.85 : 1,
+            tint: bulletTint,
+            isCrit: crit.isCrit,
+            trailColor: source === 'clone' ? 0x818cf8 : stage >= 1 ? 0xfde047 : 0xf59e0b,
+            trailWidth: stage >= 1 ? 4.2 : 2.8,
+            trailLength: stage >= 1 ? 28 : 18,
+            splashRadius: splashRad,
+            splashDamageRatio: splashRatio,
+            splashColor: stage >= 1 ? 0xfbbf24 : 0xf59e0b,
+            impactScale: stage >= 1 ? 1.35 : 1.05,
+            impactColor: 0xf59e0b,
+            source,
+            firingActionId,
+            cloneActionId,
+            countsForFiringAction,
+          }
+        );
 
         // Evolution II (Lv20): Heavy Homing Missile proc
         if (
@@ -647,43 +855,55 @@ export class ProjectileManager {
           Math.random() < cfg.evo2HeavyProcChance
         ) {
           options.onHeavyMissileTriggered?.();
-          const heavyDmg = Math.round(dmg * cfg.evo2HeavyDamageMult);
-          this.spawnPlayerBullet(x, y - 24, 0, -cfg.evo2HeavySpeed, heavyDmg, 'proj_missile_heavy', {
-            homing: true,
-            radius: 14 * scaleMult,
-            scale: scaleMult,
-            isCrit: crit.isCrit,
-            trailColor: 0xf97316,
-            trailWidth: 6,
-            trailLength: 38,
-            splashRadius: cfg.evo2HeavySplashRadiusPx,
-            splashDamageRatio: cfg.evo2HeavySplashDamageRatio,
-            splashColor: 0xf97316,
-            impactScale: 1.8,
-            impactColor: 0xf97316,
-            isHeavyMissile: true,
-          });
+          const heavyDmg = Math.max(1, Math.round(dmg * cfg.evo2HeavyDamageMult));
+          this.spawnPlayerBullet(
+            x + dirX * 24,
+            y + dirY * 24,
+            dirX * cfg.evo2HeavySpeed,
+            dirY * cfg.evo2HeavySpeed,
+            heavyDmg,
+            'proj_missile_heavy',
+            {
+              homing: true,
+              radius: 14,
+              scale: source === 'clone' ? 0.85 : 1,
+              tint: bulletTint,
+              isCrit: crit.isCrit,
+              trailColor: source === 'clone' ? 0x818cf8 : 0xf97316,
+              trailWidth: 6,
+              trailLength: 38,
+              splashRadius: cfg.evo2HeavySplashRadiusPx,
+              splashDamageRatio: cfg.evo2HeavySplashDamageRatio,
+              splashColor: 0xf97316,
+              impactScale: 1.8,
+              impactColor: 0xf97316,
+              isHeavyMissile: true,
+              source,
+              firingActionId,
+              cloneActionId,
+              countsForFiringAction,
+            }
+          );
         }
         break;
       }
 
       case 'beam': {
-        // Handled continuously via updateContinuousBeam()
+        // Handled continuously via updateContinuousBeam() / updateCloneContinuousBeam()
         break;
       }
 
       case 'lightning': {
         const crit = rollCrit();
         const cfg = WEAPON_RUNTIME_TUNING.lightning;
-        const baseDmg = Math.round(baseWeaponDmg * damageMult * crit.mult);
-        const maxJumps =
-          (stage >= 1 ? cfg.evo1MaxJumps : cfg.baseMaxJumps) + (options?.extraChainTargets ?? 0);
+        const baseDmg = Math.max(1, Math.round(baseWeaponDmg * damageMult * dmgScale * crit.mult));
+        const maxJumps = stage >= 1 ? cfg.evo1MaxJumps : cfg.baseMaxJumps;
         const initRange = stage >= 1 ? cfg.evo1InitialRangePx : cfg.baseInitialRangePx;
         const chainRange = stage >= 1 ? cfg.evo1ChainRangePx : cfg.baseChainRangePx;
         const decay = stage >= 1 ? cfg.evo1BounceDecay : cfg.baseBounceDecay;
 
         const sorted = targets
-          .filter((t) => t.active && t.y < y + 50)
+          .filter((t) => t.active && !t.entering && (source === 'clone' || t.y < y + 50))
           .sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y));
 
         if (sorted.length === 0) {
@@ -692,7 +912,9 @@ export class ProjectileManager {
               { x, y: y - 24 },
               { x: x + (Math.random() - 0.5) * 40, y: Math.max(20, y - 280) },
             ],
-            stage >= 1
+            stage >= 1,
+            false,
+            source === 'clone' ? 0x818cf8 : undefined
           );
           break;
         }
@@ -717,7 +939,7 @@ export class ProjectileManager {
           if (!best) break;
           hitSet.add(best);
           chain.push({ x: best.x, y: best.y });
-          onInstantHit(best, Math.round(baseDmg * Math.pow(decay, jump)), crit.isCrit);
+          onInstantHit(best, Math.max(1, Math.round(baseDmg * Math.pow(decay, jump))), crit.isCrit);
 
           // Evolution II (Lv20): Paralyzing Lightning stun proc
           if (stage === 2 && best.active) {
@@ -730,30 +952,14 @@ export class ProjectileManager {
           currX = best.x;
           currY = best.y;
         }
-        this.addLightningArc(chain, stage >= 1, stage === 2);
+        this.addLightningArc(
+          chain,
+          stage >= 1,
+          stage === 2,
+          source === 'clone' ? 0x818cf8 : undefined
+        );
         break;
       }
-    }
-
-    // Celestial ship passive: Twin Astral Wing-Bolts on every shot cycle
-    if (options?.hasAstralWingBolts) {
-      const wingDmg = Math.max(4, Math.round(baseWeaponDmg * damageMult * 0.35));
-      this.spawnPlayerBullet(x - 24, y - 8, -45, -860, wingDmg, 'proj_spread', {
-        radius: 6,
-        scale: 0.78,
-        tint: 0xe879f9,
-        trailColor: 0xe879f9,
-        trailWidth: 2,
-        trailLength: 14,
-      });
-      this.spawnPlayerBullet(x + 24, y - 8, 45, -860, wingDmg, 'proj_spread', {
-        radius: 6,
-        scale: 0.78,
-        tint: 0xe879f9,
-        trailColor: 0xe879f9,
-        trailWidth: 2,
-        trailLength: 14,
-      });
     }
   }
 
@@ -765,23 +971,51 @@ export class ProjectileManager {
     y: number,
     weaponLevel: number,
     damageMult: number,
-    scaleMult: number,
-    rollCrit: () => { isCrit: boolean; mult: number }
+    rollCrit: () => { isCrit: boolean; mult: number },
+    options?: {
+      source?: DamageSource;
+      firingActionId?: number;
+      cloneActionId?: number;
+      countsForFiringAction?: boolean;
+      damageScale?: number;
+      aimAngleRad?: number;
+    }
   ): void {
     const cfg = WEAPON_RUNTIME_TUNING.dual_laser;
     const baseDmg = getWeaponDamageAtLevel(WEAPONS.dual_laser, weaponLevel);
     const crit = rollCrit();
-    const dmg = Math.max(4, Math.round(baseDmg * damageMult * cfg.evo2BarrageBoltDamageRatio * crit.mult));
-    this.spawnPlayerBullet(x, y - 28, 0, -cfg.evo2BarrageBoltSpeed, dmg, 'proj_laser_barrage', {
-      isCrit: crit.isCrit,
-      radius: 10 * scaleMult,
-      scale: scaleMult,
-      trailColor: 0xa5f3fc,
-      trailWidth: 4.5,
-      trailLength: 34,
-      impactScale: 1.35,
-      impactColor: 0x67e8f9,
-    });
+    const dmgScale = options?.damageScale ?? 1;
+    const source = options?.source ?? 'player_weapon';
+    const aimAngle = options?.aimAngleRad ?? -Math.PI / 2;
+    const dirX = Math.cos(aimAngle);
+    const dirY = Math.sin(aimAngle);
+    const dmg = Math.max(
+      2,
+      Math.round(baseDmg * damageMult * dmgScale * cfg.evo2BarrageBoltDamageRatio * crit.mult)
+    );
+    this.spawnPlayerBullet(
+      x + dirX * 28,
+      y + dirY * 28,
+      dirX * cfg.evo2BarrageBoltSpeed,
+      dirY * cfg.evo2BarrageBoltSpeed,
+      dmg,
+      'proj_laser_barrage',
+      {
+        isCrit: crit.isCrit,
+        radius: 10,
+        scale: source === 'clone' ? 0.85 : 1,
+        tint: source === 'clone' ? 0xa5b4fc : undefined,
+        trailColor: source === 'clone' ? 0x818cf8 : 0xa5f3fc,
+        trailWidth: 4.5,
+        trailLength: 34,
+        impactScale: 1.35,
+        impactColor: 0x67e8f9,
+        source,
+        firingActionId: options?.firingActionId ?? 0,
+        cloneActionId: options?.cloneActionId ?? 0,
+        countsForFiringAction: options?.countsForFiringAction ?? false,
+      }
+    );
   }
 
   /**
@@ -805,6 +1039,8 @@ export class ProjectileManager {
     if (!ctx.firing) {
       this.continuousBeam.active = false;
       this.continuousBeam.tickTimerMs = 0;
+      this.continuousBeam.actionCycleAccumMs = 0;
+      this.continuousBeam.currentBeamActionId = 0;
       this.continuousBeam.maxRampVisual = 0;
       this.updateBeamDrone(dt, dtMs, ctx, false);
       return;
@@ -814,6 +1050,7 @@ export class ProjectileManager {
     this.continuousBeam.x = ctx.x;
     this.continuousBeam.y = ctx.y - 26;
     this.continuousBeam.stage = stage;
+    this.continuousBeam.actionCycleAccumMs += dtMs;
 
     const halfSpan = stage >= 1 ? cfg.evo1HalfSpanPx : cfg.baseHalfSpanPx;
     const maxRamp = stage >= 1 ? cfg.evo1MaxRampBonus : cfg.baseMaxRampBonus;
@@ -845,6 +1082,23 @@ export class ProjectileManager {
       const intervalMs = getEffectiveBeamTickIntervalMs(ctx.weaponLevel, ctx.totalFireRateMult);
       this.continuousBeam.tickTimerMs = intervalMs;
 
+      // Only promote a firing action when the beam actually contacts >= 1 valid target
+      let firingActionId = this.continuousBeam.currentBeamActionId;
+      let actionDamageMult = 1;
+      let countsForFiringAction = false;
+
+      if (hitTargets.length > 0 && ctx.acquireBeamAction) {
+        const promo = ctx.acquireBeamAction(
+          this.continuousBeam.actionCycleAccumMs,
+          ctx.totalFireRateMult
+        );
+        this.continuousBeam.actionCycleAccumMs = 0;
+        firingActionId = promo.firingActionId;
+        this.continuousBeam.currentBeamActionId = firingActionId;
+        actionDamageMult = promo.isCycleStart ? promo.actionDamageMult : 1;
+        countsForFiringAction = promo.isCycleStart;
+      }
+
       const baseTickDmg = getWeaponDamageAtLevel(WEAPONS.beam, ctx.weaponLevel);
       for (let i = 0; i < hitTargets.length; i++) {
         const t = hitTargets[i];
@@ -858,8 +1112,15 @@ export class ProjectileManager {
 
         const crit = ctx.rollCrit();
         const rampMult = 1 + entry.stacks;
-        const dmg = Math.max(1, Math.round(baseTickDmg * ctx.damageMult * rampMult * crit.mult));
-        ctx.onInstantHit(t, dmg, crit.isCrit);
+        const dmg = Math.max(
+          1,
+          Math.round(baseTickDmg * ctx.damageMult * actionDamageMult * rampMult * crit.mult)
+        );
+        ctx.onInstantHit(t, dmg, crit.isCrit, {
+          source: 'player_weapon',
+          firingActionId,
+          countsForFiringAction,
+        });
 
         if (t.active) {
           entry.stacks = Math.min(maxRamp, entry.stacks + rampStep);
@@ -870,6 +1131,104 @@ export class ProjectileManager {
     }
 
     this.updateBeamDrone(dt, dtMs, ctx, stage === 2);
+  }
+
+  /**
+   * Quantum Clone Beam Replication:
+   * - Fires at exact 50% of Player's Beam tick rate (2x intervalMs)
+   * - Deals 20% of normal Beam tick damage (no Crit)
+   * - Emits Clone firing action at paced cycle windows rather than every tick
+   */
+  updateCloneContinuousBeam(dt: number, ctx: CloneBeamFrameContext): void {
+    const dtMs = dt * 1000;
+    const cfg = WEAPON_RUNTIME_TUNING.beam;
+    const stage = getWeaponEvolutionStage(ctx.weaponLevel);
+
+    for (const [target, entry] of this.cloneBeam.ramps.entries()) {
+      if (!target.active || this.simTimeSec - entry.lastHitSec > cfg.rampResetGraceSec) {
+        this.cloneBeam.ramps.delete(target);
+      }
+    }
+
+    this.cloneBeam.contactPoints.length = 0;
+
+    if (!ctx.firing) {
+      this.cloneBeam.active = false;
+      this.cloneBeam.tickTimerMs = 0;
+      this.cloneBeam.cycleElapsedMs = 0;
+      return;
+    }
+
+    const dx = ctx.aimX - ctx.x;
+    const dy = ctx.aimY - (ctx.y - 22);
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    const rayLen = 960;
+
+    this.cloneBeam.active = true;
+    this.cloneBeam.x = ctx.x;
+    this.cloneBeam.y = ctx.y - 22;
+    this.cloneBeam.endX = this.cloneBeam.x + ux * rayLen;
+    this.cloneBeam.endY = this.cloneBeam.y + uy * rayLen;
+    this.cloneBeam.stage = stage;
+    this.cloneBeam.cycleElapsedMs += dtMs;
+
+    const halfSpan = (stage >= 1 ? cfg.evo1HalfSpanPx : cfg.baseHalfSpanPx) * 0.85;
+    const maxRamp = stage >= 1 ? cfg.evo1MaxRampBonus : cfg.baseMaxRampBonus;
+    const rampStep = stage >= 1 ? cfg.evo1RampPerTick : cfg.baseRampPerTick;
+
+    const hitTargets: Targetable[] = [];
+    for (let i = 0; i < ctx.targets.length; i++) {
+      const t = ctx.targets[i];
+      if (!t.active || t.entering) continue;
+      const px = t.x - this.cloneBeam.x;
+      const py = t.y - this.cloneBeam.y;
+      const proj = px * ux + py * uy;
+      if (proj < -t.radius || proj > rayLen) continue;
+      const perp = Math.abs(px * uy - py * ux);
+      if (perp <= t.radius + halfSpan) {
+        hitTargets.push(t);
+        this.cloneBeam.contactPoints.push({
+          x: this.cloneBeam.x + ux * Math.max(0, proj),
+          y: this.cloneBeam.y + uy * Math.max(0, proj),
+        });
+      }
+    }
+
+    this.cloneBeam.tickTimerMs -= dtMs;
+    if (this.cloneBeam.tickTimerMs <= 0) {
+      const playerIntervalMs = getEffectiveBeamTickIntervalMs(ctx.weaponLevel, ctx.totalFireRateMult);
+      // 50% Fire Rate -> 2x interval
+      this.cloneBeam.tickTimerMs = playerIntervalMs * 2;
+
+      if (hitTargets.length > 0) {
+        const promo = ctx.acquireCloneAction(this.cloneBeam.cycleElapsedMs, ctx.totalFireRateMult);
+        this.cloneBeam.cycleElapsedMs = 0;
+        const baseTickDmg = getWeaponDamageAtLevel(WEAPONS.beam, ctx.weaponLevel);
+
+        for (let i = 0; i < hitTargets.length; i++) {
+          const t = hitTargets[i];
+          let entry = this.cloneBeam.ramps.get(t);
+          if (!entry) {
+            entry = { stacks: 0, lastHitSec: this.simTimeSec };
+            this.cloneBeam.ramps.set(t, entry);
+          } else {
+            entry.lastHitSec = this.simTimeSec;
+          }
+
+          const rampMult = 1 + entry.stacks;
+          const dmg = Math.max(1, Math.round(baseTickDmg * ctx.damageMult * rampMult * 0.2));
+          ctx.onCloneInstantHit(t, dmg, promo.cloneActionId, promo.countsForFiringAction);
+
+          if (t.active) {
+            entry.stacks = Math.min(maxRamp, entry.stacks + rampStep);
+          } else {
+            this.cloneBeam.ramps.delete(t);
+          }
+        }
+      }
+    }
   }
 
   private updateBeamDrone(
@@ -981,7 +1340,11 @@ export class ProjectileManager {
           2,
           Math.round(baseDmg * ctx.damageMult * cfg.evo2DroneDamageRatio * crit.mult)
         );
-        ctx.onInstantHit(locked, droneDmg, crit.isCrit);
+        ctx.onInstantHit(locked, droneDmg, crit.isCrit, {
+          source: 'player_weapon',
+          firingActionId: this.continuousBeam.currentBeamActionId,
+          countsForFiringAction: false,
+        });
       }
     } else {
       drone.beamVisible = false;
@@ -1042,7 +1405,12 @@ export class ProjectileManager {
     this.beams.push({ x1, y1, x2, y2, color, width, life, maxLife: life });
   }
 
-  addLightningArc(anchors: Array<{ x: number; y: number }>, enhanced = false, paralyzing = false): void {
+  addLightningArc(
+    anchors: Array<{ x: number; y: number }>,
+    enhanced = false,
+    paralyzing = false,
+    overrideColor?: number
+  ): void {
     if (anchors.length < 2) return;
     const points: Array<{ x: number; y: number }> = [anchors[0]];
     const branches: Array<Array<{ x: number; y: number }>> = [];
@@ -1072,7 +1440,7 @@ export class ProjectileManager {
       life: enhanced ? 0.17 : 0.14,
       maxLife: enhanced ? 0.17 : 0.14,
       thickness: enhanced ? 6.5 : 4.2,
-      color: paralyzing ? 0x67e8f9 : 0x22d3ee,
+      color: overrideColor ?? (paralyzing ? 0x67e8f9 : 0x22d3ee),
     });
   }
 
@@ -1295,6 +1663,27 @@ export class ProjectileManager {
       }
     }
 
+    // Quantum Clone Continuous Beam rendering
+    if (this.cloneBeam.active) {
+      const cbx = this.cloneBeam.x;
+      const cby = this.cloneBeam.y;
+      const cex = this.cloneBeam.endX;
+      const cey = this.cloneBeam.endY;
+      const isEvo1 = this.cloneBeam.stage >= 1;
+      const wOuter = (isEvo1 ? 14 : 10) * (1 + Math.sin(this.simTimeSec * 22) * 0.08);
+      this.fxGraphics.lineStyle(wOuter, 0x6366f1, 0.25);
+      this.fxGraphics.lineBetween(cbx, cby, cex, cey);
+      this.fxGraphics.lineStyle(wOuter * 0.52, 0xa5b4fc, 0.55);
+      this.fxGraphics.lineBetween(cbx, cby, cex, cey);
+      this.fxGraphics.lineStyle(Math.max(1.8, wOuter * 0.2), 0xe0e7ff, 0.85);
+      this.fxGraphics.lineBetween(cbx, cby, cex, cey);
+      for (let i = 0; i < this.cloneBeam.contactPoints.length; i++) {
+        const cp = this.cloneBeam.contactPoints[i];
+        this.fxGraphics.fillStyle(0x818cf8, 0.42);
+        this.fxGraphics.fillCircle(cp.x, cp.y, 8);
+      }
+    }
+
     // Beam Evolution II: Autonomous Laser Drone beam + aura
     if (this.beamDrone.active) {
       this.fxGraphics.lineStyle(1.4, 0x60a5fa, 0.42);
@@ -1386,8 +1775,14 @@ export class ProjectileManager {
     this.beams = [];
     this.lightningBolts = [];
     this.continuousBeam.active = false;
+    this.continuousBeam.actionCycleAccumMs = 0;
+    this.continuousBeam.currentBeamActionId = 0;
     this.continuousBeam.contactPoints.length = 0;
     this.continuousBeam.ramps.clear();
+    this.cloneBeam.active = false;
+    this.cloneBeam.cycleElapsedMs = 0;
+    this.cloneBeam.contactPoints.length = 0;
+    this.cloneBeam.ramps.clear();
     this.beamDrone.active = false;
     this.beamDrone.beamVisible = false;
     this.beamDrone.lockedTarget = null;

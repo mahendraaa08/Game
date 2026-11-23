@@ -6,7 +6,8 @@ import { EnemyEntity } from '../entities/Enemy';
 import { Player } from '../entities/Player';
 import { PowerUpEntity } from '../entities/PowerUp';
 import { ProjectileManager } from '../entities/ProjectileManager';
-import { Targetable } from '../entities/Targetable';
+import { allocateEnemyAttackId, Targetable } from '../entities/Targetable';
+import { DamageSource, PassiveSystem } from '../systems/PassiveSystem';
 import { ObjectPool } from '../utils/ObjectPool';
 import { GAME_CONSTANTS } from '../config/GameConfig';
 import { FxQuality } from '../utils/StorageManager';
@@ -520,13 +521,17 @@ export class CombatSystem {
       burstShardCount: number;
       burstShardDamage: number;
       isHeavyMissile: boolean;
+      source: DamageSource;
+      firingActionId: number;
+      cloneActionId: number;
     },
     directTarget: Targetable,
     projectiles: ProjectileManager,
     enemies: EnemyEntity[],
     boss: BossEntity | null,
     onEnemyKilled: (enemy: EnemyEntity) => void,
-    onBossHit: (dmg: number, isCrit: boolean) => void
+    onBossHit: (dmg: number, isCrit: boolean) => void,
+    passiveSystem?: PassiveSystem | null
   ): void {
     if (b.splashRadius > 0 && b.splashDamageRatio > 0) {
       this.spawnAoeShockwave(hitX, hitY, b.splashRadius, b.splashColor, b.isHeavyMissile);
@@ -539,16 +544,29 @@ export class CombatSystem {
         if (d <= b.splashRadius + other.radius) {
           this.spawnDamageNumber(other.x, other.y, splashDmg, false);
           const killed = other.takeDamage(splashDmg);
-          if (killed) onEnemyKilled(other);
+          if (killed) {
+            onEnemyKilled(other);
+            if (passiveSystem && (b.source === 'player_weapon' || b.source === 'special')) {
+              passiveSystem.onPlayerWeaponHitPostDamage(other, splashDmg, true, {
+                source: b.source,
+                firingActionId: b.firingActionId,
+                countsForFiringAction: false,
+                isCrit: false,
+              });
+            }
+          }
         }
       }
 
       if (boss && boss.active && !boss.entering && !boss.invulnerable && boss !== directTarget) {
         const dBoss = Math.hypot(boss.x - hitX, boss.y - hitY);
         if (dBoss <= b.splashRadius + boss.radius * 0.75) {
-          boss.takeDamage(splashDmg);
+          const bossKilled = boss.takeDamage(splashDmg);
           this.spawnDamageNumber(boss.x, boss.y, splashDmg, false);
           onBossHit(splashDmg, false);
+          if (bossKilled && passiveSystem) {
+            passiveSystem.onBossKilledBySource(boss, b.source, false);
+          }
         }
       }
     }
@@ -560,7 +578,10 @@ export class CombatSystem {
         b.burstShardCount,
         b.burstShardDamage,
         b.isCrit,
-        directTarget
+        directTarget,
+        b.source,
+        b.firingActionId,
+        b.cloneActionId
       );
     }
   }
@@ -573,7 +594,8 @@ export class CombatSystem {
     onEnemyKilled: (enemy: EnemyEntity) => void,
     onBossHit: (dmg: number, isCrit: boolean) => void,
     onPlayerDamaged: (hpReduced: boolean) => void,
-    onCritLanded?: () => void
+    onCritLanded?: () => void,
+    passiveSystem?: PassiveSystem | null
   ): void {
     // 1. Player Bullets vs Enemies & Boss
     projectiles.forEachPlayerBullet((b) => {
@@ -597,15 +619,44 @@ export class CombatSystem {
           );
           b.setActive(false).setVisible(false);
           if (!boss.invulnerable) {
-            boss.takeDamage(b.damage);
-            this.spawnDamageNumber(hitX, hitY, b.damage, b.isCrit);
+            let finalDmg = b.damage;
+            const hitMeta = {
+              source: b.source,
+              firingActionId: b.firingActionId,
+              countsForFiringAction: b.countsForFiringAction,
+              isCrit: b.isCrit,
+            };
+            if (passiveSystem && b.source === 'player_weapon') {
+              finalDmg = passiveSystem.resolvePlayerWeaponHitDamage(boss, b.damage, hitMeta);
+            } else if (passiveSystem && b.source === 'clone') {
+              finalDmg = passiveSystem.resolveCloneWeaponHitDamage(boss, b.damage, {
+                cloneActionId: b.cloneActionId,
+                countsForFiringAction: b.countsForFiringAction,
+              });
+            }
+
+            const bossKilled = boss.takeDamage(finalDmg);
+            this.spawnDamageNumber(hitX, hitY, finalDmg, b.isCrit);
             if (b.isCrit) {
               SoundManager.playCritHit();
               onCritLanded?.();
             } else {
               SoundManager.playBossDamage();
             }
-            onBossHit(b.damage, b.isCrit);
+            onBossHit(finalDmg, b.isCrit);
+
+            if (passiveSystem) {
+              if (b.source === 'player_weapon') {
+                passiveSystem.onPlayerWeaponHitPostDamage(boss, finalDmg, bossKilled, hitMeta);
+              } else if (b.source === 'clone') {
+                passiveSystem.onCloneWeaponHitPostDamage(boss, {
+                  cloneActionId: b.cloneActionId,
+                  countsForFiringAction: b.countsForFiringAction,
+                });
+              } else if (bossKilled && b.source === 'special') {
+                passiveSystem.onBossKilledBySource(boss, 'special', false);
+              }
+            }
           }
           this.applyBulletAreaEffects(
             hitX,
@@ -616,7 +667,8 @@ export class CombatSystem {
             enemies,
             boss,
             onEnemyKilled,
-            onBossHit
+            onBossHit,
+            passiveSystem
           );
           return;
         }
@@ -643,8 +695,25 @@ export class CombatSystem {
           if (!b.piercing) {
             b.setActive(false).setVisible(false);
           }
-          this.spawnDamageNumber(e.x, e.y, b.damage, b.isCrit);
-          const killed = e.takeDamage(b.damage);
+
+          let finalDmg = b.damage;
+          const hitMeta = {
+            source: b.source,
+            firingActionId: b.firingActionId,
+            countsForFiringAction: b.countsForFiringAction,
+            isCrit: b.isCrit,
+          };
+          if (passiveSystem && b.source === 'player_weapon') {
+            finalDmg = passiveSystem.resolvePlayerWeaponHitDamage(e, b.damage, hitMeta);
+          } else if (passiveSystem && b.source === 'clone') {
+            finalDmg = passiveSystem.resolveCloneWeaponHitDamage(e, b.damage, {
+              cloneActionId: b.cloneActionId,
+              countsForFiringAction: b.countsForFiringAction,
+            });
+          }
+
+          this.spawnDamageNumber(e.x, e.y, finalDmg, b.isCrit);
+          const killed = e.takeDamage(finalDmg);
           if (b.isCrit) {
             SoundManager.playCritHit();
             onCritLanded?.();
@@ -653,6 +722,16 @@ export class CombatSystem {
           }
           if (killed) {
             onEnemyKilled(e);
+          }
+          if (passiveSystem) {
+            if (b.source === 'player_weapon' || b.source === 'special') {
+              passiveSystem.onPlayerWeaponHitPostDamage(e, finalDmg, killed, hitMeta);
+            } else if (b.source === 'clone') {
+              passiveSystem.onCloneWeaponHitPostDamage(e, {
+                cloneActionId: b.cloneActionId,
+                countsForFiringAction: b.countsForFiringAction,
+              });
+            }
           }
           this.applyBulletAreaEffects(
             hitX,
@@ -663,7 +742,8 @@ export class CombatSystem {
             enemies,
             boss,
             onEnemyKilled,
-            onBossHit
+            onBossHit,
+            passiveSystem
           );
           if (!b.piercing) break;
         }
@@ -677,7 +757,7 @@ export class CombatSystem {
       if (dist < player.radius + b.radius - 2) {
         b.setActive(false).setVisible(false);
         const prevHp = player.hp;
-        if (player.takeDamage(b.damage)) {
+        if (player.takeDamage(b.damage, b.attackId)) {
           this.spawnExplosion(player.x, player.y, 0xef4444, 10, 170, 0.8);
           onPlayerDamaged(player.hp < prevHp);
         }
@@ -695,7 +775,7 @@ export class CombatSystem {
           if (killed) onEnemyKilled(e);
         } else {
           const prevHp = player.hp;
-          if (player.takeDamage(e.damage + 6)) {
+          if (player.takeDamage(e.damage + 6, allocateEnemyAttackId())) {
             onPlayerDamaged(player.hp < prevHp);
           }
           const killed = e.takeDamage(45);
@@ -709,7 +789,7 @@ export class CombatSystem {
       const dist = Math.hypot(boss.x - player.x, boss.y - player.y);
       if (dist < player.radius + boss.radius - 8) {
         const prevHp = player.hp;
-        if (player.takeDamage(25)) {
+        if (player.takeDamage(25, allocateEnemyAttackId())) {
           onPlayerDamaged(player.hp < prevHp);
         }
       }

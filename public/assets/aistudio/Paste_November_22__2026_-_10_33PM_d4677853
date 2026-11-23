@@ -1,0 +1,1257 @@
+IMPLEMENTATION PROMPT — COMPLETE AIRCRAFT SYSTEM REWORK
+
+GALACTIC WAR: THE LAST DEFENDER
+
+ROLE & OBJECTIVE
+
+Bertindaklah sebagai Senior Game Developer, Gameplay Systems Engineer, dan Game Balance Designer yang berpengalaman dalam TypeScript, React, Phaser 3, serta pengembangan game action shooter.
+
+Tugas utama adalah melakukan implementasi menyeluruh Aircraft System Rework pada repository GitHub berikut:
+
+- Repository: https://github.com/mahendraaa08/Game
+- Branch: "main"
+
+Gunakan repository tersebut sebagai sumber kebenaran utama. Jangan mengasumsikan arsitektur, nama fungsi, struktur data, atau mekanisme yang belum diverifikasi dari kode aktual.
+
+Implementasikan seluruh spesifikasi dalam dokumen ini dengan mengikuti arsitektur, pola pemrograman, konvensi, dan sistem yang sudah digunakan proyek.
+
+Hasil akhir yang diwajibkan
+
+- Konsisten dengan implementasi dan arsitektur yang sudah ada.
+- Tidak menimbulkan konflik dengan Weapon, Special, Charge, Evolution, Equipment, Upgrade, Drone, Progression, Enemy, dan Save System.
+- Memiliki gameplay balance yang proporsional.
+- Menghindari duplikasi perhitungan damage dan efek Passive.
+- Mengutamakan stabilitas, performa, maintainability, dan pengalaman bermain jangka panjang.
+- Tidak mengubah fitur yang tidak berkaitan dengan pekerjaan ini.
+- Seluruh perubahan benar-benar diterapkan pada gameplay runtime, bukan hanya konfigurasi dan UI.
+
+PENTING: Jangan hanya menghasilkan analisis, rekomendasi, atau contoh kode. Setelah audit selesai, lanjutkan dengan implementasi nyata pada repository sesuai akses yang tersedia. Jangan berhenti pada tahap perencanaan.
+
+---
+
+PHASE 1 — REPOSITORY AUDIT DAN PEMAHAMAN ARSITEKTUR
+
+Sebelum mengubah kode, lakukan audit menyeluruh terhadap repository.
+
+Mulai dari file berikut, kemudian telusuri seluruh dependensi dan penggunaan terkait.
+
+Konfigurasi dan gameplay
+
+- "src/game/config/ShipConfig.ts"
+- "src/game/config/WeaponConfig.ts"
+- "src/game/config/WeaponEvolutionConfig.ts"
+- "src/game/config/GameConfig.ts"
+- "src/game/entities/Player.ts"
+- "src/game/entities/ProjectileManager.ts"
+- "src/game/systems/ProgressionManager.ts"
+
+UI dan Codex
+
+- "src/components/hub/HangarShipsPanel.tsx"
+- "src/components/codex/CodexPanel.tsx"
+- "src/data/codex/aircraft.ts"
+- "src/data/codex/index.ts"
+
+Periksa juga seluruh file lain yang menggunakan:
+
+- "ShipStats", "ShipDefinition", "ShipId", "SHIPS", dan "SHIP_LIST".
+- "signatureWeapon" dan "weaponCharacteristic".
+- "specialPowerMult" dan "critDamageMult".
+- "ComputedPlayerStats" dan "computePlayerStats()".
+- "hasAstralWingBolts", "extraChainTargets", dan "rotaryFireBonus".
+- "damageReduction", "evasionChance", "shieldRegenMult", "shieldOnKill", dan "dashCooldownMult".
+- Mekanisme serangan, Critical Hit, damage, Shield, HP, Dash, Charge, Special, dan Evolution.
+- Penyimpanan aircraft yang dipilih serta aircraft yang sudah terbuka.
+
+Hal yang wajib dipahami
+
+1. Alur data statistik aircraft dari konfigurasi hingga runtime Player.
+2. Bagaimana damage weapon dihitung dan diterapkan kepada musuh.
+3. Bagaimana Critical Hit dilakukan pada setiap jenis weapon.
+4. Bagaimana Special menghasilkan damage dan menggunakan modifier.
+5. Bagaimana Shield, HP, regenerasi, dan Damage Reduction bekerja.
+6. Bagaimana Dash, Charge, serta Weapon Evolution diimplementasikan.
+7. Bagaimana Hangar dan Codex mengambil serta menampilkan data aircraft.
+8. Bagaimana ProgressionManager menggabungkan statistik aircraft dengan Upgrade, Equipment, dan Drone.
+9. Bagaimana data aircraft disimpan dan dimuat kembali.
+10. Bagaimana identitas serangan Player, projectile, Beam tick, serangan musuh, dan sumber damage dibedakan.
+11. Bagaimana sistem targeting musuh bekerja dan apakah sudah mendukung target Decoy.
+12. Bagaimana weapon firing action dibedakan dari projectile atau hit individual.
+
+Jangan langsung menghapus properti sebelum memeriksa seluruh penggunaannya.
+
+Jika terdapat perbedaan antara spesifikasi dan implementasi aktual, adaptasikan perubahan dengan cara paling aman tanpa menghilangkan tujuan desain.
+
+---
+
+PHASE 2 — PENGHAPUSAN SIGNATURE WEAPON
+
+Hapus sistem Signature Weapon sepenuhnya dari seluruh aircraft.
+
+Ketentuan
+
+1. Semua aircraft dapat menggunakan seluruh enam jenis weapon:
+   
+   - Plasma
+   - Dual Laser
+   - Spread
+   - Beam
+   - Homing Missile
+   - Chain Lightning
+
+2. Semua aircraft memiliki efektivitas dasar yang sama terhadap setiap jenis weapon.
+
+3. Tidak boleh ada bonus atau penalti damage berdasarkan jenis weapon dan identitas aircraft.
+
+4. Tidak ada aircraft yang diwajibkan menggunakan weapon tertentu.
+
+5. Identitas aircraft hanya ditentukan oleh statistik dasar, Passive, Charge, dan Evolution.
+
+Hapus seluruh ketergantungan Signature Weapon
+
+Hapus atau refactor:
+
+- Properti "signatureWeapon".
+- Properti "weaponCharacteristic".
+- Import dan referensi Signature Weapon yang tidak lagi diperlukan.
+- Informasi Signature Weapon di Hangar.
+- Informasi Signature Weapon di Codex.
+- Deskripsi, label, tooltip, dan search keyword yang masih menyebut Signature Weapon.
+- Bonus atau penalti weapon-specific berdasarkan aircraft.
+
+Pastikan tidak ada referensi lama yang tertinggal dan menyebabkan error.
+
+Aturan kompatibilitas weapon
+
+Jangan menghapus pembatasan weapon yang berasal dari Game Mode, Challenge, atau aturan gameplay global.
+
+Hapus hanya pembatasan atau bonus yang berasal dari identitas aircraft.
+
+Sistem pemilihan weapon, pergantian weapon, unlock weapon, level weapon, dan Evolution harus tetap berjalan normal.
+
+---
+
+PHASE 3 — PENGHAPUSAN SPECIAL POWER AIRCRAFT
+
+Hapus "specialPowerMult" sebagai statistik khusus aircraft.
+
+Ketentuan
+
+1. Semua aircraft memiliki kekuatan dasar Special yang sama.
+2. Tidak ada bonus atau penalti Special berdasarkan identitas aircraft.
+3. Tidak ada Passive atau Evolution aircraft yang memberikan bonus Special Power tersembunyi.
+4. Perbedaan Special hanya berasal dari mekanisme dan konfigurasi Special itu sendiri.
+
+Kompatibilitas Equipment
+
+Audit seluruh penggunaan "specialPowerMult" sebelum menghapusnya.
+
+Jika Equipment atau sistem global lain masih memberikan bonus Special, pertahankan fungsi global tersebut tanpa mengembalikan bonus khusus aircraft.
+
+Apabila diperlukan, pisahkan modifier global Special dari statistik aircraft menggunakan nama dan struktur yang lebih tepat, misalnya "specialDamageMultiplier".
+
+Pastikan:
+
+- Nilai dasar Special sama untuk seluruh aircraft.
+- Bonus Equipment yang sudah ada tetap bekerja jika merupakan fitur global.
+- Special Cooldown Upgrade tetap bekerja.
+- Tidak ada modifier aircraft yang diam-diam memengaruhi kekuatan Special.
+- Tidak terjadi penghapusan fitur Equipment yang tidak diminta.
+
+Jangan mempertahankan "specialPowerMult" hanya karena masih digunakan oleh implementasi lama. Refactor seluruh dependensinya dengan aman.
+
+---
+
+PHASE 4 — REWORK STATISTIK UTAMA AIRCRAFT
+
+Setiap aircraft harus memiliki tujuh statistik utama:
+
+Property| Fungsi
+"maxHp"| HP maksimum
+"maxShield"| Shield maksimum
+"moveSpeed"| Kecepatan gerak
+"damageMult"| Multiplier damage dasar
+"fireRateMult"| Multiplier kecepatan menembak
+"critChance"| Peluang Critical Hit
+"critDamage"| Multiplier damage Critical Hit
+
+Hapus statistik khusus aircraft yang tidak lagi diperlukan dan pastikan tidak ada statistik lama yang masih memengaruhi identitas aircraft secara tersembunyi.
+
+Satuan Movement Speed
+
+Nilai Movement Speed dalam tabel desain menggunakan multiplier relatif:
+
+- "1.00" = kecepatan dasar.
+- "1.18" = 118% kecepatan dasar.
+- "0.86" = 86% kecepatan dasar.
+
+Sementara implementasi repository menggunakan kecepatan aktual dalam satuan gameplay, seperti pixel per second.
+
+Jangan memasukkan angka "1.00", "0.86", atau "1.18" secara langsung ke properti runtime yang mengharapkan nilai pixel per second.
+
+Gunakan "GAME_CONSTANTS.PLAYER_SPEED" atau sumber kecepatan dasar yang benar-benar digunakan proyek untuk mengonversi multiplier menjadi nilai aktual.
+
+Pertahankan integrasi Movement Speed Upgrade dan kontrol pemain.
+
+Tidak boleh ada Passive Ability yang meningkatkan Movement Speed.
+
+Formula Critical Hit universal
+
+Semua jenis weapon harus menggunakan satu sistem Critical Hit yang konsisten.
+
+Damage normal:
+
+"normalDamage = baseDamage * damageMult"
+
+Damage Critical:
+
+"criticalDamage = normalDamage * critDamage"
+
+Ketentuan:
+
+- "critChance" menentukan probabilitas Critical Hit.
+- "critDamage" adalah multiplier total.
+- Nilai "1.75" berarti 175% damage normal.
+- Nilai "2.10" berarti 210% damage normal.
+- Tidak boleh terjadi perhitungan Critical ganda.
+- Semua weapon menggunakan perhitungan Critical yang sama.
+- Passive, Equipment, Upgrade, dan modifier lain harus masuk melalui satu jalur perhitungan Critical yang konsisten.
+- Satu hit atau firing action hanya melakukan Critical roll sesuai unit serangan yang digunakan oleh weapon tersebut.
+
+Jika implementasi menggunakan "critDamageMult" di runtime, pertahankan nama tersebut sebagai adapter internal jika diperlukan, tetapi sumber statistik aircraft harus berasal dari properti "critDamage".
+
+Pastikan seluruh weapon, projectile, Beam, Chain Lightning, Special, dan serangan tambahan menggunakan perhitungan yang benar sesuai arsitektur masing-masing.
+
+---
+
+PHASE 5 — STATISTIK DASAR FINAL AIRCRAFT
+
+Gunakan tabel berikut sebagai baseline utama.
+
+Aircraft| HP| Shield| Speed| Damage| Fire Rate| Crit Chance| Crit Damage
+FALCON X| 100| 60| 1.00| 1.00| 1.00| 10%| 1.75x
+DESTROYER| 140| 75| 0.86| 1.15| 0.90| 8%| 1.80x
+THUNDERBOLT| 105| 65| 0.98| 0.95| 1.18| 10%| 1.75x
+PHANTOM| 85| 50| 1.18| 0.95| 1.05| 12%| 1.80x
+AEGIS| 155| 120| 0.82| 0.90| 0.90| 8%| 1.75x
+SPECTER| 90| 55| 1.00| 0.95| 0.95| 22%| 2.10x
+NOVA PRIME| 120| 85| 0.96| 1.05| 1.00| 12%| 1.85x
+CELESTIAL| 140| 100| 1.02| 1.10| 1.05| 15%| 1.95x
+
+Nilai tersebut merupakan baseline desain yang harus diterapkan dan divalidasi melalui pengujian.
+
+Jangan mengubah angka tanpa alasan teknis atau hasil pengujian yang jelas.
+
+Ketentuan balancing
+
+- DESTROYER: damage tinggi, tetapi mobilitas dan Fire Rate lebih rendah.
+- THUNDERBOLT: Fire Rate tinggi dengan damage per serangan lebih rendah.
+- PHANTOM: mobilitas tinggi dengan HP dan Shield lebih rendah.
+- AEGIS: HP dan Shield tinggi, tetapi mobilitas, damage, dan Fire Rate lebih rendah.
+- SPECTER: Critical Chance dan Critical Damage tinggi, tetapi statistik pertahanan rendah.
+- NOVA PRIME: statistik relatif seimbang dengan identitas Quantum Clone.
+- CELESTIAL: statistik ofensif dan pertahanan kuat, tetapi tidak boleh mendominasi semua aspek.
+- FALCON X: statistik seimbang tanpa keunggulan ekstrem.
+
+Perhitungkan pengaruh Upgrade, Equipment, Drone, dan Weapon Evolution terhadap statistik akhir.
+
+Hindari kondisi ketika kombinasi bonus membuat salah satu aircraft terlalu dominan.
+
+---
+
+PHASE 6 — URUTAN RESMI AIRCRAFT
+
+Gunakan urutan berikut secara konsisten di seluruh sistem:
+
+1. FALCON X — Adaptive Vanguard
+2. DESTROYER — Apocalypse Engine
+3. THUNDERBOLT — Storm Accelerator
+4. PHANTOM — Ghost Protocol
+5. AEGIS — Eternal Bastion
+6. SPECTER — Execution Phantom
+7. NOVA PRIME — Quantum Architect
+8. CELESTIAL — Astral Sovereign
+
+Urutan wajib berlaku pada:
+
+- "SHIP_LIST".
+- Hangar.
+- Aircraft Codex.
+- Daftar pilihan aircraft.
+- Perbandingan statistik.
+- Sistem terkait lain yang menampilkan daftar aircraft.
+
+Jangan mengubah "ShipId" atau identifier penyimpanan yang sudah digunakan kecuali benar-benar diperlukan.
+
+Pastikan data pemain lama tetap dapat memuat aircraft yang telah dibuka dan dipilih.
+
+---
+
+PHASE 7 — IMPLEMENTASI FINAL 24 PASSIVE ABILITIES
+
+Spesifikasi pada Phase ini menggantikan seluruh sistem Passive Aircraft lama.
+
+Jangan mempertahankan, mencampur, atau menggabungkan efek pasif dari desain sebelumnya dengan spesifikasi ini.
+
+Setiap aircraft harus memiliki tepat tiga Passive Ability. Total terdapat 24 Passive.
+
+7.1 ATURAN UMUM PASSIVE SYSTEM
+
+1. Setiap aircraft memiliki tepat tiga Passive, sehingga total terdapat 24 Passive.
+2. Tidak ada Passive yang meningkatkan Movement Speed.
+3. Seluruh Passive harus berfungsi dengan keenam jenis weapon: Plasma, Dual Laser, Spread, Beam, Homing Missile, dan Chain Lightning.
+4. Seluruh damage tambahan menggunakan sistem perhitungan damage terpusat.
+5. Damage dari Passive tidak boleh memicu Passive lain, kecuali interaksi yang secara eksplisit diizinkan.
+6. Pemulihan HP dan Shield tidak boleh melampaui nilai maksimal.
+7. Setiap Passive memiliki cooldown independen jika ditentukan.
+8. Hit Counter menghitung satu serangan Player yang valid satu kali, bukan setiap projectile, Beam tick, atau pecahan Spread.
+9. Kill Trigger berlaku untuk seluruh musuh, termasuk musuh biasa dan Elite. Interaksi dengan Boss mengikuti sistem kill yang sebenarnya.
+10. Damage Reduction berbasis jumlah serangan mengonsumsi satu charge untuk setiap serangan musuh valid yang berhasil dikurangi.
+11. Damage Reduction tidak boleh menghasilkan damage negatif.
+12. Jika beberapa sumber Damage Reduction aktif bersamaan, gunakan stacking multiplikatif dengan batas maksimum total 60%.
+13. Efek berdurasi selain Damage Reduction tetap boleh menggunakan timer, seperti Decoy dan penandaan target.
+14. Semua trigger harus memiliki identitas sumber dan jenis event yang jelas.
+15. Satu event gameplay tidak boleh diproses berulang oleh Passive Runtime.
+
+7.2 FALCON X — Adaptive Vanguard
+
+Role: Balanced / Adaptive
+
+Aircraft serbaguna yang mampu beradaptasi terhadap tekanan pertempuran melalui kombinasi serangan dan pertahanan.
+
+Passive 1 — Adaptive Combat
+
+- Setiap 10 serangan Player yang mengenai musuh, serangan Player berikutnya mendapatkan bonus damage sebesar 30%.
+- Hit dihitung satu kali per firing action jika setidaknya satu musuh terkena.
+- Setelah bonus berhasil dikonsumsi, counter kembali ke nol.
+- Bonus hanya berlaku untuk satu firing action Player yang valid.
+- Bonus tidak berlaku pada serangan Clone atau damage Passive.
+- Tidak boleh diterapkan berulang pada setiap projectile dari satu volley atau setiap Beam tick.
+
+Passive 2 — Reactive Armor
+
+- Ketika terkena serangan musuh yang valid, mendapatkan 20% Damage Reduction untuk 2 serangan musuh berikutnya.
+- Cooldown: 9 detik.
+- Setiap serangan musuh valid yang berhasil dikurangi mengonsumsi satu charge.
+- Serangan yang sama tidak boleh mengonsumsi charge dua kali.
+- Jika kedua charge habis, efek perlindungan berakhir.
+
+Passive 3 — Combat Recovery
+
+- Setiap mengalahkan 5 musuh, memulihkan 8% Max Shield.
+- Progres direset setelah aktivasi.
+- Berlaku untuk semua musuh yang benar-benar mati akibat Player.
+- Damage Clone atau Passive sekunder tidak boleh memberikan kill credit untuk Passive ini.
+- Pemulihan tidak boleh melampaui Max Shield.
+
+7.3 DESTROYER — Apocalypse Engine
+
+Role: Heavy Assault / Destruction
+
+Aircraft dengan daya hancur tinggi yang unggul dalam menghadapi kelompok musuh dan target kuat.
+
+Passive 1 — Siege Breaker
+
+- Setiap 6 serangan Player yang mengenai musuh, serangan berikutnya menghasilkan ledakan tambahan sebesar 100% Base Damage di sekitar target.
+- Cooldown: 6 detik.
+- Ledakan terjadi pada target yang terkena serangan utama.
+- Hit counter menghitung satu firing action, bukan jumlah projectile.
+- Ledakan hanya terjadi satu kali untuk satu aktivasi.
+- Damage ledakan tidak boleh memicu Passive lain.
+- Jika tidak ada target valid, jangan mengonsumsi aktivasi sebelum efek berhasil diterapkan.
+
+Passive 2 — Armor Crusher
+
+- Menyerang musuh yang sama sebanyak 4 kali dalam jendela waktu 3 detik membuat serangan Player berikutnya terhadap target tersebut mendapatkan bonus damage sebesar 35%.
+- Gunakan identitas target yang stabil.
+- Hit dihitung berdasarkan firing action yang benar-benar mengenai target.
+- Bonus hanya berlaku satu kali.
+- Tidak boleh menumpuk.
+- Jika target berubah atau jendela waktu berakhir, progres target lama dibersihkan.
+- Damage dari Passive dan Clone tidak dihitung.
+
+Passive 3 — Apocalypse Impact
+
+- Ketika berhasil mengalahkan musuh, menghasilkan ledakan kecil yang memberikan 60% Base Damage kepada musuh di sekitarnya.
+- Cooldown: 5 detik.
+- Berlaku untuk semua jenis musuh.
+- Boss hanya memicu efek ketika sistem mengonfirmasi kematian atau kill yang sebenarnya.
+- Ledakan tidak boleh memicu Passive kill atau hit lainnya.
+
+7.4 THUNDERBOLT — Storm Accelerator
+
+Role: Rapid Assault / Chain Damage
+
+Aircraft dengan Fire Rate tinggi yang memanfaatkan energi listrik untuk menyerang banyak musuh.
+
+Passive 1 — Arc Conductor
+
+- Setiap 8 serangan Player yang mengenai musuh, memicu petir yang menyambar hingga 3 musuh.
+- Setiap sambaran memberikan 65% Base Damage.
+- Counter menghitung satu firing action jika minimal satu musuh terkena.
+- Satu aktivasi menghasilkan maksimal tiga sambaran.
+- Hindari menghitung satu musuh berkali-kali dalam aktivasi yang sama jika masih tersedia target lain.
+- Jika hanya ada satu atau dua musuh valid, gunakan target yang tersedia tanpa membuat target tambahan fiktif.
+- Damage sambaran tidak memicu Passive lain.
+
+Passive 2 — Voltage Surge
+
+- Setiap Critical Hit Player memberikan 1 Voltage Stack.
+- Ketika mencapai 5 stack, melepaskan gelombang listrik yang memberikan 100% Base Damage kepada musuh di sekitar.
+- Stack direset setelah aktivasi.
+- Satu Critical event hanya boleh memberikan satu stack.
+- Critical dari Clone atau Passive sekunder tidak dihitung.
+- Gelombang listrik tidak boleh memicu Critical Hit atau Passive lain.
+
+Passive 3 — Overload Circuit
+
+- Setiap 10 detik, serangan pertama Player yang mengenai musuh memberikan bonus damage sebesar 40% dan menghasilkan efek listrik tambahan.
+- Serangan yang tidak mengenai musuh tidak mengonsumsi efek.
+- Efek hanya berlaku satu kali per siklus.
+- Bonus damage dan efek listrik tidak boleh diterapkan berulang pada setiap projectile atau Beam tick.
+- Timer berikutnya dimulai setelah efek berhasil dikonsumsi.
+
+7.5 PHANTOM — Ghost Protocol
+
+Role: Evasion / Counterattack
+
+Aircraft yang mengandalkan Dash, pengalihan target, dan serangan balasan.
+
+Passive 1 — Phase Counter
+
+- Setelah berhasil melakukan Dash, serangan Player berikutnya dalam rentang 3 detik mendapatkan bonus damage sebesar 35%.
+- Cooldown: 6 detik.
+- Hanya Dash yang benar-benar berhasil digunakan yang dapat memicu efek.
+- Bonus berlaku untuk satu firing action Player.
+- Jika tidak digunakan dalam 3 detik, efek kedaluwarsa.
+- Tidak dapat menumpuk.
+
+Passive 2 — Ghost Decoy
+
+- Ketika terkena serangan musuh yang valid, menciptakan Decoy selama 2,5 detik yang mengalihkan target musuh.
+- Cooldown: 9 detik.
+- Gunakan sistem Enemy Targeting yang sudah ada.
+- Jangan membangun ulang AI musuh.
+- Decoy harus memiliki identitas target yang dapat dikenali sistem targeting.
+- Setelah durasi berakhir atau Decoy tidak valid, musuh kembali menggunakan targeting normal.
+- Damage dari Passive tidak boleh memicu Decoy.
+
+Passive 3 — Quantum Evasion
+
+- Ketika HP melewati ambang 35% Max HP dari atas ke bawah, mendapatkan 50% Damage Reduction untuk 2 serangan musuh berikutnya.
+- Cooldown: 10 detik.
+- Trigger hanya terjadi saat HP benar-benar menyeberangi ambang dari atas ke bawah.
+- Pemulihan HP di atas ambang memungkinkan trigger baru setelah terjadi penurunan berikutnya.
+- Setiap serangan musuh valid yang berhasil dikurangi mengonsumsi satu charge.
+- Tidak dapat menumpuk charge.
+
+7.6 AEGIS — Eternal Bastion
+
+Role: Tank / Shield Specialist
+
+Aircraft dengan pertahanan tinggi yang mampu mempertahankan diri dalam pertempuran panjang.
+
+Passive 1 — Fortress Core
+
+- Selama Shield masih aktif, mengurangi seluruh damage yang diterima sebesar 8%.
+- Berlaku selama Shield memiliki nilai positif sebelum damage diproses.
+- Tidak menggunakan charge.
+- Tidak mempunyai cooldown.
+- Efek langsung berhenti berlaku ketika Shield tidak lagi aktif.
+- Tidak boleh menggandakan Damage Reduction dari sumber lain.
+
+Passive 2 — Shield Reformation
+
+- Ketika Shield berubah dari kondisi positif menjadi nol, memulihkan Shield sebesar 15% Max Shield.
+- Cooldown: 10 detik.
+- Trigger hanya pada transisi positif ke nol.
+- Tidak boleh terpicu berulang selama Shield tetap nol.
+- Jika cooldown belum siap saat transisi terjadi, jangan membuat aktivasi tertunda.
+- Pemulihan tidak boleh melampaui Max Shield.
+
+Passive 3 — Guardian Pulse
+
+- Setiap menerima akumulasi damage sebesar 25% Max HP, melepaskan gelombang energi yang memberikan 80% Base Damage kepada musuh di sekitar.
+- Cooldown: 8 detik.
+- Akumulasi menggunakan damage aktual yang diterima setelah mitigasi.
+- Hitung damage yang masuk ke Shield dan HP sesuai jalur damage runtime yang sebenarnya.
+- Setelah aktivasi berhasil, reset akumulasi.
+- Jangan membuat aktivasi tertunda berulang selama cooldown.
+- Damage gelombang tidak memicu Passive lain.
+
+7.7 SPECTER — Execution Phantom
+
+Role: Critical / Execution
+
+Aircraft yang mengutamakan Critical Hit untuk memberikan damage besar kepada target prioritas.
+
+Passive 1 — Deadly Precision
+
+- Critical Hit Player memberikan tambahan damage sebesar 15% dari damage Critical yang dihasilkan.
+- Cooldown: 3 detik.
+- Tambahan damage dihitung dari nilai Critical damage yang sudah dihasilkan oleh serangan sumber.
+- Tidak boleh melakukan Critical roll kedua.
+- Damage tambahan tidak boleh memicu Deadly Precision kembali.
+- Satu Critical event hanya boleh memicu satu tambahan damage.
+- Damage tambahan menggunakan jalur damage terpusat.
+
+Passive 2 — Execution Mark
+
+- Critical Hit Player menandai target selama 4 detik.
+- Serangan Player berikutnya terhadap target tersebut mendapatkan bonus damage sebesar 25%.
+- Bonus hanya berlaku satu kali.
+- Jika target terkena Critical lagi, durasi mark diperbarui, bukan menumpuk bonus.
+- Gunakan target ID yang stabil.
+- Serangan terhadap target lain tidak mengonsumsi mark.
+- Damage Clone dan Passive tidak dapat menerapkan atau mengonsumsi mark.
+
+Passive 3 — Death Harvest
+
+- Mengalahkan musuh menggunakan Critical Hit Player memulihkan 5% Max Shield dan memberikan 1 Execution Stack.
+- Maksimal 3 stack.
+- Setiap stack meningkatkan Critical Chance sebesar 3 percentage points.
+- Stack hilang setelah 8 detik tanpa memperoleh stack baru.
+- Critical kill harus dikonfirmasi oleh sistem damage dan kill.
+- Clone dan Passive sekunder tidak memberikan stack atau kill credit.
+- Pemulihan Shield tidak boleh melebihi Max Shield.
+- Critical Chance hasil gabungan harus tetap mengikuti batas maksimum yang berlaku pada sistem game.
+
+7.8 NOVA PRIME — Quantum Architect
+
+Role: Clone / Quantum Synchronization
+
+Aircraft yang menggunakan teknologi kuantum untuk menciptakan replika tempur yang meniru persenjataan Player.
+
+Passive 1 — Quantum Replication
+
+Menciptakan satu Quantum Clone permanen selama pertempuran.
+
+Clone menggunakan:
+
+- Jenis weapon yang sama dengan Player.
+- Pola tembakan yang sama.
+- Target Player yang valid.
+- Weapon Level yang sama.
+- Weapon Evolution yang sama.
+- Karakteristik serangan khusus weapon yang sedang digunakan.
+
+Aturan Fire Rate dan damage
+
+- Clone menembak dengan Fire Rate sebesar 50% dari Fire Rate akhir Player.
+- Setiap serangan Clone memberikan 20% damage dari serangan normal Player yang bersesuaian.
+- Fire Rate harus dihitung dari statistik akhir Player setelah seluruh modifier Fire Rate yang relevan diterapkan.
+- Jangan menggunakan interval tembakan tetap.
+- Jangan menerapkan modifier damage yang sama dua kali.
+- Damage Clone harus menggunakan sumber Base Damage dan jalur perhitungan yang konsisten.
+- Clone tidak dapat menghasilkan Critical Hit.
+
+Contoh Fire Rate:
+
+Fire Rate Player| Fire Rate Clone
+1.00x| 0.50x
+1.20x| 0.60x
+1.50x| 0.75x
+2.00x| 1.00x
+
+Aturan khusus Clone
+
+- Hanya ada satu Clone selama pertempuran.
+- Clone tidak memiliki HP dan tidak dapat dihancurkan.
+- Clone mengikuti posisi Player.
+- Clone menyerang target Player yang valid.
+- Jika target tidak valid, Clone mencari target musuh lain.
+- Clone otomatis memperbarui weapon ketika Player mengganti weapon.
+- Clone otomatis memperbarui Weapon Level dan Evolution ketika nilainya berubah.
+- Clone meniru karakteristik pola tembakan weapon asli.
+- Clone tidak menghasilkan Critical Hit.
+- Clone tidak memicu Passive Player, Charge, atau efek serangan tambahan lainnya.
+- Clone tidak dapat menciptakan Clone baru.
+- Clone dibersihkan ketika sesi pertempuran berakhir.
+
+Kompatibilitas keenam weapon
+
+Jangan mengganti sistem weapon Clone dengan projectile generik yang mengabaikan karakteristik weapon asli.
+
+Pastikan:
+
+- Plasma mengikuti mekanisme Plasma.
+- Dual Laser mempertahankan pola tembakan ganda.
+- Spread mempertahankan pola penyebaran projectile.
+- Beam mempertahankan karakteristik Beam dan tidak menghitung setiap tick sebagai firing action baru.
+- Homing Missile mempertahankan perilaku homing.
+- Chain Lightning mempertahankan mekanisme chain dan target berikutnya.
+
+Untuk Beam atau serangan kontinu, sesuaikan cadence atau output Clone agar kontribusi efektifnya tetap 50% Fire Rate Player dan 20% damage serangan normal yang bersesuaian. Jangan menggandakan modifier atau damage karena perbedaan mekanisme weapon.
+
+Passive 2 — Quantum Synchronization
+
+- Ketika Player dan Clone menyerang target yang sama dalam rentang 1 detik, serangan Clone berikutnya terhadap target tersebut mendapatkan bonus damage sebesar 50%.
+- Cooldown: 6 detik.
+- Gunakan identitas target yang sama dan event serangan yang tervalidasi.
+- Bonus hanya berlaku satu kali.
+- Bonus tidak dapat menumpuk.
+- Bonus tidak dapat memicu dirinya sendiri.
+- Cooldown dimulai ketika bonus berhasil dikonsumsi.
+- Clone tetap tidak dapat Critical Hit.
+
+Passive 3 — Quantum Recovery
+
+- Setiap 4 serangan Clone yang mengenai musuh, memulihkan 3% Max Shield.
+- Cooldown: 8 detik.
+- Hit dihitung satu kali per firing action Clone jika setidaknya satu musuh terkena.
+- Tidak dihitung per projectile, Beam tick, atau chain jump.
+- Counter direset setelah aktivasi.
+- Pemulihan tidak boleh melampaui Max Shield.
+- Quantum Recovery merupakan pengecualian eksplisit terhadap aturan umum bahwa Clone tidak memicu Passive.
+
+7.9 CELESTIAL — Astral Sovereign
+
+Role: Astral Power / Hybrid
+
+Aircraft dengan kekuatan astral yang mampu menyerang beberapa target sekaligus, memberikan serangan terarah, dan meningkatkan pertahanan.
+
+Passive 1 — Astral Constellation
+
+- Setiap 7 serangan Player yang mengenai musuh, menciptakan tepat 3 Astral Shards.
+- Shard menyerang musuh terdekat secara berurutan.
+- Setiap Shard memberikan 65% Base Damage.
+- Cooldown: 7 detik.
+- Jika hanya terdapat satu musuh, seluruh Shard dapat menyerang target yang sama.
+- Jika terdapat beberapa musuh, prioritaskan target terdekat yang valid dan hindari pengulangan target jika masih tersedia target lain.
+- Setiap Shard hanya memberikan satu hit per aktivasi.
+- Damage Shard tidak memicu Passive lain.
+
+Passive 2 — Stellar Protection
+
+- Setelah menggunakan Special, mendapatkan 25% Damage Reduction untuk 3 serangan musuh berikutnya.
+- Cooldown: 10 detik.
+- Trigger hanya terjadi setelah Special berhasil digunakan.
+- Setiap serangan musuh valid yang berhasil dikurangi mengonsumsi satu charge.
+- Serangan yang sama tidak boleh mengonsumsi charge dua kali.
+- Efek berakhir ketika ketiga charge habis.
+- Special yang gagal digunakan tidak boleh memicu efek ini.
+
+Passive 3 — Divine Judgment
+
+- Setiap 10 detik, memanggil Astral Strike kepada musuh dengan HP tertinggi di layar.
+- Memberikan 150% Base Damage.
+- Target dipilih berdasarkan HP aktual tertinggi saat efek akan dieksekusi.
+- Gunakan tie-break deterministik jika beberapa target memiliki HP sama.
+- Jika tidak ada target valid, tunggu hingga target tersedia.
+- Serangan tidak boleh menghasilkan aktivasi berulang dalam frame yang sama.
+- Damage Astral Strike tidak memicu Passive lain.
+
+---
+
+PHASE 8 — ATURAN RUNTIME PASSIVE
+
+Implementasikan seluruh Passive melalui pendekatan yang konsisten dan terpusat.
+
+Jika repository belum memiliki sistem Passive Runtime yang sesuai, buat satu pengelola Passive yang terstruktur dan minimal, bukan membuat banyak sistem terpisah untuk setiap aircraft.
+
+Gunakan konfigurasi data untuk mendefinisikan:
+
+- ID aircraft.
+- ID Passive.
+- Nama dan deskripsi.
+- Trigger.
+- Cooldown.
+- Durasi.
+- Nilai efek.
+- Jumlah charge.
+- Batas aktivasi.
+- Jenis sumber event yang diperbolehkan.
+
+Jangan menyimpan logika gameplay kompleks hanya dalam deskripsi konfigurasi. Pisahkan definisi data dan implementasi handler secara jelas.
+
+A. Cooldown
+
+- Setiap Passive mempunyai cooldown individual.
+- Cooldown tidak boleh saling mengganggu.
+- Cooldown tidak boleh berkurang dua kali dalam satu frame.
+- Gunakan delta time atau sistem timer yang konsisten dengan game loop.
+- Cooldown dimulai ketika efek berhasil dipicu atau dikonsumsi sesuai jenis Passive.
+- Passive yang belum berhasil diaktifkan tidak boleh kehilangan kesempatan secara tidak sengaja.
+- Jangan membiarkan Passive memicu ulang tanpa batas.
+- Efek dengan cooldown tidak boleh membuat antrean aktivasi tersembunyi ketika cooldown belum siap, kecuali spesifikasi secara eksplisit mengharuskannya.
+
+B. Hit Counter dan Firing Action
+
+Buat definisi yang konsisten untuk satu firing action Player.
+
+Satu firing action adalah satu tindakan menembak dari Player yang menghasilkan satu unit serangan weapon, terlepas dari jumlah projectile atau target yang terkena.
+
+Ketentuan:
+
+- Hit Counter bertambah satu kali jika firing action mengenai setidaknya satu musuh valid.
+- Spread dihitung satu kali, bukan setiap pellet.
+- Dual Laser dihitung satu kali untuk satu firing action, bukan masing-masing laser.
+- Beam tidak boleh menambah counter pada setiap tick.
+- Chain Lightning tidak dihitung sebagai serangan terpisah untuk setiap chain jump.
+- Homing Missile dihitung berdasarkan firing action atau unit serangan sesuai mekanisme weapon yang sudah ada.
+- Satu firing action yang mengenai banyak musuh tetap hanya menambah counter satu kali.
+- Serangan Clone dan Passive sekunder tidak masuk ke counter Player.
+
+Gunakan identitas event atau firing action agar callback berulang tidak menggandakan counter.
+
+C. Pasif Serangan Berikutnya
+
+Untuk Adaptive Combat, Armor Crusher, Phase Counter, dan bonus serangan lain yang menggunakan konsep serangan berikutnya:
+
+- Bonus hanya berlaku pada firing action Player yang valid.
+- Bonus tidak boleh menumpuk kecuali dinyatakan secara eksplisit.
+- Bonus tidak boleh dikonsumsi oleh projectile musuh.
+- Bonus tidak boleh terpakai berkali-kali pada seluruh projectile dari satu volley.
+- Bonus harus terintegrasi dengan perhitungan damage dan Critical yang sudah ada.
+- Tentukan satu titik konsumsi bonus yang konsisten.
+- Untuk Beam atau weapon multi-hit, pastikan satu aktivasi tidak diterapkan berulang pada setiap tick atau projectile.
+- Jika bonus kedaluwarsa, hapus state terkait dengan aman.
+
+D. Pemicu HP
+
+Untuk Quantum Evasion:
+
+- Deteksi perubahan HP dari sebelum ke sesudah damage.
+- Trigger hanya ketika HP menyeberangi ambang 35% Max HP dari atas ke bawah.
+- Tidak boleh aktif terus-menerus setiap frame.
+- Tidak boleh terus mencoba aktif selama HP tetap berada di bawah ambang.
+- Trigger baru hanya dapat terjadi setelah HP kembali ke atas ambang lalu melewatinya kembali.
+- Tetap hormati cooldown.
+
+Jangan menerapkan trigger HP kepada Passive lain yang tidak tercantum dalam spesifikasi final.
+
+E. Pemicu Shield
+
+Untuk Shield Reformation:
+
+- Deteksi transisi Shield dari nilai positif menjadi nol.
+- Tidak boleh terpicu berulang ketika Shield sudah nol.
+- Pastikan tidak terjadi konflik antara pemulihan Shield dan event Shield depletion.
+- Pemulihan tidak boleh melewati Max Shield.
+- Jika cooldown belum siap ketika transisi terjadi, jangan membuat aktivasi tertunda.
+
+F. Damage Reduction
+
+Gunakan satu sistem Damage Reduction yang terintegrasi dengan penerimaan damage.
+
+Sumber Damage Reduction Passive
+
+- Reactive Armor: 20% untuk 2 serangan.
+- Quantum Evasion: 50% untuk 2 serangan.
+- Fortress Core: 8% selama Shield aktif.
+- Stellar Protection: 25% untuk 3 serangan.
+
+Aturan implementasi
+
+1. Reactive Armor, Quantum Evasion, dan Stellar Protection menggunakan charge.
+2. Fortress Core merupakan perlindungan persisten selama Shield aktif.
+3. Setiap serangan musuh harus memiliki identitas stabil.
+4. Satu serangan musuh valid hanya boleh mengonsumsi satu charge per sumber perlindungan.
+5. Callback berulang dari serangan yang sama tidak boleh mengonsumsi charge berulang.
+6. Serangan lingkungan dan sumber damage non-musuh tidak mengonsumsi charge kecuali dikategorikan sebagai serangan musuh.
+7. Serangan yang tidak mencapai pipeline penerimaan damage tidak mengonsumsi charge.
+8. Damage Reduction dari beberapa sumber menggunakan stacking multiplikatif.
+9. Total Damage Reduction dibatasi maksimal 60%.
+10. Damage akhir tidak boleh negatif.
+11. Pastikan Damage Reduction diterapkan tepat satu kali dalam pipeline damage.
+12. Fortress Core hanya berlaku jika Shield masih positif sebelum damage diproses.
+13. Ketika Shield habis, Fortress Core tidak berlaku untuk serangan berikutnya.
+
+Formula stacking multiplikatif:
+
+"combinedDR = 1 - ((1 - dr1) * (1 - dr2) * ...)"
+
+"finalDR = min(combinedDR, 0.60)"
+
+"finalDamage = incomingDamage * (1 - finalDR)"
+
+Sesuaikan formula dengan urutan mitigasi Shield dan HP yang benar-benar digunakan repository.
+
+G. Base Damage untuk Passive
+
+Istilah Base Damage digunakan oleh beberapa Passive.
+
+Tentukan satu sumber Base Damage yang konsisten berdasarkan arsitektur damage aktual.
+
+Ketentuan:
+
+- Jangan menggunakan Signature Weapon atau bonus weapon-specific aircraft.
+- Jangan mengalikan "damageMult" dua kali.
+- Jangan mencampurkan bonus damage Passive dengan bonus weapon level secara tidak sengaja.
+- Damage dari efek Passive harus dapat dibandingkan secara adil di seluruh aircraft.
+- Gunakan satu helper atau jalur perhitungan bersama jika memang dibutuhkan.
+- Dokumentasikan apakah Base Damage merupakan damage weapon dasar sebelum modifier aircraft atau damage referensi setelah modifier dasar aircraft.
+- Terapkan pilihan tersebut secara konsisten untuk seluruh Passive.
+- Jangan menerapkan Critical Hit pada damage Passive kecuali dinyatakan secara eksplisit.
+
+H. Damage Source Attribution
+
+Bedakan sumber serangan setidaknya secara konseptual menjadi:
+
+- Player Weapon.
+- Quantum Clone.
+- Passive Damage.
+- Enemy Attack.
+- Environment atau sumber non-musuh.
+
+Gunakan nama dan struktur yang sesuai konvensi repository.
+
+Informasi sumber ini harus tersedia pada pipeline damage dan event combat sehingga sistem dapat menentukan:
+
+- Apakah serangan boleh meningkatkan Hit Counter.
+- Apakah serangan boleh memicu Critical.
+- Apakah serangan boleh memicu kill counter.
+- Apakah serangan boleh memicu Passive.
+- Apakah serangan boleh mengonsumsi bonus serangan.
+- Apakah damage merupakan serangan musuh untuk konsumsi charge Damage Reduction.
+
+Damage Passive tidak boleh menghasilkan rantai aktivasi.
+
+Pengecualian eksplisit:
+
+- Quantum Synchronization.
+- Quantum Recovery.
+
+Kedua efek tersebut boleh menggunakan event Clone sesuai spesifikasi, tanpa membuka trigger Passive lainnya.
+
+I. Ghost Decoy
+
+- Gunakan Enemy Targeting yang sudah tersedia.
+- Decoy aktif selama 2,5 detik.
+- Hanya musuh yang dapat dialihkan targetnya yang perlu terpengaruh.
+- Jangan membangun ulang seluruh AI musuh.
+- Jika belum ada dukungan target Decoy, implementasikan integrasi paling minimal yang aman.
+- Setelah durasi berakhir atau Decoy tidak valid, musuh kembali menggunakan targeting normal.
+- Hindari membuat objek Decoy baru setiap frame.
+- Bersihkan referensi Decoy setelah durasi berakhir.
+
+J. Quantum Clone
+
+- Clone hanya satu dan mengikuti Player.
+- Clone menyerang target Player yang valid.
+- Clone menggunakan pola serangan weapon asli.
+- Clone Fire Rate selalu 50% dari Fire Rate akhir Player.
+- Interval dihitung dari Fire Rate efektif, bukan nilai tetap.
+- Clone memberikan 20% damage serangan normal Player yang bersesuaian.
+- Clone tidak menghasilkan Critical Hit.
+- Clone tidak memicu Passive Player, Charge, atau efek serangan tambahan lainnya.
+- Quantum Synchronization dan Quantum Recovery merupakan pengecualian yang diizinkan.
+- Clone tidak boleh menghasilkan infinite loop.
+- Clone berhenti menyerang ketika target tidak valid dan melakukan fallback targeting.
+- Clone dibersihkan ketika sesi gameplay berakhir atau Player dihancurkan.
+- Hindari membuat objek, projectile, atau efek visual baru setiap frame.
+- Gunakan object pooling jika sesuai dengan pola proyek.
+- Jangan membuat mekanisme firing terpisah yang mengabaikan pola weapon asli.
+
+Untuk Beam atau serangan kontinu, gunakan adaptasi cadence atau output yang sesuai dengan sistem weapon agar Fire Rate dan damage efektif tetap mengikuti spesifikasi.
+
+K. Astral Constellation
+
+- Satu aktivasi selalu menghasilkan tepat tiga Astral Shards.
+- Setiap Shard menyerang satu target valid satu kali.
+- Prioritaskan target terdekat.
+- Hindari memilih target yang sama jika masih ada target lain.
+- Jika hanya satu target valid, ketiga Shard boleh menyerang target yang sama.
+- Jika tidak ada target valid, jangan mengonsumsi aktivasi secara prematur.
+- Damage Shard tidak memicu Passive lain.
+
+L. Divine Judgment
+
+- Jalankan timer setiap 10 detik.
+- Pilih musuh valid dengan HP tertinggi saat efek dieksekusi.
+- Gunakan tie-break deterministik jika HP sama.
+- Jika tidak ada target valid, tunggu target tersedia.
+- Satu siklus timer hanya menghasilkan satu Astral Strike.
+- Damage tidak memicu Passive lain.
+
+---
+
+PHASE 9 — PENGHAPUSAN MEKANISME AIRCRAFT LAMA
+
+Audit dan hapus bonus lama yang bertentangan dengan desain baru.
+
+Termasuk, tetapi tidak terbatas pada:
+
+- Bonus Signature Weapon.
+- Bonus Energy Weapon NOVA PRIME.
+- Bonus Chain Lightning THUNDERBOLT.
+- Rotary Fire Bonus THUNDERBOLT.
+- Astral Wing-Bolts CELESTIAL.
+- Evasion Bonus PHANTOM dari pasif lama.
+- Dash Cooldown Bonus PHANTOM dari pasif lama.
+- Damage Reduction permanen AEGIS dari pasif lama.
+- Shield Regeneration Bonus aircraft lama.
+- Shield per Kill AEGIS dari pasif lama.
+- Bonus Special berdasarkan aircraft.
+- Critical Damage khusus aircraft yang masih menggunakan hardcoded conditional.
+
+Jangan menghapus fitur global yang tidak berasal dari aircraft, seperti:
+
+- Equipment.
+- Upgrade.
+- Drone.
+- Weapon Evolution.
+- Game Mode.
+- Challenge Rules.
+- Global Shield Regeneration.
+- Global Damage Reduction.
+- Global Special Cooldown.
+
+Pertahankan fitur tersebut selama tidak bertentangan dengan spesifikasi.
+
+Pisahkan dengan jelas:
+
+1. Statistik dasar aircraft.
+2. Bonus dari Upgrade.
+3. Bonus dari Equipment.
+4. Bonus dari Drone.
+5. Efek Passive aircraft.
+6. Efek Charge.
+7. Efek Weapon Evolution.
+
+Hindari satu bonus diterapkan pada lebih dari satu lapisan.
+
+Penting: Jangan mempertahankan Passive lama hanya untuk kompatibilitas UI. Runtime dan seluruh deskripsi harus menggunakan spesifikasi final pada Phase 7.
+
+---
+
+PHASE 10 — HANGAR DAN CODEX REWORK
+
+Sesuaikan seluruh tampilan Hangar dan Codex dengan sistem baru.
+
+Hangar
+
+- Tampilkan delapan aircraft sesuai urutan resmi.
+- Hapus seluruh label Signature Weapon.
+- Hapus Special Power sebagai statistik aircraft.
+- Tampilkan tujuh statistik utama.
+- Tampilkan identitas dan deskripsi aircraft yang sesuai.
+- Tampilkan tepat tiga Passive Ability masing-masing aircraft.
+- Gunakan nama dan deskripsi Passive yang sesuai Phase 7.
+- Pastikan perbandingan statistik menggunakan nilai terbaru.
+- Pastikan informasi Unlock, Select, Equip, dan Confirm tetap bekerja.
+- Pertahankan tampilan dan desain UI yang sudah ada sebisa mungkin.
+
+Aircraft Codex
+
+- Hapus Signature Integration.
+- Hapus deskripsi Signature Weapon.
+- Hapus Special Power sebagai statistik aircraft.
+- Hapus informasi Passive lama.
+- Tampilkan tujuh statistik utama.
+- Tampilkan tiga Passive terbaru.
+- Tampilkan nama dan role aircraft yang benar.
+- Gunakan urutan resmi.
+- Pastikan search keyword tidak memuat informasi lama.
+- Pastikan seluruh data berasal dari konfigurasi yang sama agar tidak terjadi duplikasi data.
+
+Gunakan satu sumber konfigurasi sebagai sumber kebenaran untuk statistik dan Passive Ability.
+
+Jangan membuat nilai statistik atau deskripsi Passive berbeda antara ShipConfig, Hangar, dan Codex.
+
+---
+
+PHASE 11 — GAMEPLAY BALANCING
+
+Setelah implementasi, evaluasi seluruh aircraft sebagai satu ekosistem.
+
+Jangan hanya menilai kekuatan satu Passive secara terpisah. Perhitungkan sinergi dengan:
+
+- Statistik dasar.
+- Weapon.
+- Weapon Level.
+- Evolution I dan II.
+- Charge.
+- Equipment.
+- Upgrade.
+- Drone.
+- Musuh normal.
+- Elite Enemy.
+- Boss.
+- Game Mode.
+- Challenge.
+
+Hal yang harus dievaluasi
+
+1. Apakah DESTROYER menghasilkan damage terlalu tinggi karena kombinasi statistik dan tiga Passive ofensif?
+2. Apakah THUNDERBOLT memperoleh keuntungan berlebihan dari Fire Rate dan Passive serangan listrik?
+3. Apakah PHANTOM terlalu sulit dikalahkan karena Dash, Decoy, dan Damage Reduction?
+4. Apakah AEGIS mempunyai perlindungan dan pemulihan Shield yang terlalu kuat?
+5. Apakah SPECTER terlalu dominan karena Critical Chance, Critical Damage, dan Death Harvest?
+6. Apakah NOVA PRIME menghasilkan DPS berlebihan akibat Clone dan Quantum Synchronization?
+7. Apakah CELESTIAL terlalu kuat karena statistik ofensif dan Stellar Protection?
+8. Apakah FALCON X tetap relevan dibandingkan aircraft dengan spesialisasi lebih kuat?
+
+Prinsip balancing
+
+- Jangan membuat satu aircraft unggul dalam hampir semua aspek.
+- Keunggulan harus disertai kelemahan yang proporsional.
+- Efek Passive tidak boleh menghilangkan tantangan gameplay.
+- Cooldown harus diperhitungkan berdasarkan frekuensi aktivasi aktual.
+- Perhitungkan jumlah musuh, kecepatan serangan, dan durasi pertempuran.
+- Hindari kombinasi Passive yang memungkinkan perlindungan terus-menerus tanpa jeda.
+- Jangan melakukan nerf atau buff tanpa alasan yang dapat dijelaskan.
+- Jangan mengubah angka spesifikasi final tanpa bukti pengujian yang kuat.
+
+Perhatikan khususnya interaksi:
+
+- Reactive Armor dan Quantum Evasion.
+- Fortress Core dengan Damage Reduction global.
+- Stellar Protection dengan sumber Damage Reduction lainnya.
+- Guardian Pulse pada pertempuran dengan banyak serangan.
+- Death Harvest dengan Critical Chance tinggi.
+- Quantum Clone dengan Weapon Evolution.
+- Quantum Synchronization dengan Fire Rate Clone.
+- Arc Conductor dan Astral Constellation pada jumlah musuh yang tinggi.
+
+Jika hasil pengujian menunjukkan masalah keseimbangan, lakukan penyesuaian sekecil mungkin dan dokumentasikan alasannya. Pertahankan angka spesifikasi sebagai baseline selama belum ada bukti kuat bahwa perubahan diperlukan.
+
+---
+
+PHASE 12 — TESTING DAN VALIDASI
+
+Setelah implementasi, jalankan pemeriksaan yang tersedia dalam repository.
+
+A. TypeScript dan Build
+
+- Type checking.
+- Production build.
+- Lint jika tersedia.
+- Automated tests jika tersedia.
+
+B. Konfigurasi Aircraft
+
+- Tepat delapan aircraft.
+- Setiap aircraft mempunyai tujuh statistik utama.
+- Setiap aircraft mempunyai tepat tiga Passive.
+- Urutan aircraft sesuai spesifikasi.
+- Tidak ada Signature Weapon.
+- Tidak ada "specialPowerMult" sebagai statistik aircraft.
+- Tidak ada Passive peningkat Movement Speed.
+- Tidak ada Passive lama yang masih aktif di runtime.
+
+C. Critical Hit
+
+- Semua weapon menggunakan formula yang sama.
+- Critical Chance mengikuti batas sistem.
+- Critical Damage diterapkan satu kali.
+- Bonus Passive tidak menggandakan Critical.
+- Critical dari Clone tidak terjadi.
+- Critical dari Passive sekunder tidak memicu efek berantai.
+
+D. Passive Runtime
+
+Uji seluruh 24 Passive secara individual.
+
+Pastikan:
+
+- Semua cooldown bekerja sesuai spesifikasi.
+- Semua timer dan durasi bekerja.
+- Hit Counter menghitung firing action, bukan projectile.
+- Kill Counter menghitung semua musuh yang benar-benar dikalahkan.
+- Boss hanya memicu kill ketika kematian terkonfirmasi.
+- Trigger HP hanya terjadi saat melewati ambang dari atas ke bawah.
+- Trigger Shield tidak berulang saat Shield nol.
+- Efek serangan berikutnya hanya digunakan sekali.
+- Bonus damage tidak terpakai berkali-kali pada volley atau Beam.
+- Damage Passive tidak memicu Passive lain.
+- Damage Reduction mengonsumsi charge dengan benar.
+- Satu enemy attack tidak mengonsumsi charge berulang.
+- Stacking Damage Reduction mengikuti batas 60%.
+- Fortress Core hanya aktif selama Shield aktif.
+- Stellar Protection bertahan hingga tiga serangan musuh valid berhasil dikurangi.
+- Ghost Decoy berhenti setelah 2,5 detik.
+- Tidak ada timer atau event listener yang tertinggal setelah sesi berakhir.
+
+E. Quantum Clone
+
+Uji secara khusus:
+
+- Hanya satu Clone aktif.
+- Clone mengikuti Player.
+- Target Clone sesuai target Player atau fallback.
+- Fire Rate Clone selalu 50% dari Fire Rate akhir Player.
+- Damage Clone sesuai 20% damage serangan normal yang bersesuaian.
+- Weapon swap bekerja.
+- Weapon Level update bekerja.
+- Evolution update bekerja.
+- Keenam jenis weapon dapat direplikasi.
+- Beam tidak menghasilkan hit event berulang yang keliru.
+- Chain Lightning tidak menghasilkan trigger berantai.
+- Clone tidak Critical.
+- Clone tidak memicu Passive Player.
+- Quantum Synchronization menggunakan target dan jendela waktu yang benar.
+- Quantum Recovery menghitung satu firing action dengan benar.
+- Clone dibersihkan saat pertempuran berakhir.
+
+F. UI
+
+- Hangar menampilkan data yang benar.
+- Codex menampilkan data yang benar.
+- Tidak ada label Signature Weapon.
+- Tidak ada statistik Special Power aircraft.
+- Tidak ada deskripsi Passive lama.
+- Nama dan deskripsi 24 Passive konsisten antara runtime, Hangar, dan Codex.
+- Tidak ada nilai statistik yang berbeda antara konfigurasi dan UI.
+
+G. Kompatibilitas
+
+- Aircraft lama yang tersimpan tetap dapat dimuat.
+- Unlock dan Select tetap berfungsi.
+- Weapon dapat digunakan oleh seluruh aircraft.
+- Equipment, Upgrade, Drone, Charge, Special, dan Evolution tetap berfungsi.
+- Game Mode dan Challenge tetap berjalan.
+- Tidak ada error runtime atau TypeScript baru.
+
+Jika tidak ada automated test untuk suatu mekanisme, lakukan pemeriksaan manual atau buat unit test terarah sesuai pola testing proyek.
+
+Jangan mengklaim suatu fitur berhasil diuji jika pengujiannya tidak benar-benar dijalankan.
+
+---
+
+PHASE 13 — IMPLEMENTATION CONSTRAINTS
+
+Patuhi ketentuan berikut selama pengerjaan:
+
+1. Jangan melakukan refactor besar yang tidak berkaitan dengan Aircraft System.
+2. Jangan menghapus sistem yang masih digunakan oleh fitur global.
+3. Jangan mengubah Game Mode atau Challenge tanpa kebutuhan teknis yang jelas.
+4. Jangan mengubah ekonomi, harga Unlock, atau persyaratan Unlock aircraft.
+5. Jangan mengubah identifier "ShipId" yang sudah digunakan dalam save data.
+6. Jangan mengubah mekanisme Weapon Evolution yang tidak berkaitan dengan rework.
+7. Jangan membuat formula damage terpisah untuk setiap aircraft.
+8. Jangan menduplikasi logika Passive pada banyak file.
+9. Jangan membuat efek Passive yang memicu dirinya sendiri.
+10. Jangan menambahkan dependensi eksternal jika tidak diperlukan.
+11. Pertahankan desain visual, responsive layout, dan gaya UI yang sudah ada.
+12. Gunakan TypeScript typing yang kuat; hindari "any" jika tidak diperlukan.
+13. Bersihkan timer, event listener, object, dan resource ketika gameplay berakhir.
+14. Pastikan performa tetap stabil, terutama ketika banyak musuh dan projectile muncul bersamaan.
+15. Jangan menyatakan implementasi selesai sebelum pemeriksaan selesai.
+16. Jangan mengubah statistik baseline tanpa alasan yang dapat diverifikasi.
+17. Jangan mengimplementasikan Passive hanya sebagai deskripsi konfigurasi tanpa handler runtime.
+18. Jangan menggunakan generic projectile untuk menggantikan pola weapon Clone.
+19. Jangan membiarkan damage Passive atau Clone masuk ke trigger Player tanpa pengecualian eksplisit.
+20. Jangan membuat sistem cooldown atau event baru jika sistem yang sudah tersedia dapat digunakan dengan aman.
+
+Jika suatu detail spesifikasi bertentangan dengan arsitektur yang sudah ada, prioritaskan solusi yang mempertahankan tujuan desain sekaligus menjaga kompatibilitas. Jelaskan keputusan teknis tersebut.
+
+---
+
+PHASE 14 — FINAL DELIVERABLE
+
+Setelah seluruh pekerjaan selesai, berikan laporan implementasi yang mencakup:
+
+1. Repository Audit
+
+- Arsitektur yang ditemukan.
+- Sistem yang berkaitan dengan Aircraft.
+- Alur statistik, damage, Critical, Shield, dan Passive.
+- File utama yang terdampak.
+
+2. Implemented Changes
+
+- Penghapusan Signature Weapon.
+- Penghapusan "specialPowerMult" dari statistik aircraft.
+- Perubahan tujuh statistik utama.
+- Perubahan Critical Hit.
+- Perubahan urutan aircraft.
+- Implementasi seluruh 24 Passive Ability.
+- Implementasi Damage Reduction berbasis charge.
+- Integrasi Quantum Clone.
+- Integrasi Quantum Synchronization dan Quantum Recovery.
+- Integrasi Ghost Decoy.
+- Perubahan Hangar dan Codex.
+
+3. Technical Decisions
+
+Jelaskan keputusan implementasi penting, terutama:
+
+- Konversi Movement Speed.
+- Integrasi Critical Damage.
+- Sumber Base Damage Passive.
+- Definisi firing action dan hit counter.
+- Identitas enemy attack dan konsumsi charge Damage Reduction.
+- Mekanisme cooldown dan trigger.
+- Damage Reduction stacking dan batas 60%.
+- Quantum Clone dan replikasi keenam jenis weapon.
+- Quantum Synchronization.
+- Kompatibilitas Equipment dan sistem global.
+
+4. Files Changed
+
+Cantumkan seluruh file yang dibuat, diubah, atau dihapus beserta alasan perubahannya.
+
+5. Testing Results
+
+Laporkan:
+
+- Build.
+- TypeScript.
+- Lint.
+- Automated tests.
+- Unit dan integration tests.
+- Pemeriksaan runtime atau manual.
+
+Bedakan dengan jelas antara pengujian yang berhasil, gagal, dan tidak dapat dijalankan.
+
+6. Gameplay Balance Findings
+
+Jelaskan:
+
+- Kekuatan dan kelemahan setiap aircraft.
+- Interaksi Passive yang berpotensi terlalu kuat.
+- Hasil pengujian Clone.
+- Hasil pengujian Damage Reduction.
+- Penyesuaian balance yang dilakukan beserta alasannya.
+
+7. Remaining Issues
+
+Cantumkan konflik, risiko, atau pekerjaan yang masih membutuhkan pengujian tambahan.
+
+---
+
+FINAL ACCEPTANCE CRITERIA
+
+Implementasi hanya dianggap selesai apabila:
+
+- Signature Weapon sudah dihapus sepenuhnya.
+- Semua aircraft dapat menggunakan seluruh weapon tanpa bonus atau penalti berdasarkan jenis weapon.
+- "specialPowerMult" tidak lagi menjadi statistik khusus aircraft.
+- Tujuh statistik utama sudah diterapkan dengan benar.
+- Formula Critical Hit konsisten untuk semua weapon.
+- Statistik dasar delapan aircraft sesuai baseline.
+- Urutan aircraft sesuai spesifikasi.
+- Total 24 Passive Ability sudah diimplementasikan.
+- Seluruh Passive benar-benar aktif pada gameplay runtime.
+- Seluruh cooldown, hit counter, kill counter, dan trigger berfungsi sesuai aturan.
+- Tidak ada Passive peningkat Movement Speed.
+- Damage Passive menggunakan pipeline damage terpusat.
+- Damage Passive tidak menghasilkan rantai aktivasi.
+- Damage Reduction berbasis charge bekerja sesuai jumlah serangan.
+- Damage Reduction stacking mengikuti batas maksimum 60%.
+- Fortress Core hanya aktif selama Shield aktif.
+- NOVA PRIME memiliki satu Quantum Clone yang meniru senjata Player.
+- Fire Rate Clone selalu 50% dari Fire Rate akhir Player.
+- Clone mengikuti Weapon Level, Evolution, pergantian weapon, dan pola tembakan.
+- Clone tidak menghasilkan Critical Hit atau memicu rantai Passive.
+- Quantum Synchronization dan Quantum Recovery bekerja sesuai spesifikasi.
+- Astral Constellation menghasilkan tepat tiga Astral Shards.
+- Stellar Protection mengonsumsi tiga charge serangan dengan benar.
+- Ghost Decoy mengalihkan target selama 2,5 detik.
+- Hangar dan Aircraft Codex menampilkan nama serta deskripsi Passive yang sama dengan runtime.
+- Tidak ada kerusakan pada sistem senjata, progression, Equipment, Upgrade, Drone, atau Save System.
+- TypeScript, build, lint, dan automated test dijalankan jika tersedia.
+- Tidak ada error baru yang disebabkan oleh perubahan ini.
+
+PRIORITAS TERTINGGI
+
+Jangan hanya membuat sistem yang terlihat benar pada konfigurasi atau UI.
+
+Pastikan seluruh statistik dan 24 Passive Ability benar-benar bekerja pada gameplay runtime, terintegrasi dengan sistem damage, HP, Shield, weapon, dan musuh yang sudah ada.
+
+Gunakan spesifikasi Passive pada Phase 7 sebagai satu-satunya acuan final. Jangan mengambil kembali efek dari desain Passive sebelumnya.
+
+Lakukan implementasi secara menyeluruh, terukur, dan konsisten. Pertahankan keseimbangan kedelapan aircraft, hindari regresi, dan jangan mengubah bagian proyek yang tidak relevan.
+
+Mulai dengan audit repository, lanjutkan implementasi nyata, jalankan pengujian, lalu berikan laporan berdasarkan perubahan dan hasil pengujian yang benar-benar dilakukan.

@@ -117,7 +117,13 @@ export class DroneManager {
             Math.sin(ang) * spd,
             dmg,
             'proj_laser',
-            { radius: 7, scale: 0.85, isCrit: crit.isCrit }
+            {
+              radius: 7,
+              scale: 0.85,
+              isCrit: crit.isCrit,
+              source: 'drone',
+              countsForFiringAction: false,
+            }
           );
         } else {
           slot.cooldownMs = 150;

@@ -54,6 +54,7 @@ const INITIAL_HUD: HudSnapshot = {
   hp: 100,
   maxHp: 100,
   shield: 60,
+  tempShield: 0,
   maxShield: 60,
   score: 0,
   combo: 1,

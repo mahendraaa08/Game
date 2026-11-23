@@ -4,7 +4,7 @@ import { ShipId, SHIPS } from '../config/ShipConfig';
 import { getWeaponFireRateAtLevel, SpecialId, WeaponId, WEAPONS } from '../config/WeaponConfig';
 import { SoundManager } from '../audio/SoundManager';
 import { ProjectileManager } from '../entities/ProjectileManager';
-import { Targetable } from '../entities/Targetable';
+import { allocateTargetId, Targetable } from '../entities/Targetable';
 import { BackgroundSystem } from '../systems/BackgroundSystem';
 import { generateAllTextures } from '../textures/TextureGenerator';
 import { EventBus } from '../utils/EventBus';
@@ -67,6 +67,7 @@ export class HangarScene extends Phaser.Scene {
     this.dummyTarget = this.add.sprite(w * 0.5, h * 0.25, 'enemy_fighter').setScale(1.1).setDepth(10);
 
     this.dummyTargetObj = {
+      targetId: allocateTargetId(),
       x: this.dummyTarget.x,
       y: this.dummyTarget.y,
       active: true,
@@ -160,8 +161,6 @@ export class HangarScene extends Phaser.Scene {
         this.flashDummyTarget,
         {
           weaponLevel: wLevel,
-          hasAstralWingBolts: shipDef.id === 'celestial',
-          extraChainTargets: shipDef.id === 'thunderbolt' ? 1 : 0,
         }
       );
     }

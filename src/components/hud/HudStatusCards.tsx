@@ -182,6 +182,7 @@ export const TelemetryCard = memo<{
   hp: number;
   maxHp: number;
   shield: number;
+  tempShield?: number;
   maxShield: number;
   rapidFireLeftSec: number;
   doubleDamageLeftSec: number;
@@ -193,6 +194,7 @@ export const TelemetryCard = memo<{
     hp,
     maxHp,
     shield,
+    tempShield = 0,
     maxShield,
     rapidFireLeftSec,
     doubleDamageLeftSec,
@@ -202,6 +204,7 @@ export const TelemetryCard = memo<{
     const hpPct = Math.max(0, Math.min(100, (safeHp / Math.max(1, maxHp)) * 100));
     const shieldOffline = maxShield <= 0;
     const safeShield = Math.max(0, shield);
+    const safeTempShield = Math.max(0, tempShield);
     const shieldPct = shieldOffline
       ? 0
       : Math.max(0, Math.min(100, (safeShield / maxShield) * 100));
@@ -261,7 +264,7 @@ export const TelemetryCard = memo<{
               <span className="inline-flex items-center gap-1 font-medium text-slate-300">
                 <Shield
                   className={`h-3 w-3 shrink-0 ${
-                    shieldOffline ? 'text-slate-500' : 'text-sky-400'
+                    shieldOffline ? 'text-slate-500' : safeTempShield > 0 ? 'text-cyan-300' : 'text-sky-400'
                   }`}
                 />
                 <span>SHD</span>
@@ -271,7 +274,16 @@ export const TelemetryCard = memo<{
                   shieldOffline ? 'text-slate-500' : 'text-sky-300'
                 }`}
               >
-                {shieldOffline ? 'Offline' : `${safeShield}/${maxShield}`}
+                {shieldOffline ? (
+                  'Offline'
+                ) : (
+                  <>
+                    {safeShield}/{maxShield}
+                    {safeTempShield > 0 && (
+                      <span className="ml-1 text-cyan-300">+{safeTempShield}</span>
+                    )}
+                  </>
+                )}
               </span>
             </div>
             <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-slate-900/95 ring-1 ring-inset ring-white/5">

@@ -1,6 +1,6 @@
 import type { BossId } from '../config/BossConfig';
 import { DRONE_SLOT_IDS, type DroneId, type DroneSlotId } from '../config/DroneConfig';
-import { ECONOMY_START, getMigrationBonus } from '../config/EconomyConfig';
+import { ECONOMY_START, getMigrationBonus, MAX_SHIP_LEVEL } from '../config/EconomyConfig';
 import type { EnemyClass } from '../config/EnemyConfig';
 import type { EquipmentSlot } from '../config/EquipmentConfig';
 import {
@@ -83,6 +83,7 @@ export interface PlayerProgress {
   levelScores: Record<number, number>;
   selectedShip: ShipId;
   unlockedShips: ShipId[];
+  shipLevels: Record<ShipId, number>;
   selectedWeapon: WeaponId;
   unlockedWeapons: WeaponId[];
   weaponLevels: Record<WeaponId, number>;
@@ -154,6 +155,17 @@ const DEFAULT_WEAPON_LEVELS: Record<WeaponId, number> = {
   lightning: 1,
 };
 
+const DEFAULT_SHIP_LEVELS: Record<ShipId, number> = {
+  falcon_x: 1,
+  destroyer: 1,
+  phantom: 1,
+  thunderbolt: 1,
+  aegis: 1,
+  specter: 1,
+  nova_prime: 1,
+  celestial: 1,
+};
+
 const DEFAULT_EQUIPPED_GEAR: Record<EquipmentSlot, string | null> = {
   offensive: null,
   defensive: null,
@@ -190,6 +202,7 @@ export function createDefaultProgress(): PlayerProgress {
     levelScores: {},
     selectedShip: 'falcon_x',
     unlockedShips: ['falcon_x'],
+    shipLevels: { ...DEFAULT_SHIP_LEVELS },
     selectedWeapon: 'plasma',
     unlockedWeapons: ['plasma'],
     weaponLevels: { ...DEFAULT_WEAPON_LEVELS },
@@ -392,6 +405,13 @@ class StorageManagerImpl {
         });
       }
 
+      const shipLevels = { ...DEFAULT_SHIP_LEVELS };
+      if (parsed.shipLevels && typeof parsed.shipLevels === 'object') {
+        (Object.keys(DEFAULT_SHIP_LEVELS) as ShipId[]).forEach((k) => {
+          shipLevels[k] = safeInt((parsed.shipLevels as Record<string, unknown>)[k], 1, 1, MAX_SHIP_LEVEL);
+        });
+      }
+
       const ownedEquipment: Record<string, number> = {};
       if (parsed.ownedEquipment && typeof parsed.ownedEquipment === 'object') {
         Object.entries(parsed.ownedEquipment).forEach(([id, lvl]) => {
@@ -575,6 +595,7 @@ class StorageManagerImpl {
         levelScores: parsed.levelScores && typeof parsed.levelScores === 'object' ? parsed.levelScores : {},
         selectedShip,
         unlockedShips: Array.from(new Set(unlockedShipsRaw)),
+        shipLevels,
         selectedWeapon,
         unlockedWeapons: Array.from(new Set(unlockedWeaponsRaw)),
         weaponLevels,
@@ -653,8 +674,13 @@ class StorageManagerImpl {
       (d): d is DroneId => d !== null
     );
     const clampedLevel = Math.max(1, Math.min(MAX_PLAYER_LEVEL, Math.floor(next.playerLevel || 1)));
+    const clampedShipLevels = { ...DEFAULT_SHIP_LEVELS };
+    (Object.keys(DEFAULT_SHIP_LEVELS) as ShipId[]).forEach((k) => {
+      clampedShipLevels[k] = safeInt(next.shipLevels?.[k], 1, 1, MAX_SHIP_LEVEL);
+    });
     const sanitized: PlayerProgress = {
       ...next,
+      shipLevels: clampedShipLevels,
       version: 2,
       guestModeConfirmed: Boolean(next.guestModeConfirmed),
       guestSessionCreatedAt:

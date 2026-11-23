@@ -282,6 +282,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             hp={hud.hp}
             maxHp={hud.maxHp}
             shield={hud.shield}
+            tempShield={hud.tempShield ?? 0}
             maxShield={hud.maxShield}
             rapidFireLeftSec={hud.rapidFireLeftSec}
             doubleDamageLeftSec={hud.doubleDamageLeftSec}

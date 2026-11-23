@@ -14,6 +14,7 @@ import {
   EquipmentSlot,
   getEquipmentUpgradeCost,
 } from '../config/EquipmentConfig';
+import { calculateShipUpgradeCost, MAX_SHIP_LEVEL } from '../config/EconomyConfig';
 import { selectDailyMissions, selectWeeklyChallenges } from '../config/MissionConfig';
 import { SHIP_LIST, ShipId } from '../config/ShipConfig';
 import {
@@ -131,7 +132,7 @@ export function isDroneActionableInSlot(
 }
 
 export function evaluateGlobalNotifications(progress: PlayerProgress): GlobalNotificationState {
-  // 1. Ships (unlockable + affordable)
+  // 1. Ships (unlockable + affordable OR unlocked & Lv < 7 & affordable upgrade)
   const shipIds = {} as Record<ShipId, boolean>;
   let shipsTab = false;
   for (const ship of SHIP_LIST) {
@@ -142,6 +143,12 @@ export function evaluateGlobalNotifications(progress: PlayerProgress): GlobalNot
         !ship.unlock.minSectorCompleted ||
         progress.completedLevels.includes(ship.unlock.minSectorCompleted);
       actionable = sectorMet && canAfford(progress, ship.unlock.credits, ship.unlock.crystals);
+    } else {
+      const curLvl = progress.shipLevels?.[ship.id] ?? 1;
+      if (curLvl < MAX_SHIP_LEVEL) {
+        const upgCost = calculateShipUpgradeCost(ship.id, curLvl);
+        actionable = canAfford(progress, upgCost.credits, upgCost.crystals);
+      }
     }
     shipIds[ship.id] = actionable;
     if (actionable) shipsTab = true;

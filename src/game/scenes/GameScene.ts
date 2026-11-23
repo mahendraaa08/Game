@@ -13,16 +13,18 @@ import { GAME_CONSTANTS, HudSnapshot } from '../config/GameConfig';
 import { BOSS_RUSH_ORDER, CHALLENGE_BY_ID, ChallengeDefinition, GameMode } from '../config/GameModeConfig';
 import { CAMPAIGN_LEVELS, LevelDefinition } from '../config/LevelConfig';
 import { SHIPS } from '../config/ShipConfig';
-import { SpecialId, SPECIAL_ATTACKS, WeaponId, WEAPONS, WEAPON_LIST } from '../config/WeaponConfig';
+import { SpecialId, SPECIAL_ATTACKS, WeaponId, WEAPONS, WEAPON_LIST, getWeaponDamageAtLevel } from '../config/WeaponConfig';
 import { SoundManager } from '../audio/SoundManager';
 import { BossEntity } from '../entities/Boss';
 import { DroneManager } from '../entities/DroneManager';
 import { EnemyEntity } from '../entities/Enemy';
 import { Player } from '../entities/Player';
-import { ProjectileManager } from '../entities/ProjectileManager';
-import { Targetable } from '../entities/Targetable';
+import { BeamHitMeta, ProjectileManager } from '../entities/ProjectileManager';
+import { QuantumClone } from '../entities/QuantumClone';
+import { allocateEnemyAttackId, Targetable } from '../entities/Targetable';
 import { BackgroundSystem } from '../systems/BackgroundSystem';
 import { CombatSystem } from '../systems/CombatSystem';
+import { PassiveSystem, PassiveTarget } from '../systems/PassiveSystem';
 import { computePlayerStats, ProgressionManager } from '../systems/ProgressionManager';
 import { WaveDirector } from '../systems/WaveDirector';
 import { generateAllTextures } from '../textures/TextureGenerator';
@@ -44,6 +46,10 @@ export class GameScene extends Phaser.Scene {
   private levelDef!: LevelDefinition;
   private bg!: BackgroundSystem;
   private player!: Player;
+  private passiveSystem: PassiveSystem | null = null;
+  private quantumClone: QuantumClone | null = null;
+  private ghostDecoySprite: Phaser.GameObjects.Sprite | null = null;
+  private ghostDecoyGfx: Phaser.GameObjects.Graphics | null = null;
   private drones: DroneManager | null = null;
   private projectiles!: ProjectileManager;
   private waveDirector!: WaveDirector;
@@ -216,6 +222,77 @@ export class GameScene extends Phaser.Scene {
       allowedWeapons
     );
 
+    this.passiveSystem = new PassiveSystem(stats.shipId, {
+      getPlayerState: () => ({
+        x: this.player.x,
+        y: this.player.y,
+        hp: this.player.hp,
+        maxHp: this.player.maxHp,
+        shield: this.player.shield,
+        maxShield: this.player.maxShield,
+      }),
+      getWeaponBaseDamage: () =>
+        Math.max(
+          1,
+          Math.round(
+            getWeaponDamageAtLevel(WEAPONS[this.player.weaponId], this.player.weaponLevel) *
+              this.player.stats.damageMult
+          )
+        ),
+      getTargets: () => this.fillAllTargets(),
+      getScreenSize: () => ({
+        width: this.scale.width,
+        height: this.scale.height,
+      }),
+      restoreShield: (amount, label) => {
+        const gained = this.player.restoreShield(amount);
+        if (label) {
+          this.combat.spawnFloatingLabel(this.player.x, this.player.y - 22, label, '#67E8F9');
+        } else if (gained > 0) {
+          this.combat.spawnFloatingLabel(
+            this.player.x,
+            this.player.y - 22,
+            `+${gained} SHD`,
+            '#67E8F9'
+          );
+        }
+      },
+      applyPassiveDamage: (target, dmg, label) => this.applyPassiveDamage(target, dmg, label),
+      onExplosionAoe: (x, y, radiusPx, color, isHeavy) =>
+        this.combat.spawnAoeShockwave(x, y, radiusPx, color, Boolean(isHeavy)),
+      onLightningArcs: (points, color) =>
+        this.projectiles.addLightningArc(points, true, false, color),
+      onEnergyWave: (x, y, radiusPx, color) =>
+        this.combat.spawnAoeShockwave(x, y, radiusPx, color, true),
+      onAstralBeam: (x, y, color) => {
+        this.projectiles.addVisualBeam(x, 0, x, y, color, 26, 0.28);
+        this.combat.spawnExplosion(x, y, color, 16, 220, 1.15);
+      },
+      onAstralShardHit: (fromX, fromY, toX, toY) => {
+        this.projectiles.addVisualBeam(fromX, fromY, toX, toY, 0xe879f9, 10, 0.16);
+        this.combat.spawnExplosion(toX, toY, 0xf0abfc, 8, 150, 0.8);
+      },
+      onFloatingLabel: (x, y, text, colorHex) =>
+        this.combat.spawnFloatingLabel(x, y, text, colorHex),
+    });
+    this.player.setPassiveSystem(this.passiveSystem);
+
+    this.quantumClone =
+      stats.shipId === 'nova_prime' ? new QuantumClone(this, startX - 46, startY + 18) : null;
+
+    if (stats.shipId === 'phantom') {
+      this.ghostDecoyGfx = this.add.graphics().setDepth(9).setVisible(false);
+      this.ghostDecoySprite = this.add
+        .sprite(-200, -200, 'ship_phantom')
+        .setDepth(9)
+        .setAlpha(0.58)
+        .setTint(0x22d3ee)
+        .setVisible(false);
+    } else {
+      this.ghostDecoyGfx = null;
+      this.ghostDecoySprite = null;
+    }
+
     this.drones = !this.challengeDef?.rules.disableDrones
       ? new DroneManager(this, saved.equippedDroneSlots, saved.ownedDrones, startX, startY)
       : null;
@@ -332,7 +409,7 @@ export class GameScene extends Phaser.Scene {
     this.player.tryTriggerSpecial(
       this.projectiles,
       targets,
-      (t, dmg, isCrit) => this.applyDirectDamage(t, dmg, isCrit),
+      (t, dmg, isCrit, hitMeta) => this.applyDirectDamage(t, dmg, isCrit, hitMeta),
       (intensity) => this.shakeCamera(220, intensity)
     );
   }
@@ -349,19 +426,80 @@ export class GameScene extends Phaser.Scene {
     return this.targetsBuf;
   }
 
-  private applyDirectDamage(target: Targetable, dmg: number, isCrit = false): void {
+  private applyPassiveDamage(target: PassiveTarget, dmg: number, label?: string): void {
     if (!target.active) return;
-    this.combat.spawnExplosion(target.x, target.y, isCrit ? 0xfacc15 : 0x38bdf8, 4, 90, 0.55);
-    this.combat.spawnDamageNumber(target.x, target.y, dmg, isCrit);
+    const t = target as Targetable;
+    this.combat.spawnExplosion(t.x, t.y, 0x38bdf8, 5, 115, 0.65);
+    this.combat.spawnDamageNumber(t.x, t.y, dmg, false);
+    if (label) {
+      this.combat.spawnFloatingLabel(t.x, t.y - 16, label, '#FACC15');
+    }
+    const killed = t.takeDamage(dmg);
+    if (killed && 'def' in t && 'scoreReward' in t) {
+      this.handleEnemyKilled(t as EnemyEntity);
+    }
+  }
+
+  private applyDirectDamage(
+    target: Targetable,
+    dmg: number,
+    isCrit = false,
+    hitMeta?: BeamHitMeta,
+    cloneActionId = 0
+  ): void {
+    if (!target.active) return;
+    let finalDmg = dmg;
+    if (this.passiveSystem && hitMeta) {
+      if (hitMeta.source === 'player_weapon') {
+        finalDmg = this.passiveSystem.resolvePlayerWeaponHitDamage(target, dmg, {
+          source: 'player_weapon',
+          firingActionId: hitMeta.firingActionId,
+          countsForFiringAction: hitMeta.countsForFiringAction,
+          isCrit,
+        });
+      } else if (hitMeta.source === 'clone') {
+        finalDmg = this.passiveSystem.resolveCloneWeaponHitDamage(target, dmg, {
+          cloneActionId,
+          countsForFiringAction: hitMeta.countsForFiringAction,
+        });
+      }
+    }
+
+    this.combat.spawnExplosion(
+      target.x,
+      target.y,
+      hitMeta?.source === 'clone' ? 0x818cf8 : isCrit ? 0xfacc15 : 0x38bdf8,
+      4,
+      90,
+      0.55
+    );
+    this.combat.spawnDamageNumber(target.x, target.y, finalDmg, isCrit);
     if (isCrit) {
       this.pendingCrits += 1;
       SoundManager.playCritHit();
     } else {
       SoundManager.playHit();
     }
-    const killed = target.takeDamage(dmg);
-    if (killed && 'def' in target && 'scoreReward' in target) {
+    const killed = target.takeDamage(finalDmg);
+    const isEnemy = 'def' in target && 'scoreReward' in target;
+    if (killed && isEnemy) {
       this.handleEnemyKilled(target as EnemyEntity);
+    }
+
+    if (this.passiveSystem && hitMeta) {
+      if (hitMeta.source === 'player_weapon' || hitMeta.source === 'special') {
+        this.passiveSystem.onPlayerWeaponHitPostDamage(target, finalDmg, killed, {
+          source: hitMeta.source,
+          firingActionId: hitMeta.firingActionId,
+          countsForFiringAction: hitMeta.countsForFiringAction,
+          isCrit,
+        });
+      } else if (hitMeta.source === 'clone') {
+        this.passiveSystem.onCloneWeaponHitPostDamage(target, {
+          cloneActionId,
+          countsForFiringAction: hitMeta.countsForFiringAction,
+        });
+      }
     }
   }
 
@@ -408,10 +546,6 @@ export class GameScene extends Phaser.Scene {
       enemy.def.id === 'harbinger'
     ) {
       this.pendingEliteKills++;
-    }
-
-    if (this.player.stats.shieldOnKill > 0) {
-      this.player.restoreShield(this.player.stats.shieldOnKill);
     }
 
     this.score += enemy.scoreReward * this.combo;
@@ -878,15 +1012,34 @@ export class GameScene extends Phaser.Scene {
 
     const targets = this.fillAllTargets();
 
-    // Update Player
+    // Update Player & PassiveSystem
     this.player.update(
       dt,
       this.projectiles,
       targets,
-      (t, dmg, isCrit) => this.applyDirectDamage(t, dmg, isCrit),
+      (t, dmg, isCrit, hitMeta) => this.applyDirectDamage(t, dmg, isCrit, hitMeta),
       () => {},
       (intensity) => this.shakeCamera(180, intensity),
       (t) => this.combat.spawnStunRing(t.x, t.y)
+    );
+
+    this.passiveSystem?.update(dt);
+
+    // Update Nova Prime Quantum Clone
+    this.quantumClone?.update(
+      dt,
+      this.player,
+      this.projectiles,
+      targets,
+      () => this.passiveSystem?.beginCloneFiringAction() ?? 0,
+      (t, dmg, cloneActionId, countsForFiringAction) =>
+        this.applyDirectDamage(
+          t,
+          dmg,
+          false,
+          { source: 'clone', firingActionId: 0, countsForFiringAction },
+          cloneActionId
+        )
     );
 
     // Update Companion Drones
@@ -928,17 +1081,39 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Resolve Enemy Aim Target (supports Phantom Ghost Decoy distraction)
+    const aim = this.passiveSystem?.getEnemyAimTarget(this.player.x, this.player.y) ?? {
+      x: this.player.x,
+      y: this.player.y,
+      decoyActive: false,
+    };
+
+    if (this.ghostDecoySprite && this.ghostDecoyGfx) {
+      if (aim.decoyActive) {
+        const pulse = 0.55 + 0.3 * Math.sin(this.elapsedSurvivalSec * 14);
+        this.ghostDecoySprite.setVisible(true).setPosition(aim.x, aim.y).setAlpha(0.52 * pulse);
+        this.ghostDecoyGfx.setVisible(true).clear();
+        this.ghostDecoyGfx.lineStyle(2, 0x22d3ee, 0.75 * pulse);
+        this.ghostDecoyGfx.strokeCircle(aim.x, aim.y, 26);
+        this.ghostDecoyGfx.fillStyle(0x22d3ee, 0.14 * pulse);
+        this.ghostDecoyGfx.fillCircle(aim.x, aim.y, 24);
+      } else {
+        this.ghostDecoySprite.setVisible(false);
+        this.ghostDecoyGfx.setVisible(false).clear();
+      }
+    }
+
     // Update Enemies (reuse pre-filled activeEnemiesBuf refreshed with any new wave spawns)
     const activeEnemies = this.waveDirector.fillActiveEnemies(this.activeEnemiesBuf);
     for (let i = 0; i < activeEnemies.length; i++) {
-      activeEnemies[i].update(dt, this.player.x, this.player.y, this.projectiles);
+      activeEnemies[i].update(dt, aim.x, aim.y, this.projectiles);
     }
 
     // Update Boss & stream real-time 60fps pose to BossHealthBar
     if (this.boss && this.boss.active) {
-      this.boss.update(dt, this.player.x, this.player.y, this.projectiles, (laserDmg) => {
+      this.boss.update(dt, aim.x, aim.y, this.projectiles, (laserDmg) => {
         const prevHp = this.player.hp;
-        if (this.player.takeDamage(laserDmg)) {
+        if (this.player.takeDamage(laserDmg, allocateEnemyAttackId())) {
           if (this.player.hp < prevHp) {
             this.resetScoreMultiplierOnHpLoss();
           }
@@ -951,8 +1126,8 @@ export class GameScene extends Phaser.Scene {
       this.emitBossPose();
     }
 
-    // Update Projectiles & Collisions (pass player coords for enemy homing seekers & aimed splitters)
-    this.projectiles.update(dt, targets, this.player.x, this.player.y);
+    // Update Projectiles & Collisions (pass aim coords for enemy homing seekers & aimed splitters)
+    this.projectiles.update(dt, targets, aim.x, aim.y);
 
     this.combat.resolveCollisions(
       this.player,
@@ -974,7 +1149,8 @@ export class GameScene extends Phaser.Scene {
       },
       () => {
         this.pendingCrits += 1;
-      }
+      },
+      this.passiveSystem
     );
 
     this.combat.updateParticlesAndPowerUps(
@@ -1113,6 +1289,14 @@ export class GameScene extends Phaser.Scene {
       this.scene.stop('BossScene');
     }
     this.drones?.destroy();
+    this.quantumClone?.destroy();
+    this.quantumClone = null;
+    this.passiveSystem?.destroy();
+    this.passiveSystem = null;
+    this.ghostDecoySprite?.destroy();
+    this.ghostDecoySprite = null;
+    this.ghostDecoyGfx?.destroy();
+    this.ghostDecoyGfx = null;
     this.player?.destroy();
     this.projectiles?.destroy();
     this.waveDirector?.destroy();

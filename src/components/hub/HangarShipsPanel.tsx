@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Coins, Gem, Lock, Shield, Zap } from 'lucide-react';
-import { SHIP_LIST, ShipId, SHIPS } from '../../game/config/ShipConfig';
-import { SPECIAL_LIST, SpecialId, WEAPONS } from '../../game/config/WeaponConfig';
+import { GAME_CONSTANTS } from '../../game/config/GameConfig';
+import { getShipBaseMoveSpeedPx, SHIP_LIST, ShipId, SHIPS } from '../../game/config/ShipConfig';
+import { SPECIAL_LIST, SpecialId } from '../../game/config/WeaponConfig';
 import { SoundManager } from '../../game/audio/SoundManager';
 import { evaluateGlobalNotifications } from '../../game/systems/NotificationStatus';
 import { ActionResult, ProgressionManager } from '../../game/systems/ProgressionManager';
@@ -26,7 +27,7 @@ const STAT_MAX = {
   damageMult: Math.max(...SHIP_LIST.map((s) => s.stats.damageMult)),
   fireRateMult: Math.max(...SHIP_LIST.map((s) => s.stats.fireRateMult)),
   critChance: Math.max(...SHIP_LIST.map((s) => s.stats.critChance)),
-  specialPowerMult: Math.max(...SHIP_LIST.map((s) => s.stats.specialPowerMult)),
+  critDamage: Math.max(...SHIP_LIST.map((s) => s.stats.critDamage)),
 };
 
 export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
@@ -66,56 +67,56 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
       val: inspected.stats.maxHp,
       eq: equipped.stats.maxHp,
       max: STAT_MAX.maxHp,
-      isPct: false,
       fmt: (v: number) => `${v}`,
+      fmtDelta: (d: number) => `${d > 0 ? '+' : ''}${Math.round(d)}`,
     },
     {
       label: 'Shield Capacity',
       val: inspected.stats.maxShield,
       eq: equipped.stats.maxShield,
       max: STAT_MAX.maxShield,
-      isPct: false,
       fmt: (v: number) => `${v}`,
+      fmtDelta: (d: number) => `${d > 0 ? '+' : ''}${Math.round(d)}`,
     },
     {
       label: 'Thruster Speed',
       val: inspected.stats.moveSpeed,
       eq: equipped.stats.moveSpeed,
       max: STAT_MAX.moveSpeed,
-      isPct: false,
-      fmt: (v: number) => `${v}`,
+      fmt: (v: number) => `${v.toFixed(2)}x (${Math.round(GAME_CONSTANTS.PLAYER_SPEED * v)} px/s)`,
+      fmtDelta: (d: number) => `${d > 0 ? '+' : ''}${Math.round(d * 100)}%`,
     },
     {
       label: 'Weapon Power',
       val: inspected.stats.damageMult,
       eq: equipped.stats.damageMult,
       max: STAT_MAX.damageMult,
-      isPct: true,
       fmt: (v: number) => `${Math.round(v * 100)}%`,
+      fmtDelta: (d: number) => `${d > 0 ? '+' : ''}${Math.round(d * 100)}%`,
     },
     {
       label: 'Fire Cadence',
       val: inspected.stats.fireRateMult,
       eq: equipped.stats.fireRateMult,
       max: STAT_MAX.fireRateMult,
-      isPct: true,
       fmt: (v: number) => `${Math.round(v * 100)}%`,
+      fmtDelta: (d: number) => `${d > 0 ? '+' : ''}${Math.round(d * 100)}%`,
     },
     {
       label: 'Critical Rate',
       val: inspected.stats.critChance,
       eq: equipped.stats.critChance,
       max: STAT_MAX.critChance,
-      isPct: true,
       fmt: (v: number) => `${Math.round(v * 100)}%`,
+      fmtDelta: (d: number) => `${d > 0 ? '+' : ''}${Math.round(d * 100)}%`,
     },
     {
-      label: 'Special Output',
-      val: inspected.stats.specialPowerMult,
-      eq: equipped.stats.specialPowerMult,
-      max: STAT_MAX.specialPowerMult,
-      isPct: true,
-      fmt: (v: number) => `${Math.round(v * 100)}%`,
+      label: 'Critical Damage',
+      val: inspected.stats.critDamage,
+      eq: equipped.stats.critDamage,
+      max: STAT_MAX.critDamage,
+      fmt: (v: number) => `${v.toFixed(2)}x`,
+      fmtDelta: (d: number) => `${d > 0 ? '+' : ''}${d.toFixed(2)}x`,
     },
   ];
 
@@ -127,7 +128,7 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
       category: 'equip',
       title: 'Confirm Equip',
       itemName: inspected.name,
-      itemSubtitle: `${inspected.role} · Signature: ${WEAPONS[inspected.signatureWeapon].name}`,
+      itemSubtitle: `${inspected.role} · 3 Tactical Passives`,
       description: `Deploy ${inspected.name} as your active flagship across missions and fleet sorties?`,
       icon: <ShipArtBadge shipId={inspected.id} size={36} />,
       statDeltas: [
@@ -142,9 +143,9 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
           after: `${inspected.stats.maxHp} / ${inspected.stats.maxShield}`,
         },
         {
-          label: 'Weapon Power',
-          before: `${Math.round(equipped.stats.damageMult * 100)}%`,
-          after: `${Math.round(inspected.stats.damageMult * 100)}%`,
+          label: 'Power / Crit DMG',
+          before: `${Math.round(equipped.stats.damageMult * 100)}% · ${equipped.stats.critDamage.toFixed(2)}x`,
+          after: `${Math.round(inspected.stats.damageMult * 100)}% · ${inspected.stats.critDamage.toFixed(2)}x`,
         },
       ],
       execute: () => ProgressionManager.unlockOrSelectShip(inspected.id),
@@ -161,7 +162,7 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
       category: 'unlock',
       title: 'Confirm Unlock',
       itemName: inspected.name,
-      itemSubtitle: `${inspected.role} · Signature: ${WEAPONS[inspected.signatureWeapon].name}`,
+      itemSubtitle: `${inspected.role} · 3 Tactical Passives`,
       description: inspected.description,
       note:
         minSector && !sectorMet
@@ -175,7 +176,7 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
         },
         {
           label: 'Power / Speed',
-          before: `${Math.round(inspected.stats.damageMult * 100)}% DMG · ${inspected.stats.moveSpeed} SPD`,
+          before: `${Math.round(inspected.stats.damageMult * 100)}% DMG · ${getShipBaseMoveSpeedPx(inspected)} px/s`,
         },
       ],
       creditsCost: inspected.unlock.credits,
@@ -318,10 +319,7 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
                       {inspected.name}
                     </h3>
                     <div className="font-mono-num text-[11px] text-slate-400">
-                      Signature:{' '}
-                      <span className="text-sky-300">
-                        {WEAPONS[inspected.signatureWeapon].name}
-                      </span>
+                      Universal Weaponry · 3 Active Passives
                     </div>
                   </div>
                 </div>
@@ -346,15 +344,32 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
 
               <p className="mt-3 text-xs leading-relaxed text-slate-300">{inspected.description}</p>
 
-              {/* Passive Trait Bar */}
+              {/* Tactical Passive Suite (3 Passives from ShipConfig) */}
               <div className="mt-3 rounded-xl border border-slate-800/90 bg-[#060c1a]/90 px-3.5 py-2.5 text-xs">
                 <div className="flex items-center gap-1.5 font-semibold text-amber-300">
                   <Shield className="h-3.5 w-3.5 shrink-0" />
-                  <span>Passive: {inspected.passiveName}</span>
+                  <span>Tactical Passives ({inspected.passives.length})</span>
                 </div>
-                <p className="mt-1 text-[11.5px] leading-snug text-slate-300">
-                  {inspected.passiveDescription}
-                </p>
+                <div className="mt-2 space-y-2">
+                  {inspected.passives.map((passive, idx) => (
+                    <div
+                      key={passive.id}
+                      className="rounded-lg border border-slate-800/75 bg-[#040916]/85 px-2.5 py-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-sky-200">
+                          {idx + 1}. {passive.name}
+                        </span>
+                        <span className="font-mono-num text-[10px] text-slate-400">
+                          {passive.cooldownSec ? `${passive.cooldownSec}s CD` : 'Passive'}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-[11px] leading-snug text-slate-300">
+                        {passive.description}
+                      </p>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* 2-Column Stat Matrix */}
@@ -374,8 +389,7 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
                                 delta > 0 ? 'text-emerald-400' : 'text-rose-400'
                               }`}
                             >
-                              ({delta > 0 ? '+' : ''}
-                              {row.isPct ? `${Math.round(delta * 100)}%` : Math.round(delta)})
+                              ({row.fmtDelta(delta)})
                             </span>
                           )}
                         </div>
