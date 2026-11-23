@@ -902,45 +902,50 @@ class SoundManagerImpl {
     if (!ctx || !this.sfxGain) return;
     const t = ctx.currentTime;
 
-    if (specialId === 'orbital_strike') {
-      // Heavy orbital ion ignition + resonant descending pillar roar
-      const beam = ctx.createOscillator();
-      const sub = ctx.createOscillator();
+    if (specialId === 'chrono_singularity') {
+      // Crystalline time-dilation resonance + descending phase lock
+      const warp = ctx.createOscillator();
+      const chime = ctx.createOscillator();
       const gain = ctx.createGain();
-      beam.type = 'sawtooth';
-      sub.type = 'sine';
-      beam.frequency.setValueAtTime(640, t);
-      beam.frequency.exponentialRampToValueAtTime(140, t + 0.48);
-      sub.frequency.setValueAtTime(180, t);
-      sub.frequency.exponentialRampToValueAtTime(48, t + 0.48);
+      warp.type = 'sine';
+      chime.type = 'triangle';
+      warp.frequency.setValueAtTime(760, t);
+      warp.frequency.exponentialRampToValueAtTime(120, t + 0.48);
+      chime.frequency.setValueAtTime(1140, t);
+      chime.frequency.exponentialRampToValueAtTime(520, t + 0.36);
       gain.gain.setValueAtTime(0.2, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
-      beam.connect(gain);
-      sub.connect(gain);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.52);
+      warp.connect(gain);
+      chime.connect(gain);
       gain.connect(this.sfxGain);
-      beam.start(t);
-      sub.start(t);
-      beam.stop(t + 0.52);
-      sub.stop(t + 0.52);
+      warp.start(t);
+      chime.start(t);
+      warp.stop(t + 0.54);
+      chime.stop(t + 0.42);
       return;
     }
 
-    if (specialId === 'photon_barrage') {
-      // Cascading multi-warhead launch burst
-      for (let i = 0; i < 4; i++) {
-        const start = t + i * 0.045;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(340 + i * 95, start);
-        osc.frequency.exponentialRampToValueAtTime(760 + i * 110, start + 0.14);
-        gain.gain.setValueAtTime(0.12, start);
-        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.16);
-        osc.connect(gain);
-        gain.connect(this.sfxGain);
-        osc.start(start);
-        osc.stop(start + 0.17);
-      }
+    if (specialId === 'gravity_well') {
+      // Deep gravitational singularity implosion + swirling hum
+      const sub = ctx.createOscillator();
+      const swirl = ctx.createOscillator();
+      const gain = ctx.createGain();
+      sub.type = 'sine';
+      swirl.type = 'sawtooth';
+      sub.frequency.setValueAtTime(210, t);
+      sub.frequency.exponentialRampToValueAtTime(44, t + 0.52);
+      swirl.frequency.setValueAtTime(110, t);
+      swirl.frequency.exponentialRampToValueAtTime(290, t + 0.25);
+      swirl.frequency.exponentialRampToValueAtTime(72, t + 0.52);
+      gain.gain.setValueAtTime(0.19, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+      sub.connect(gain);
+      swirl.connect(gain);
+      gain.connect(this.sfxGain);
+      sub.start(t);
+      swirl.start(t);
+      sub.stop(t + 0.56);
+      swirl.stop(t + 0.56);
       return;
     }
 

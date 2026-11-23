@@ -1444,7 +1444,13 @@ export class ProjectileManager {
     });
   }
 
-  update(dt: number, targets: Targetable[], playerX?: number, playerY?: number): void {
+  update(
+    dt: number,
+    targets: Targetable[],
+    playerX?: number,
+    playerY?: number,
+    freezeEnemyBullets = false
+  ): void {
     this.simTimeSec += dt;
     const w = this.scene.scale.width;
     const h = this.scene.scale.height;
@@ -1487,8 +1493,9 @@ export class ProjectileManager {
       }
     });
 
-    this.enemyPool.forEachActive((b) => {
-      b.age += dt;
+    if (!freezeEnemyBullets) {
+      this.enemyPool.forEachActive((b) => {
+        b.age += dt;
 
       // 1. Splitting projectile swell telegraph & split detonation
       if (b.splitAfterSec > 0 && b.splitCount > 0) {
@@ -1604,6 +1611,7 @@ export class ProjectileManager {
         b.setActive(false).setVisible(false);
       }
     });
+    }
 
     // Render pooled projectile trails, continuous beam, autonomous drone laser, visual beams & lightning
     this.fxGraphics.clear();
@@ -1758,6 +1766,14 @@ export class ProjectileManager {
 
   forEachEnemyBullet(cb: (b: EnemyBullet) => void): void {
     this.enemyPool.forEachActive(cb);
+  }
+
+  getActiveEnemyBulletCount(): number {
+    let count = 0;
+    this.enemyPool.forEachActive(() => {
+      count++;
+    });
+    return count;
   }
 
   clearEnemyBullets(): number {

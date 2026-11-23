@@ -93,6 +93,7 @@ export function formatBonusTags(scaled: EquipmentStatsBonus): string[] {
   if (scaled.critDamagePct) parts.push(`+${scaled.critDamagePct}% Crit DMG`);
   if (scaled.maxHpFlat) parts.push(`+${scaled.maxHpFlat} Max Hull`);
   if (scaled.maxShieldFlat) parts.push(`+${scaled.maxShieldFlat} Shield`);
+  if (scaled.shieldRegenPct) parts.push(`+${scaled.shieldRegenPct}% Shield Regen`);
   if (scaled.damageReductionPct) parts.push(`${scaled.damageReductionPct}% DMG Reduction`);
   if (scaled.moveSpeedFlat) parts.push(`+${scaled.moveSpeedFlat} Speed`);
   if (scaled.pickupRangePct) parts.push(`+${scaled.pickupRangePct}% Pickup Magnet`);
@@ -100,6 +101,7 @@ export function formatBonusTags(scaled: EquipmentStatsBonus): string[] {
   if (scaled.specialPowerPct) parts.push(`+${scaled.specialPowerPct}% Special Power`);
   if (scaled.specialCooldownPct) parts.push(`-${scaled.specialCooldownPct}% Special CD`);
   if (scaled.dashCooldownPct) parts.push(`-${scaled.dashCooldownPct}% Dash CD`);
+  if (scaled.dronePowerPct) parts.push(`+${scaled.dronePowerPct}% Drone Power`);
   return parts;
 }
 
@@ -107,5 +109,6 @@ export function formatDronePower(d: DroneDefinition, power: number): string {
   if (d.id === 'assault') return `${power} DMG`;
   if (d.id === 'shield') return `+${power} SHD`;
   if (d.id === 'repair') return `+${power} HP`;
+  if (d.id === 'prism') return `Adaptive Lv.${Math.max(1, Math.round(power / 10))}`;
   return `+${power}px`;
 }

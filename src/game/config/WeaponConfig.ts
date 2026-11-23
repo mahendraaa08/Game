@@ -12,7 +12,7 @@ export type WeaponId =
   | 'homing'
   | 'lightning';
 
-export type SpecialId = 'emp_nova' | 'orbital_strike' | 'photon_barrage';
+export type SpecialId = 'emp_nova' | 'chrono_singularity' | 'gravity_well';
 
 export interface WeaponDefinition {
   id: WeaponId;
@@ -41,6 +41,9 @@ export interface SpecialDefinition {
   description: string;
   cooldownMs: number;
   damage: number;
+  durationMs?: number;
+  radiusPx?: number;
+  tickIntervalMs?: number;
   colorHex: string;
   colorNum: number;
 }
@@ -183,27 +186,36 @@ export const SPECIAL_ATTACKS: Record<SpecialId, SpecialDefinition> = {
   emp_nova: {
     id: 'emp_nova',
     name: 'EMP Nova',
-    description: 'Expands an electromagnetic ring erasing enemy projectiles and dealing heavy radial shock.',
+    description:
+      'Releases an expanding electromagnetic pulse across the arena, erasing all active enemy projectiles and dealing heavy instant AoE shock.',
     cooldownMs: 10000,
-    damage: 140,
+    damage: 145,
+    radiusPx: 520,
     colorHex: '#38BDF8',
     colorNum: 0x38bdf8,
   },
-  orbital_strike: {
-    id: 'orbital_strike',
-    name: 'Orbital Strike',
-    description: 'Calls down twin orbital lance beams that sweep across the battlefield.',
-    cooldownMs: 12000,
-    damage: 185,
+  chrono_singularity: {
+    id: 'chrono_singularity',
+    name: 'Chrono Singularity',
+    description:
+      'Freezes enemies, bosses, and hostile projectiles in selective stasis for 3.6s while your ship, weapons, and drones fight at full speed.',
+    cooldownMs: 13500,
+    damage: 55,
+    durationMs: 3600,
+    radiusPx: 9999,
     colorHex: '#A855F7',
     colorNum: 0xa855f7,
   },
-  photon_barrage: {
-    id: 'photon_barrage',
-    name: 'Photon Barrage',
-    description: 'Launches 14 rapid micro-seeker warheads prioritizing high-value hostiles.',
-    cooldownMs: 11000,
-    damage: 165,
+  gravity_well: {
+    id: 'gravity_well',
+    name: 'Gravity Well',
+    description:
+      'Creates an upper-arena black hole for 4.2s that pulls standard enemies inward and inflicts rapid periodic AoE damage (bosses take full damage without pull).',
+    cooldownMs: 12000,
+    damage: 34,
+    durationMs: 4200,
+    radiusPx: 235,
+    tickIntervalMs: 280,
     colorHex: '#F59E0B',
     colorNum: 0xf59e0b,
   },
@@ -211,8 +223,8 @@ export const SPECIAL_ATTACKS: Record<SpecialId, SpecialDefinition> = {
 
 export const SPECIAL_LIST: SpecialDefinition[] = [
   SPECIAL_ATTACKS.emp_nova,
-  SPECIAL_ATTACKS.orbital_strike,
-  SPECIAL_ATTACKS.photon_barrage,
+  SPECIAL_ATTACKS.chrono_singularity,
+  SPECIAL_ATTACKS.gravity_well,
 ];
 
 export function getWeaponDamageAtLevel(def: WeaponDefinition, level: number): number {

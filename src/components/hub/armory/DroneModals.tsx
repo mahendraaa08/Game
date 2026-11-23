@@ -5,8 +5,10 @@ import {
   DroneDefinition,
   DroneId,
   DroneSlotId,
+  PRISM_MODE_SPECS,
   getDroneModifierTags,
   getDroneUpgradeCost,
+  getPrismTuningAtLevel,
 } from '../../../game/config/DroneConfig';
 import { RARITY_CONFIG } from '../../../game/config/EquipmentConfig';
 import { SoundManager } from '../../../game/audio/SoundManager';
@@ -75,7 +77,7 @@ export const DroneSlotModal: React.FC<DroneSlotModalProps> = ({
       }}
     >
       <div
-        className="pause-panel-enter flex max-h-[min(90dvh,760px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-700/80 bg-[#081122]/98 shadow-2xl shadow-black/75"
+        className="pause-panel-enter flex max-h-[min(90dvh,780px)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-700/80 bg-[#081122]/98 shadow-2xl shadow-black/75"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Popup Header (Mirrors EquipmentGearModal 1:1) */}
@@ -115,8 +117,8 @@ export const DroneSlotModal: React.FC<DroneSlotModalProps> = ({
 
         {/* Scrollable Popup Body */}
         <div className="scroll-panel flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 sm:p-5">
-          {/* Compatible Drones Grid (Filtered to clicked slot) */}
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          {/* Compatible Drones Grid (5 drones in clean single row on sm+) */}
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
             {slotItems.map((item) => {
               const itemRarity = RARITY_CONFIG[item.rarity];
               const itemLvl = progress.ownedDrones[item.id] ?? 0;
@@ -281,6 +283,58 @@ export const DroneSlotModal: React.FC<DroneSlotModalProps> = ({
                 ))}
               </div>
             </div>
+
+            {activeDrone.id === 'prism' && (() => {
+              const t = getPrismTuningAtLevel(Math.max(1, lvl));
+              const modeRows = [
+                {
+                  spec: PRISM_MODE_SPECS.recovery,
+                  cond: 'Hull HP ≤ 45%',
+                  eff: `+${t.recoveryHpPulse} HP & +${t.recoveryShieldPulse} SHD / ${(t.recoveryIntervalMs / 1000).toFixed(1)}s`,
+                },
+                {
+                  spec: PRISM_MODE_SPECS.defensive,
+                  cond: 'High Combat Pressure',
+                  eff: `+${t.damageReductionPct}% DR & +${t.shieldRegenBonusPct}% Shield Regen`,
+                },
+                {
+                  spec: PRISM_MODE_SPECS.offensive,
+                  cond: 'High Enemy Density (≥5)',
+                  eff: `+${t.damageBonusPct}% DMG & +${t.fireRateBonusPct}% Fire Rate`,
+                },
+                {
+                  spec: PRISM_MODE_SPECS.collection,
+                  cond: 'Drops Available (≥2)',
+                  eff: `+${t.pickupRangeBonusPx}px Magnet & +${t.creditBonusPct}% Credits`,
+                },
+              ];
+              return (
+                <div className="mt-2.5 rounded-xl border border-purple-400/25 bg-[#070d20]/90 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 font-mono-num text-[10.5px]">
+                    <span className="font-bold uppercase tracking-wider text-purple-300">
+                      Adaptive Protocol · 1 Active Mode
+                    </span>
+                    <span className="text-slate-400">2.2s Scan · Priority Order</span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                    {modeRows.map((row) => (
+                      <div
+                        key={row.spec.id}
+                        className="rounded-lg border border-slate-800/80 bg-[#050b18]/90 px-2.5 py-1.5 font-mono-num text-[10.5px]"
+                      >
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="font-bold" style={{ color: row.spec.colorHex }}>
+                            [{row.spec.shortLabel}] {row.spec.label.replace(' Enhancement', '')}
+                          </span>
+                          <span className="text-slate-400">{row.cond}</span>
+                        </div>
+                        <div className="mt-0.5 text-slate-200">{row.eff}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="mt-4 flex flex-col gap-2.5 sm:flex-row">
               {!owned ? (

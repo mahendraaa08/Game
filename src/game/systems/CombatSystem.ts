@@ -173,6 +173,14 @@ export class CombatSystem {
     this.fxQuality = q;
   }
 
+  getActivePowerUpCount(): number {
+    let count = 0;
+    this.powerUpPool.forEachActive(() => {
+      count++;
+    });
+    return count;
+  }
+
   spawnDamageNumber(x: number, y: number, amount: number, isCrit: boolean): void {
     if (this.fxQuality === 'low' && !isCrit) return;
     const item = this.textPool.acquire();
@@ -436,7 +444,7 @@ export class CombatSystem {
     // Update power-ups & pickup collisions
     const w = this.scene.scale.width;
     const h = this.scene.scale.height;
-    const magnetBonus = player.stats.pickupRadiusBonus;
+    const magnetBonus = player.getEffectivePickupRadiusBonus();
     this.powerUpPool.forEachActive((pu) => {
       pu.update(dt, player.x, player.y, h, magnetBonus, w);
       if (!pu.active) return;
@@ -451,6 +459,7 @@ export class CombatSystem {
         } else {
           result = player.applyPowerUp(type);
         }
+        player.notifyPowerUpCollected();
         this.spawnPowerUpPickupEffect(
           player.x,
           player.y,

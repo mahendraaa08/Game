@@ -1,5 +1,5 @@
 import React from 'react';
-import { Crosshair, Flame, Navigation, Orbit, Radar, Shield, Sparkles, Zap } from 'lucide-react';
+import { Clock, Crosshair, Disc, Navigation, Orbit, Radar, Shield, Sparkles } from 'lucide-react';
 import type { CodexEntry } from '../../data/codex';
 import { type DroneId } from '../../game/config/DroneConfig';
 import { EQUIPMENT_BY_ID, RARITY_CONFIG } from '../../game/config/EquipmentConfig';
@@ -304,10 +304,10 @@ export const CodexArtwork: React.FC<{ entry: CodexEntry; size?: number }> = ({
       const Icon =
         entry.sourceId === 'emp_nova'
           ? Orbit
-          : entry.sourceId === 'orbital_strike'
-          ? Zap
-          : entry.sourceId === 'photon_barrage'
-          ? Flame
+          : entry.sourceId === 'chrono_singularity'
+          ? Clock
+          : entry.sourceId === 'gravity_well'
+          ? Disc
           : entry.sourceId === 'thruster_dash'
           ? Navigation
           : Sparkles;

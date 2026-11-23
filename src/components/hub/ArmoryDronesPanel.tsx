@@ -183,6 +183,9 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
           })),
       creditsCost,
       crystalsCost,
+      note: item.rarityEffect
+        ? `${item.rarityEffect.label}: ${item.rarityEffect.description}`
+        : undefined,
       execute: () => ProgressionManager.buyOrUpgradeEquipment(item.id),
     });
   };
@@ -412,7 +415,7 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
                   </p>
                 </div>
                 <span className="font-mono-num text-[11px] font-semibold text-cyan-300">
-                  {equippedGearCount}/4 Equipped · {Object.keys(progress.ownedEquipment).length}/16 Owned
+                  {equippedGearCount}/4 Equipped · {Object.keys(progress.ownedEquipment).length}/{EQUIPMENT_LIST.length} Owned
                 </span>
               </div>
 
@@ -426,8 +429,9 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
                   const primaryStat = equippedItem
                     ? formatBonusTags(scaleEquipmentBonuses(equippedItem, Math.max(1, equippedLvl)))[0]
                     : null;
-                  const ownedInSlot = EQUIPMENT_LIST.filter(
-                    (e) => e.slot === slotMeta.id && (progress.ownedEquipment[e.id] ?? 0) > 0
+                  const slotItemsInCat = EQUIPMENT_LIST.filter((e) => e.slot === slotMeta.id);
+                  const ownedInSlot = slotItemsInCat.filter(
+                    (e) => (progress.ownedEquipment[e.id] ?? 0) > 0
                   ).length;
 
                   return (
@@ -505,7 +509,9 @@ export const ArmoryDronesPanel: React.FC<ArmoryDronesPanelProps> = ({ progress, 
 
                       {/* Footer Meta */}
                       <div className="flex w-full items-center justify-between gap-2 border-t border-slate-800/80 pt-2.5 font-mono-num text-[10.5px] text-slate-400">
-                        <span>{ownedInSlot}/4 Owned</span>
+                        <span>
+                          {ownedInSlot}/{slotItemsInCat.length} Owned
+                        </span>
                         <span className="text-cyan-300/90 group-hover:text-cyan-200">
                           {equippedItem ? 'Manage' : 'Browse'}
                         </span>

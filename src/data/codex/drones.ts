@@ -2,6 +2,7 @@ import {
   DRONE_LIST,
   getCollectorCreditBonus,
   getDronePowerAtLevel,
+  getPrismTuningAtLevel,
 } from '../../game/config/DroneConfig';
 import { RARITY_CONFIG } from '../../game/config/EquipmentConfig';
 import type { CodexEntry, CodexSpecialEffect, CodexStatItem } from './types';
@@ -131,6 +132,40 @@ function buildDroneStats(drone: (typeof DRONE_LIST)[number]): CodexStatItem[] {
         },
       ];
     }
+    case 'prism': {
+      const t1 = getPrismTuningAtLevel(1);
+      const t5 = getPrismTuningAtLevel(drone.maxLevel);
+      return [
+        {
+          label: 'Offensive Mode (Lv1 → Lv5)',
+          value: `+${t1.damageBonusPct}% → +${t5.damageBonusPct}% DMG · +${t1.fireRateBonusPct}% → +${t5.fireRateBonusPct}% FR`,
+          numericValue: t5.damageBonusPct,
+          maxReference: 25,
+          tone: 'rose',
+        },
+        {
+          label: 'Defensive Mode (Lv1 → Lv5)',
+          value: `+${t1.damageReductionPct}% → +${t5.damageReductionPct}% DR · +${t1.shieldRegenBonusPct}% → +${t5.shieldRegenBonusPct}% Regen`,
+          numericValue: t5.damageReductionPct,
+          maxReference: 20,
+          tone: 'sky',
+        },
+        {
+          label: 'Recovery Mode (Lv1 → Lv5)',
+          value: `+${t1.recoveryHpPulse} → +${t5.recoveryHpPulse} HP · +${t1.recoveryShieldPulse} → +${t5.recoveryShieldPulse} SHD`,
+          numericValue: t5.recoveryHpPulse,
+          maxReference: 15,
+          tone: 'emerald',
+        },
+        {
+          label: 'Collection Mode (Lv1 → Lv5)',
+          value: `+${t1.pickupRangeBonusPx} → +${t5.pickupRangeBonusPx} px · +${t1.creditBonusPct}% → +${t5.creditBonusPct}% CR`,
+          numericValue: t5.pickupRangeBonusPx,
+          maxReference: 180,
+          tone: 'amber',
+        },
+      ];
+    }
   }
 }
 
@@ -138,7 +173,7 @@ const DRONE_SPECIAL_EFFECTS: Record<string, CodexSpecialEffect[]> = {
   assault: [
     {
       title: 'Critical Strike Inheritance',
-      description: 'Every bolt fired rolls against the pilot’s active Critical Chance and Critical Damage multiplier.',
+      description: 'Every bolt fired rolls against the pilot’s active Critical Chance and Critical Damage multiplier, and scales with Special Gear Drone Power.',
     },
     {
       title: 'Deployment Slots',
@@ -148,7 +183,7 @@ const DRONE_SPECIAL_EFFECTS: Record<string, CodexSpecialEffect[]> = {
   shield: [
     {
       title: 'Dual Barrier Support',
-      description: 'Expands maximum shield reserve passively while delivering periodic emergency shield pulses.',
+      description: 'Expands maximum shield reserve passively while delivering periodic emergency shield pulses enhanced by Drone Power gear.',
     },
     {
       title: 'Deployment Slots',
@@ -168,11 +203,21 @@ const DRONE_SPECIAL_EFFECTS: Record<string, CodexSpecialEffect[]> = {
   collector: [
     {
       title: 'Salvage Economy Cap',
-      description: 'Stacks with Graviton Gear up to the global 1.55x Credit bonus cap; disabled in No-Drone Challenges.',
+      description: 'Stacks with Utility Gear up to the global 1.40x Credit bonus cap; disabled in No-Drone Challenges.',
     },
     {
       title: 'Deployment Slots',
       description: 'Fits either Port (Slot 01) or Starboard (Slot 02) wingman hardpoints.',
+    },
+  ],
+  prism: [
+    {
+      title: 'Single-Mode Adaptive Priority',
+      description: 'Evaluates combat telemetry every 2.2s (minimum 2.0s dwell) in strict priority: Recovery (Hull HP ≤ 45%) > Defensive (high threat/bullet pressure) > Offensive (≥5 enemies) > Collection (≥2 drops). Only one mode is active at any time.',
+    },
+    {
+      title: 'Deployment Slots & Gear Scaling',
+      description: 'Fits either Port (Slot 01) or Starboard (Slot 02) hardpoints and scales all 4 adaptive modes with Drone Level and Special Gear Drone Enhancement.',
     },
   ],
 };

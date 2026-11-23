@@ -67,7 +67,7 @@ export const EquipmentGearModal: React.FC<EquipmentGearModalProps> = ({
       }}
     >
       <div
-        className="pause-panel-enter flex max-h-[min(90dvh,760px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-700/80 bg-[#081122]/98 shadow-2xl shadow-black/75"
+        className="pause-panel-enter flex max-h-[min(90dvh,780px)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-700/80 bg-[#081122]/98 shadow-2xl shadow-black/75"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Popup Header */}
@@ -104,8 +104,8 @@ export const EquipmentGearModal: React.FC<EquipmentGearModalProps> = ({
 
         {/* Scrollable Popup Body */}
         <div className="scroll-panel flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 sm:p-5">
-          {/* Compatible Items Grid (Strictly matching clicked slot) */}
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          {/* Compatible Items Grid (Strictly matching clicked slot: 5 rarities) */}
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
             {slotItems.map((item) => {
               const itemRarity = RARITY_CONFIG[item.rarity];
               const itemLvl = progress.ownedEquipment[item.id] ?? 0;
@@ -226,8 +226,11 @@ export const EquipmentGearModal: React.FC<EquipmentGearModalProps> = ({
             </p>
 
             <div className="mt-3 rounded-xl border border-slate-800/85 bg-[#071022]/85 p-3">
-              <div className="font-mono-num text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
-                {owned ? 'Module Modifiers' : 'Base Modifiers (Lv.1)'}
+              <div className="flex flex-wrap items-center justify-between gap-2 font-mono-num text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
+                <span>{owned ? 'Module Modifiers' : 'Base Modifiers (Lv.1)'}</span>
+                <span className={rarity.textClass}>
+                  {rarity.statMultiplier.toFixed(2)}x Rarity · +20%/Lv
+                </span>
               </div>
               <div className="mt-1.5 flex flex-col gap-1 font-mono-num text-xs font-semibold text-sky-300">
                 {bonuses.map((b, idx) => (
@@ -240,6 +243,22 @@ export const EquipmentGearModal: React.FC<EquipmentGearModalProps> = ({
                 ))}
               </div>
             </div>
+
+            {activeItem.rarityEffect && (
+              <div className="mt-2.5 rounded-xl border border-slate-800/85 bg-[#060d1c]/90 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 font-mono-num text-[10.5px]">
+                  <span className={`font-bold uppercase tracking-wider ${rarity.textClass}`}>
+                    {rarity.label} Perk · {activeItem.rarityEffect.label}
+                  </span>
+                  <span className="text-slate-400">
+                    {(activeItem.rarityEffect.cooldownMs / 1000).toFixed(1)}s ICD
+                  </span>
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-slate-300">
+                  {activeItem.rarityEffect.description}
+                </p>
+              </div>
+            )}
 
             <div className="mt-4 flex flex-col gap-2.5 sm:flex-row">
               {!owned ? (

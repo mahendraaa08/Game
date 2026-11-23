@@ -78,5 +78,18 @@ export const DroneArtBadge: React.FC<{ droneId: DroneId; colorHex: string; size?
     {droneId === 'collector' && (
       <circle cx="24" cy="24" r="10" fill="none" stroke={colorHex} strokeWidth="4" />
     )}
+    {droneId === 'prism' && (
+      <>
+        <polygon
+          points="24,8 37,16 37,32 24,40 11,32 11,16"
+          fill={colorHex}
+          fillOpacity="0.28"
+          stroke={colorHex}
+          strokeWidth="2.2"
+        />
+        <polygon points="24,14 31,24 24,34 17,24" fill="#67E8F9" fillOpacity="0.9" />
+        <circle cx="24" cy="24" r="3" fill="#FEF08A" />
+      </>
+    )}
   </svg>
 );

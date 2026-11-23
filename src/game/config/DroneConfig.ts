@@ -1,11 +1,52 @@
 import { calculateDroneUpgradeCost, DRONE_PRICING } from './EconomyConfig';
 import type { Rarity } from './EquipmentConfig';
 
-export type DroneId = 'assault' | 'shield' | 'repair' | 'collector';
+export type DroneId = 'assault' | 'shield' | 'repair' | 'collector' | 'prism';
 
 export type DroneSlotId = 'slot1' | 'slot2';
 
+export type PrismMode = 'recovery' | 'defensive' | 'offensive' | 'collection';
+
 export const DRONE_SLOT_IDS: DroneSlotId[] = ['slot1', 'slot2'];
+
+export interface PrismModeSpec {
+  id: PrismMode;
+  shortLabel: string;
+  label: string;
+  colorHex: string;
+  colorNum: number;
+}
+
+export const PRISM_MODE_SPECS: Record<PrismMode, PrismModeSpec> = {
+  recovery: {
+    id: 'recovery',
+    shortLabel: 'REC',
+    label: 'Recovery Enhancement',
+    colorHex: '#22C55E',
+    colorNum: 0x22c55e,
+  },
+  defensive: {
+    id: 'defensive',
+    shortLabel: 'DEF',
+    label: 'Defensive Enhancement',
+    colorHex: '#38BDF8',
+    colorNum: 0x38bdf8,
+  },
+  offensive: {
+    id: 'offensive',
+    shortLabel: 'OFF',
+    label: 'Offensive Enhancement',
+    colorHex: '#F43F5E',
+    colorNum: 0xf43f5e,
+  },
+  collection: {
+    id: 'collection',
+    shortLabel: 'COL',
+    label: 'Collection Enhancement',
+    colorHex: '#F59E0B',
+    colorNum: 0xf59e0b,
+  },
+};
 
 export interface DroneDefinition {
   id: DroneId;
@@ -22,14 +63,14 @@ export interface DroneDefinition {
   costCrystals: number;
   maxLevel: number;
   baseCooldownMs: number;
-  basePower: number; // Assault: bullet dmg; Shield: shield regen pulse; Repair: heal HP; Collector: magnet radius bonus
+  basePower: number; // Assault: bullet dmg; Shield: shield regen pulse; Repair: heal HP; Collector: magnet radius bonus; Prism: adaptive base power
 }
 
 export const DRONES: Record<DroneId, DroneDefinition> = {
   assault: {
     id: 'assault',
     name: 'ASSAULT DRONE',
-    role: 'Autonomous Striker',
+    role: 'Offensive Support',
     rarity: 'rare',
     compatibleSlots: ['slot1', 'slot2'],
     textureKey: 'drone_assault',
@@ -47,14 +88,14 @@ export const DRONES: Record<DroneId, DroneDefinition> = {
   shield: {
     id: 'shield',
     name: 'SHIELD DRONE',
-    role: 'Barrier Projection',
+    role: 'Defensive Support',
     rarity: 'rare',
     compatibleSlots: ['slot1', 'slot2'],
     textureKey: 'drone_shield',
     colorHex: '#38BDF8',
     colorNum: 0x38bdf8,
     description:
-      'Orbital emitter reinforcing deflector capacity and pulsing emergency shield restoration.',
+      'Orbital emitter reinforcing deflector capacity and pulsing periodic shield restoration.',
     abilitySummary: '+18 Max Shield and restores +10 Shield every 6.5s.',
     costCredits: DRONE_PRICING.shield.credits,
     costCrystals: DRONE_PRICING.shield.crystals,
@@ -65,14 +106,14 @@ export const DRONES: Record<DroneId, DroneDefinition> = {
   repair: {
     id: 'repair',
     name: 'REPAIR DRONE',
-    role: 'Nanite Field Medic',
+    role: 'Hull Recovery',
     rarity: 'epic',
     compatibleSlots: ['slot1', 'slot2'],
     textureKey: 'drone_repair',
     colorHex: '#22C55E',
     colorNum: 0x22c55e,
     description:
-      'Deploys nanite hull patches on a controlled tactical cooldown during extended waves and boss fights.',
+      'Deploys nanite hull patches on a controlled tactical cooldown only when hull integrity is below maximum.',
     abilitySummary: 'Restores +12 Hull HP every 11s when hull is damaged.',
     costCredits: DRONE_PRICING.repair.credits,
     costCrystals: DRONE_PRICING.repair.crystals,
@@ -83,7 +124,7 @@ export const DRONES: Record<DroneId, DroneDefinition> = {
   collector: {
     id: 'collector',
     name: 'COLLECTOR DRONE',
-    role: 'Graviton Salvager',
+    role: 'Resource Support',
     rarity: 'epic',
     compatibleSlots: ['slot1', 'slot2'],
     textureKey: 'drone_collector',
@@ -98,6 +139,24 @@ export const DRONES: Record<DroneId, DroneDefinition> = {
     baseCooldownMs: 0,
     basePower: 110,
   },
+  prism: {
+    id: 'prism',
+    name: 'PRISM DRONE',
+    role: 'Adaptive Support',
+    rarity: 'legendary',
+    compatibleSlots: ['slot1', 'slot2'],
+    textureKey: 'drone_prism',
+    colorHex: '#C084FC',
+    colorNum: 0xc084fc,
+    description:
+      'Adaptive tactical AI that scans combat conditions every 2.2s and projects strictly one focused enhancement mode at a time.',
+    abilitySummary: 'Dynamically switches between Recovery, Defensive, Offensive, or Collection focus.',
+    costCredits: DRONE_PRICING.prism.credits,
+    costCrystals: DRONE_PRICING.prism.crystals,
+    maxLevel: 5,
+    baseCooldownMs: 2200,
+    basePower: 10,
+  },
 };
 
 export const DRONE_LIST: DroneDefinition[] = [
@@ -105,6 +164,7 @@ export const DRONE_LIST: DroneDefinition[] = [
   DRONES.shield,
   DRONES.repair,
   DRONES.collector,
+  DRONES.prism,
 ];
 
 export function isDroneCompatibleWithSlot(def: DroneDefinition, slotId: DroneSlotId): boolean {
@@ -115,13 +175,45 @@ export function getDroneUpgradeCost(def: DroneDefinition, currentLevel: number):
   return calculateDroneUpgradeCost(def.rarity, currentLevel);
 }
 
-export function getDronePowerAtLevel(def: DroneDefinition, level: number): number {
-  return Math.round(def.basePower * (1 + (Math.max(1, level) - 1) * 0.25));
+export function getDronePowerAtLevel(def: DroneDefinition, level: number, dronePowerBonusPct = 0): number {
+  const levelScale = 1 + (Math.max(1, level) - 1) * 0.25;
+  const gearScale = 1 + Math.max(0, Math.min(0.45, dronePowerBonusPct));
+  return Math.round(def.basePower * levelScale * gearScale);
 }
 
-export function getCollectorCreditBonus(level: number): number {
+export function getCollectorCreditBonus(level: number, dronePowerBonusPct = 0): number {
   const lvl = Math.max(1, level);
-  return 0.14 + (lvl - 1) * 0.025;
+  const base = 0.14 + (lvl - 1) * 0.025;
+  const gearScale = 1 + Math.max(0, Math.min(0.45, dronePowerBonusPct)) * 0.35;
+  return base * gearScale;
+}
+
+export interface PrismModeTuning {
+  damageBonusPct: number;
+  fireRateBonusPct: number;
+  damageReductionPct: number;
+  shieldRegenBonusPct: number;
+  recoveryHpPulse: number;
+  recoveryShieldPulse: number;
+  recoveryIntervalMs: number;
+  pickupRangeBonusPx: number;
+  creditBonusPct: number;
+}
+
+export function getPrismTuningAtLevel(level: number, dronePowerBonusPct = 0): PrismModeTuning {
+  const lvl = Math.max(1, Math.min(5, Math.floor(level)));
+  const gearScale = 1 + Math.max(0, Math.min(0.45, dronePowerBonusPct));
+  return {
+    damageBonusPct: Math.round((10 + (lvl - 1) * 2.5) * gearScale),
+    fireRateBonusPct: Math.round((6 + (lvl - 1) * 1.5) * gearScale),
+    damageReductionPct: Math.min(16, Math.round((8 + (lvl - 1) * 2) * (1 + Math.max(0, dronePowerBonusPct) * 0.35))),
+    shieldRegenBonusPct: Math.round((24 + (lvl - 1) * 6) * gearScale),
+    recoveryHpPulse: Math.round((4 + (lvl - 1) * 1.5) * gearScale),
+    recoveryShieldPulse: Math.round((5 + (lvl - 1) * 2) * gearScale),
+    recoveryIntervalMs: Math.max(3000, 4400 - (lvl - 1) * 300),
+    pickupRangeBonusPx: Math.round((85 + (lvl - 1) * 18) * gearScale),
+    creditBonusPct: Math.min(18, Math.round((8 + (lvl - 1) * 2) * (1 + Math.max(0, dronePowerBonusPct) * 0.35))),
+  };
 }
 
 export function getDroneModifierTags(def: DroneDefinition, level: number): string[] {
@@ -145,6 +237,13 @@ export function getDroneModifierTags(def: DroneDefinition, level: number): strin
       const magnetRadius = 110 + (lvl - 1) * 24;
       const creditPct = Math.round(getCollectorCreditBonus(lvl) * 100);
       return [`+${magnetRadius}px Pickup Magnet`, `+${creditPct}% Credit Bonus`];
+    }
+    case 'prism': {
+      const t = getPrismTuningAtLevel(lvl);
+      return [
+        `+${t.damageBonusPct}% DMG / +${t.damageReductionPct}% DR`,
+        `+${t.recoveryHpPulse} HP Pulse / +${t.pickupRangeBonusPx}px`,
+      ];
     }
   }
 }

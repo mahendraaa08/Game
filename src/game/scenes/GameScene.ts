@@ -9,6 +9,7 @@ import {
   getEndlessWaveReward,
   getEnemyCreditDrop,
 } from '../config/EconomyConfig';
+import { EQUIPMENT_BY_ID, EquipmentRarityEffect, type EquipmentSlot } from '../config/EquipmentConfig';
 import { GAME_CONSTANTS, HudSnapshot } from '../config/GameConfig';
 import { BOSS_RUSH_ORDER, CHALLENGE_BY_ID, ChallengeDefinition, GameMode } from '../config/GameModeConfig';
 import { CAMPAIGN_LEVELS, LevelDefinition } from '../config/LevelConfig';
@@ -18,7 +19,7 @@ import { SoundManager } from '../audio/SoundManager';
 import { BossEntity } from '../entities/Boss';
 import { DroneManager } from '../entities/DroneManager';
 import { EnemyEntity } from '../entities/Enemy';
-import { Player } from '../entities/Player';
+import { Player, SpecialActivatedPayload } from '../entities/Player';
 import { BeamHitMeta, ProjectileManager } from '../entities/ProjectileManager';
 import { QuantumClone } from '../entities/QuantumClone';
 import { allocateEnemyAttackId, Targetable } from '../entities/Targetable';
@@ -82,6 +83,19 @@ export class GameScene extends Phaser.Scene {
   private cachedUnlockedWeapons: WeaponId[] = ['plasma'];
   private activeEnemiesBuf: EnemyEntity[] = [];
   private targetsBuf: Targetable[] = [];
+  private specialVfxGfx: Phaser.GameObjects.Graphics | null = null;
+  private chronoFreezeMs = 0;
+  private gravityWell = {
+    active: false,
+    x: 0,
+    y: 0,
+    radius: 235,
+    remainingMs: 0,
+    maxDurationMs: 4200,
+    tickTimerMs: 0,
+    tickIntervalMs: 280,
+    tickDamage: 34,
+  };
   private bossPoseScratch: BossPosePayload = {
     active: false,
     x: 0,
@@ -185,6 +199,10 @@ export class GameScene extends Phaser.Scene {
     this.creditsEarnedRun = 0;
     this.crystalsEarnedRun = 0;
     this.expEarnedRun = 0;
+    this.chronoFreezeMs = 0;
+    this.gravityWell.active = false;
+    this.gravityWell.remainingMs = 0;
+    this.gravityWell.tickTimerMs = 0;
 
     EventBus.emit('scene:changed', 'GameScene');
     EventBus.emit('boss:warning', null);
@@ -196,6 +214,7 @@ export class GameScene extends Phaser.Scene {
     this.bg = new BackgroundSystem(this, this.levelDef.environment, fxQuality);
     this.projectiles = new ProjectileManager(this);
     this.combat = new CombatSystem(this, fxQuality);
+    this.specialVfxGfx = this.add.graphics().setDepth(14);
 
     this.waveDirector = new WaveDirector(
       this,
@@ -208,6 +227,16 @@ export class GameScene extends Phaser.Scene {
 
     const stats = computePlayerStats(saved, this.challengeDef?.rules);
     const allowedWeapons = this.challengeDef?.rules.allowedWeapons ?? null;
+    const equippedEffects: EquipmentRarityEffect[] = [];
+    (['offensive', 'defensive', 'utility', 'special'] as EquipmentSlot[]).forEach((slot) => {
+      const eqId = saved.equippedGear[slot];
+      if (!eqId || !saved.ownedEquipment[eqId]) return;
+      const eqDef = EQUIPMENT_BY_ID[eqId];
+      if (eqDef?.rarityEffect) {
+        equippedEffects.push(eqDef.rarityEffect);
+      }
+    });
+
     const startX = this.scale.width * 0.5;
     const startY = this.scale.height * 0.8;
 
@@ -219,7 +248,11 @@ export class GameScene extends Phaser.Scene {
       this.currentData.specialId!,
       stats,
       saved.weaponLevels,
-      allowedWeapons
+      allowedWeapons,
+      equippedEffects,
+      (label, colorHex) => {
+        this.combat?.spawnFloatingLabel(this.player.x, this.player.y - 26, label, colorHex);
+      }
     );
 
     this.passiveSystem = new PassiveSystem(stats.shipId, {
@@ -410,8 +443,35 @@ export class GameScene extends Phaser.Scene {
       this.projectiles,
       targets,
       (t, dmg, isCrit, hitMeta) => this.applyDirectDamage(t, dmg, isCrit, hitMeta),
-      (intensity) => this.shakeCamera(220, intensity)
+      (intensity) => this.shakeCamera(220, intensity),
+      (payload) => this.handleSpecialActivated(payload)
     );
+  }
+
+  private handleSpecialActivated(payload: SpecialActivatedPayload): void {
+    if (payload.id === 'chrono_singularity') {
+      this.chronoFreezeMs = payload.def.durationMs ?? 3600;
+      this.boss?.setChronoPaused(true);
+      this.combat.spawnFloatingLabel(this.player.x, this.player.y - 34, 'CHRONO STASIS', '#C084FC');
+      return;
+    }
+
+    if (payload.id === 'gravity_well') {
+      const w = this.scale.width;
+      const h = this.scale.height;
+      const wellX = w * 0.5;
+      const wellY = Math.max(145, Math.min(220, h * 0.28));
+      this.gravityWell.active = true;
+      this.gravityWell.x = wellX;
+      this.gravityWell.y = wellY;
+      this.gravityWell.radius = payload.def.radiusPx ?? 235;
+      this.gravityWell.maxDurationMs = payload.def.durationMs ?? 4200;
+      this.gravityWell.remainingMs = this.gravityWell.maxDurationMs;
+      this.gravityWell.tickIntervalMs = payload.def.tickIntervalMs ?? 280;
+      this.gravityWell.tickTimerMs = 80; // fast initial gravity pulse
+      this.gravityWell.tickDamage = payload.damage;
+      this.combat.spawnFloatingLabel(wellX, wellY - 26, 'GRAVITY WELL', '#F59E0B');
+    }
   }
 
   private fillAllTargets(): Targetable[] {
@@ -476,6 +536,7 @@ export class GameScene extends Phaser.Scene {
     this.combat.spawnDamageNumber(target.x, target.y, finalDmg, isCrit);
     if (isCrit) {
       this.pendingCrits += 1;
+      this.player.notifyCritLanded();
       SoundManager.playCritHit();
     } else {
       SoundManager.playHit();
@@ -539,6 +600,7 @@ export class GameScene extends Phaser.Scene {
 
     this.enemiesDefeated++;
     this.pendingKills++;
+    this.player.notifyEnemyKilled();
     if (
       enemy.def.id === 'elite' ||
       enemy.def.id === 'tank' ||
@@ -557,7 +619,7 @@ export class GameScene extends Phaser.Scene {
     const creditGain = getEnemyCreditDrop(
       enemy.def.id,
       activeDiff,
-      this.player.stats.creditBonusMult
+      this.player.getEffectiveCreditBonusMult()
     );
     this.creditsEarnedRun += creditGain;
 
@@ -657,7 +719,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.mode === 'endless') {
-      const waveReward = getEndlessWaveReward(waveNum, this.player.stats.creditBonusMult);
+      const waveReward = getEndlessWaveReward(waveNum, this.player.getEffectiveCreditBonusMult());
       this.creditsEarnedRun += waveReward.credits;
       this.crystalsEarnedRun += waveReward.crystals;
       this.expEarnedRun += ProgressionManager.recordCombatProgress({
@@ -697,7 +759,7 @@ export class GameScene extends Phaser.Scene {
     const bossReward = getBossCombatReward(
       boss.def.id,
       this.mode,
-      this.player.stats.creditBonusMult,
+      this.player.getEffectiveCreditBonusMult(),
       endlessBossTier
     );
     this.creditsEarnedRun += bossReward.credits;
@@ -781,7 +843,7 @@ export class GameScene extends Phaser.Scene {
       this.levelDef.levelNumber,
       Boolean(this.levelDef.bossId),
       false,
-      this.player.stats.creditBonusMult
+      this.player.getEffectiveCreditBonusMult()
     );
     this.creditsEarnedRun += clearReward.clearCredits;
     this.crystalsEarnedRun += clearReward.clearCrystals;
@@ -1012,7 +1074,17 @@ export class GameScene extends Phaser.Scene {
 
     const targets = this.fillAllTargets();
 
-    // Update Player & PassiveSystem
+    // Selective Chrono Singularity timer update
+    const wasChronoFrozen = this.chronoFreezeMs > 0;
+    if (wasChronoFrozen) {
+      this.chronoFreezeMs = Math.max(0, this.chronoFreezeMs - rawDelta);
+      if (this.chronoFreezeMs <= 0) {
+        this.boss?.setChronoPaused(false);
+      }
+    }
+    const isChronoFrozen = this.chronoFreezeMs > 0;
+
+    // Update Player & PassiveSystem (always runs at full speed even during Chrono Singularity)
     this.player.update(
       dt,
       this.projectiles,
@@ -1020,7 +1092,8 @@ export class GameScene extends Phaser.Scene {
       (t, dmg, isCrit, hitMeta) => this.applyDirectDamage(t, dmg, isCrit, hitMeta),
       () => {},
       (intensity) => this.shakeCamera(180, intensity),
-      (t) => this.combat.spawnStunRing(t.x, t.y)
+      (t) => this.combat.spawnStunRing(t.x, t.y),
+      (payload) => this.handleSpecialActivated(payload)
     );
 
     this.passiveSystem?.update(dt);
@@ -1042,42 +1115,59 @@ export class GameScene extends Phaser.Scene {
         )
     );
 
-    // Update Companion Drones
-    this.drones?.update(dt, this.player, this.projectiles, targets, () => this.player.rollCrit());
+    // Update Companion Drones (incl. Prism Drone adaptive evaluation)
+    const activeEnemiesPre = this.waveDirector.fillActiveEnemies(this.activeEnemiesBuf);
+    this.drones?.update(dt, this.player, this.projectiles, targets, () => this.player.rollCrit(), {
+      dronePowerBonusPct: this.player.stats.dronePowerBonusPct,
+      activeEnemyCount: activeEnemiesPre.length,
+      enemyBulletCount: this.projectiles.getActiveEnemyBulletCount(),
+      activeDropCount: this.combat.getActivePowerUpCount(),
+      bossActive: Boolean(this.boss && this.boss.active),
+      onPrismModeChanged: (_mode, spec) => {
+        this.combat?.spawnFloatingLabel(
+          this.player.x,
+          this.player.y - 34,
+          `PRISM: ${spec.shortLabel}`,
+          spec.colorHex
+        );
+      },
+    });
 
-    // Update Waves / Boss Trigger
-    this.waveDirector.update(dt);
-    if (this.waveDirector.isFinished()) {
-      if (this.mode === 'campaign' && this.levelDef.bossId) {
-        if (!this.bossSpawned) {
-          this.spawnBossEncounter(this.levelDef.bossId);
+    // Update Waves / Boss Trigger (paused cleanly during Chrono Singularity)
+    if (!isChronoFrozen) {
+      this.waveDirector.update(dt);
+      if (this.waveDirector.isFinished()) {
+        if (this.mode === 'campaign' && this.levelDef.bossId) {
+          if (!this.bossSpawned) {
+            this.spawnBossEncounter(this.levelDef.bossId);
+          }
+        } else if (this.mode === 'challenge' && this.challengeDef?.rules.bossId) {
+          if (!this.bossSpawned) {
+            this.spawnBossEncounter(this.challengeDef.rules.bossId);
+          }
+        } else if (this.mode === 'challenge' && this.challengeDef?.rules.targetKills) {
+          // Keep endless waves feeding until kill count is reached
+          this.waveDirector = new WaveDirector(
+            this,
+            this.levelDef,
+            'endless',
+            (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass),
+            (waveNum) => this.handleWaveCleared(waveNum),
+            (waveNum, phase) => this.handleWavePhaseStarted(waveNum, phase)
+          );
+        } else if (this.mode === 'challenge' && this.challengeDef?.rules.timeLimitSec) {
+          this.waveDirector = new WaveDirector(
+            this,
+            this.levelDef,
+            'endless',
+            (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass),
+            (waveNum) => this.handleWaveCleared(waveNum),
+            (waveNum, phase) => this.handleWavePhaseStarted(waveNum, phase)
+          );
+        } else if (this.mode === 'campaign') {
+          this.levelEnding = true;
+          this.time.delayedCall(650, () => this.completeCampaignLevel(null));
         }
-      } else if (this.mode === 'challenge' && this.challengeDef?.rules.bossId) {
-        if (!this.bossSpawned) {
-          this.spawnBossEncounter(this.challengeDef.rules.bossId);
-        }
-      } else if (this.mode === 'challenge' && this.challengeDef?.rules.targetKills) {
-        // Keep endless waves feeding until kill count is reached
-        this.waveDirector = new WaveDirector(
-          this,
-          this.levelDef,
-          'endless',
-          (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass),
-          (waveNum) => this.handleWaveCleared(waveNum),
-          (waveNum, phase) => this.handleWavePhaseStarted(waveNum, phase)
-        );
-      } else if (this.mode === 'challenge' && this.challengeDef?.rules.timeLimitSec) {
-        this.waveDirector = new WaveDirector(
-          this,
-          this.levelDef,
-          'endless',
-          (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass),
-          (waveNum) => this.handleWaveCleared(waveNum),
-          (waveNum, phase) => this.handleWavePhaseStarted(waveNum, phase)
-        );
-      } else if (this.mode === 'campaign') {
-        this.levelEnding = true;
-        this.time.delayedCall(650, () => this.completeCampaignLevel(null));
       }
     }
 
@@ -1103,31 +1193,40 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Update Enemies (reuse pre-filled activeEnemiesBuf refreshed with any new wave spawns)
+    // Update Enemies (selectively frozen during Chrono Singularity)
     const activeEnemies = this.waveDirector.fillActiveEnemies(this.activeEnemiesBuf);
-    for (let i = 0; i < activeEnemies.length; i++) {
-      activeEnemies[i].update(dt, aim.x, aim.y, this.projectiles);
+    if (!isChronoFrozen) {
+      for (let i = 0; i < activeEnemies.length; i++) {
+        activeEnemies[i].update(dt, aim.x, aim.y, this.projectiles);
+      }
     }
 
-    // Update Boss & stream real-time 60fps pose to BossHealthBar
+    // Gravity Well update (pulls standard enemies inside bounds & inflicts sustained AoE on enemies + Boss)
+    this.updateGravityWellAndSpecialVfx(dt, rawDelta, activeEnemies, isChronoFrozen);
+
+    // Update Boss & stream real-time 60fps pose to BossHealthBar (boss simulation paused in Chrono)
     if (this.boss && this.boss.active) {
-      this.boss.update(dt, aim.x, aim.y, this.projectiles, (laserDmg) => {
-        const prevHp = this.player.hp;
-        if (this.player.takeDamage(laserDmg, allocateEnemyAttackId())) {
-          if (this.player.hp < prevHp) {
-            this.resetScoreMultiplierOnHpLoss();
+      if (!isChronoFrozen) {
+        this.boss.update(dt, aim.x, aim.y, this.projectiles, (laserDmg) => {
+          const prevHp = this.player.hp;
+          if (this.player.takeDamage(laserDmg, allocateEnemyAttackId())) {
+            if (this.player.hp < prevHp) {
+              this.resetScoreMultiplierOnHpLoss();
+            }
+            this.shakeCamera(200, 0.012);
+            if (this.player.hp <= 0) this.triggerGameOver();
           }
-          this.shakeCamera(200, 0.012);
-          if (this.player.hp <= 0) this.triggerGameOver();
-        }
-      });
+        });
+      } else {
+        this.boss.setChronoPaused(true);
+      }
       this.emitBossPose();
     } else if (this.bossPoseScratch.active) {
       this.emitBossPose();
     }
 
-    // Update Projectiles & Collisions (pass aim coords for enemy homing seekers & aimed splitters)
-    this.projectiles.update(dt, targets, aim.x, aim.y);
+    // Update Projectiles & Collisions (enemy bullets freeze in place during Chrono Singularity)
+    this.projectiles.update(dt, targets, aim.x, aim.y, isChronoFrozen);
 
     this.combat.resolveCollisions(
       this.player,
@@ -1149,6 +1248,7 @@ export class GameScene extends Phaser.Scene {
       },
       () => {
         this.pendingCrits += 1;
+        this.player.notifyCritLanded();
       },
       this.passiveSystem
     );
@@ -1275,6 +1375,127 @@ export class GameScene extends Phaser.Scene {
     EventBus.emit('hud:update', snapshot);
   }
 
+  private updateGravityWellAndSpecialVfx(
+    dt: number,
+    rawDeltaMs: number,
+    activeEnemies: EnemyEntity[],
+    isChronoFrozen: boolean
+  ): void {
+    const gfx = this.specialVfxGfx;
+    if (!gfx) return;
+    gfx.clear();
+
+    const w = this.scale.width;
+    const h = this.scale.height;
+
+    if (isChronoFrozen) {
+      const ratio = Math.max(0, Math.min(1, this.chronoFreezeMs / 3600));
+      const pulse = 0.3 + 0.2 * Math.sin(this.elapsedSurvivalSec * 8);
+      gfx.lineStyle(3, 0xa855f7, pulse * ratio);
+      gfx.strokeRect(8, 8, Math.max(10, w - 16), Math.max(10, h - 16));
+      gfx.lineStyle(1.4, 0x67e8f9, 0.45 * ratio);
+      for (let i = 0; i < activeEnemies.length; i++) {
+        const e = activeEnemies[i];
+        if (e.active) {
+          gfx.strokeCircle(e.x, e.y, e.radius + 7);
+        }
+      }
+      if (this.boss && this.boss.active) {
+        gfx.strokeCircle(this.boss.x, this.boss.y, this.boss.radius + 10);
+      }
+    }
+
+    if (!this.gravityWell.active) return;
+
+    this.gravityWell.remainingMs -= rawDeltaMs;
+    if (this.gravityWell.remainingMs <= 0) {
+      this.gravityWell.active = false;
+      return;
+    }
+
+    const gw = this.gravityWell;
+    const lifeRatio = Math.max(0.15, Math.min(1, gw.remainingMs / gw.maxDurationMs));
+
+    // Visual vortex core & orbital accretion rings
+    gfx.fillStyle(0x090414, 0.72 * lifeRatio);
+    gfx.fillCircle(gw.x, gw.y, 26);
+    gfx.lineStyle(3, 0xf59e0b, 0.85 * lifeRatio);
+    gfx.strokeCircle(gw.x, gw.y, 28 + Math.sin(this.elapsedSurvivalSec * 12) * 3);
+    gfx.lineStyle(2, 0xa855f7, 0.55 * lifeRatio);
+    gfx.strokeCircle(gw.x, gw.y, gw.radius * 0.58);
+    gfx.lineStyle(1.4, 0xf59e0b, 0.3 * lifeRatio);
+    gfx.strokeCircle(gw.x, gw.y, gw.radius);
+
+    for (let arm = 0; arm < 3; arm++) {
+      const baseAng = this.elapsedSurvivalSec * 3.8 + (arm * Math.PI * 2) / 3;
+      const rOuter = gw.radius * 0.86;
+      gfx.lineStyle(1.8, arm % 2 === 0 ? 0xfbbf24 : 0xc084fc, 0.48 * lifeRatio);
+      gfx.lineBetween(
+        gw.x + Math.cos(baseAng) * 26,
+        gw.y + Math.sin(baseAng) * 26,
+        gw.x + Math.cos(baseAng + 0.9) * rOuter,
+        gw.y + Math.sin(baseAng + 0.9) * rOuter
+      );
+    }
+
+    // Pull normal enemies smoothly within playable arena bounds (never pull Boss, never freeze/break)
+    if (!isChronoFrozen) {
+      const pullRange = gw.radius * 1.45;
+      const minX = 36;
+      const maxX = Math.max(minX, w - 36);
+      const minY = 56;
+      const maxY = Math.max(minY, h - 95);
+
+      for (let i = 0; i < activeEnemies.length; i++) {
+        const e = activeEnemies[i];
+        if (!e.active || e.sprite.y < 36) continue;
+        const dx = gw.x - e.x;
+        const dy = gw.y - e.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 14 && dist <= pullRange) {
+          const pullStrength = 250 * (1 - dist / (pullRange * 1.25));
+          const step = Math.min(dist - 12, pullStrength * dt);
+          const nx = e.sprite.x + (dx / dist) * step;
+          const ny = e.sprite.y + (dy / dist) * step;
+          e.sprite.x = Phaser.Math.Clamp(nx, minX, maxX);
+          e.sprite.y = Phaser.Math.Clamp(ny, minY, maxY);
+        }
+      }
+    }
+
+    // Sustained periodic AoE damage tick (enemies + Boss)
+    gw.tickTimerMs -= rawDeltaMs;
+    if (gw.tickTimerMs <= 0) {
+      gw.tickTimerMs += gw.tickIntervalMs;
+      const specialMeta: BeamHitMeta = {
+        source: 'special',
+        firingActionId: 0,
+        countsForFiringAction: false,
+      };
+      for (let i = 0; i < activeEnemies.length; i++) {
+        const e = activeEnemies[i];
+        if (!e.active) continue;
+        const d = Math.hypot(e.x - gw.x, e.y - gw.y);
+        if (d <= gw.radius + e.radius * 0.85) {
+          const crit = this.player.rollCrit();
+          this.applyDirectDamage(e, Math.round(gw.tickDamage * crit.mult), crit.isCrit, specialMeta);
+        }
+      }
+      if (this.boss && this.boss.active && !this.boss.entering && !this.boss.invulnerable) {
+        const dBoss = Math.hypot(this.boss.x - gw.x, this.boss.y - gw.y);
+        if (dBoss <= gw.radius + this.boss.radius * 0.9) {
+          const crit = this.player.rollCrit();
+          this.applyDirectDamage(
+            this.boss,
+            Math.round(gw.tickDamage * crit.mult),
+            crit.isCrit,
+            specialMeta
+          );
+        }
+      }
+    }
+  }
+
   private cleanup(): void {
     window.removeEventListener('blur', this.onWindowBlur);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
@@ -1288,6 +1509,8 @@ export class GameScene extends Phaser.Scene {
     if (this.scene.isActive('BossScene')) {
       this.scene.stop('BossScene');
     }
+    this.specialVfxGfx?.destroy();
+    this.specialVfxGfx = null;
     this.drones?.destroy();
     this.quantumClone?.destroy();
     this.quantumClone = null;

@@ -64,6 +64,7 @@ export class BossEntity implements Targetable {
 
   private paralyzeTimerMs = 0;
   private paralyzeImmunityMs = 0;
+  private entranceTween?: Phaser.Tweens.Tween;
 
   private onSpawnMinion: (enemyClass: EnemyClass, x: number, y: number) => void;
   private onPhaseShift: (newPhase: 1 | 2 | 3) => void;
@@ -101,12 +102,13 @@ export class BossEntity implements Targetable {
     this.telegraphGfx = scene.add.graphics().setDepth(13);
 
     // Smooth dramatic entrance
-    this.scene.tweens.add({
+    this.entranceTween = this.scene.tweens.add({
       targets: this.sprite,
       y: this.targetY,
       duration: 2100,
       ease: 'Cubic.easeOut',
       onComplete: () => {
+        this.entranceTween = undefined;
         if (!this.active || !this.sprite.active) return;
         this.entering = false;
         this.invulnerable = false;
@@ -125,6 +127,15 @@ export class BossEntity implements Targetable {
         });
       },
     });
+  }
+
+  setChronoPaused(paused: boolean): void {
+    if (!this.entranceTween) return;
+    if (paused && this.entranceTween.isPlaying()) {
+      this.entranceTween.pause();
+    } else if (!paused && this.entranceTween.isPaused()) {
+      this.entranceTween.resume();
+    }
   }
 
   get x(): number {
@@ -1087,6 +1098,8 @@ export class BossEntity implements Targetable {
   }
 
   destroy(): void {
+    this.entranceTween?.stop();
+    this.entranceTween = undefined;
     this.pendingBeats.length = 0;
     this.activeLasers.length = 0;
     this.sprite.destroy();

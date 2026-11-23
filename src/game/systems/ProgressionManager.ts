@@ -82,6 +82,7 @@ export interface ComputedPlayerStats {
   shieldRegenMult: number;
   pickupRadiusBonus: number;
   creditBonusMult: number;
+  dronePowerBonusPct: number;
 }
 
 export function computePlayerStats(
@@ -115,6 +116,7 @@ export function computePlayerStats(
   let shieldRegenMult = 1.0;
   let pickupRadiusBonus = 0;
   let creditBonusMult = 1.0;
+  let dronePowerBonusPct = 0;
 
   // Apply 4 Equipped Gear Items
   (['offensive', 'defensive', 'utility', 'special'] as EquipmentSlot[]).forEach((slot) => {
@@ -122,7 +124,7 @@ export function computePlayerStats(
     if (!id) return;
     const def = EQUIPMENT_BY_ID[id];
     const lvl = progress.ownedEquipment[id];
-    if (!def || !lvl) return;
+    if (!def || !lvl || def.slot !== slot) return;
     const b = scaleEquipmentBonuses(def, lvl);
     if (b.damagePct) damageMult *= 1 + b.damagePct / 100;
     if (b.fireRatePct) fireRateMult *= 1 + b.fireRatePct / 100;
@@ -130,6 +132,7 @@ export function computePlayerStats(
     if (b.critDamagePct) critDamageMult += b.critDamagePct / 100;
     if (b.maxHpFlat) maxHp += b.maxHpFlat;
     if (b.maxShieldFlat) maxShield += b.maxShieldFlat;
+    if (b.shieldRegenPct) shieldRegenMult += b.shieldRegenPct / 100;
     if (b.damageReductionPct) damageReduction += b.damageReductionPct / 100;
     if (b.moveSpeedFlat) moveSpeed += b.moveSpeedFlat;
     if (b.pickupRangePct) pickupRadiusBonus += Math.round(140 * (b.pickupRangePct / 100));
@@ -137,13 +140,18 @@ export function computePlayerStats(
     if (b.specialPowerPct) specialDamageMultiplier *= 1 + b.specialPowerPct / 100;
     if (b.specialCooldownPct) specialCooldownMult *= Math.max(0.6, 1 - b.specialCooldownPct / 100);
     if (b.dashCooldownPct) dashCooldownMult *= Math.max(0.55, 1 - b.dashCooldownPct / 100);
+    if (b.dronePowerPct) dronePowerBonusPct += b.dronePowerPct / 100;
   });
 
-  // Apply Drone passive stat boosts (Shield & Collector drones)
+  const cappedDronePowerBonus = Math.min(0.45, Math.max(0, dronePowerBonusPct));
+
+  // Apply Drone passive stat boosts (Shield & Collector drones; max 1 per DroneId via slots)
   if (!challengeRule?.disableDrones) {
+    const seenPassiveDrones = new Set<DroneId>();
     DRONE_SLOT_IDS.forEach((slotId) => {
       const dId = progress.equippedDroneSlots?.[slotId];
-      if (!dId) return;
+      if (!dId || seenPassiveDrones.has(dId)) return;
+      seenPassiveDrones.add(dId);
       const lvl = progress.ownedDrones[dId] ?? 0;
       if (lvl <= 0) return;
       if (dId === 'shield') {
@@ -151,7 +159,7 @@ export function computePlayerStats(
         shieldRegenMult += 0.2 + (lvl - 1) * 0.08;
       } else if (dId === 'collector') {
         pickupRadiusBonus += 110 + (lvl - 1) * 24;
-        creditBonusMult += getCollectorCreditBonus(lvl);
+        creditBonusMult += getCollectorCreditBonus(lvl, cappedDronePowerBonus);
       }
     });
   }
@@ -177,9 +185,10 @@ export function computePlayerStats(
     specialCooldownMult: Math.max(0.55, specialCooldownMult),
     dashCooldownMult: Math.max(0.5, dashCooldownMult),
     damageReduction: Math.min(0.6, Math.max(0, damageReduction)),
-    shieldRegenMult,
+    shieldRegenMult: Math.min(2.6, Math.max(0.5, shieldRegenMult)),
     pickupRadiusBonus,
     creditBonusMult: Math.min(ECONOMY_CAPS.maxCreditBonusMult, Math.max(1, creditBonusMult)),
+    dronePowerBonusPct: cappedDronePowerBonus,
   };
 }
 

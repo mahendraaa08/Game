@@ -24,7 +24,7 @@ const TEXTURE_STEPS: readonly TextureStep[] = [
   },
   {
     label: 'Calibrating companion drones',
-    keys: ['drone_assault', 'drone_shield', 'drone_repair', 'drone_collector', 'drone_nova_evo'],
+    keys: ['drone_assault', 'drone_shield', 'drone_repair', 'drone_collector', 'drone_prism', 'drone_nova_evo'],
     run: createDroneTextures,
   },
   {
@@ -438,6 +438,30 @@ function createDroneTextures(scene: Phaser.Scene): void {
     g.generateTexture(key, 28, 28);
     g.destroy();
   });
+
+  // Prism Adaptive Drone (crystalline hexagonal prism core)
+  {
+    const pg = scene.make.graphics({ x: 0, y: 0 });
+    const c = 14;
+    pg.fillStyle(0x1e1033, 0.96);
+    pg.lineStyle(2, 0xc084fc, 1);
+    pg.beginPath();
+    pg.moveTo(c, c - 12);
+    pg.lineTo(c + 10, c - 6);
+    pg.lineTo(c + 10, c + 6);
+    pg.lineTo(c, c + 12);
+    pg.lineTo(c - 10, c + 6);
+    pg.lineTo(c - 10, c - 6);
+    pg.closePath();
+    pg.fillPath();
+    pg.strokePath();
+    pg.lineStyle(1.2, 0xe879f9, 0.75);
+    pg.strokeCircle(c, c, 6.5);
+    pg.fillStyle(0xfef08a, 1);
+    pg.fillCircle(c, c, 3.2);
+    pg.generateTexture('drone_prism', 28, 28);
+    pg.destroy();
+  }
 
   // Nova Prime Evolution Support Drone chassis (white & cyan geometric wing)
   const ng = scene.make.graphics({ x: 0, y: 0 });

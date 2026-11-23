@@ -67,8 +67,17 @@ function buildEquipmentStats(item: (typeof EQUIPMENT_LIST)[number]): CodexStatIt
       label: 'Max Shield Bonus',
       value: `+${lv1.maxShieldFlat} → +${lv5.maxShieldFlat} SHD`,
       numericValue: lv5.maxShieldFlat,
-      maxReference: 100,
+      maxReference: 150,
       tone: 'sky',
+    });
+  }
+  if (lv1.shieldRegenPct) {
+    stats.push({
+      label: 'Shield Regeneration',
+      value: `+${lv1.shieldRegenPct}% → +${lv5.shieldRegenPct}%`,
+      numericValue: lv5.shieldRegenPct,
+      maxReference: 65,
+      tone: 'cyan',
     });
   }
   if (lv1.damageReductionPct) {
@@ -76,7 +85,7 @@ function buildEquipmentStats(item: (typeof EQUIPMENT_LIST)[number]): CodexStatIt
       label: 'Damage Reduction',
       value: `${lv1.damageReductionPct}% → ${lv5.damageReductionPct}%`,
       numericValue: lv5.damageReductionPct,
-      maxReference: 35,
+      maxReference: 40,
       tone: 'emerald',
     });
   }
@@ -130,8 +139,17 @@ function buildEquipmentStats(item: (typeof EQUIPMENT_LIST)[number]): CodexStatIt
       label: 'Dash Cooldown Reduction',
       value: `-${lv1.dashCooldownPct}% → -${lv5.dashCooldownPct}%`,
       numericValue: lv5.dashCooldownPct,
-      maxReference: 50,
+      maxReference: 55,
       tone: 'cyan',
+    });
+  }
+  if (lv1.dronePowerPct) {
+    stats.push({
+      label: 'Drone Enhancement',
+      value: `+${lv1.dronePowerPct}% → +${lv5.dronePowerPct}%`,
+      numericValue: lv5.dronePowerPct,
+      maxReference: 50,
+      tone: 'purple',
     });
   }
 
@@ -143,6 +161,21 @@ export const GEARS_CODEX: CodexEntry[] = EQUIPMENT_LIST.map((item) => {
   const priceParts = [`${item.costCredits.toLocaleString()} CR`];
   if (item.costCrystals > 0) priceParts.push(`${item.costCrystals} Gems`);
 
+  const specialEffects = [
+    ...(item.rarityEffect
+      ? [
+          {
+            title: `${rarity.label} Perk · ${item.rarityEffect.label} (${(item.rarityEffect.cooldownMs / 1000).toFixed(1)}s ICD)`,
+            description: item.rarityEffect.description,
+          },
+        ]
+      : []),
+    {
+      title: 'Rarity & Upgrade Scaling',
+      description: `Equips into the ${SLOT_LABELS[item.slot]}. Uses ${rarity.label} multiplier (${rarity.statMultiplier.toFixed(2)}x) and scales +20% of Lv1 bonus per level (100% at Lv1 → 180% at Lv${item.maxLevel}).`,
+    },
+  ];
+
   return {
     id: `gear_${item.id}`,
     sourceId: item.id,
@@ -152,13 +185,16 @@ export const GEARS_CODEX: CodexEntry[] = EQUIPMENT_LIST.map((item) => {
     accentHex: rarity.colorHex,
     description: item.description,
     stats: buildEquipmentStats(item),
-    specialEffects: [
-      {
-        title: 'Slot & Upgrade Rule',
-        description: `Equips into the ${SLOT_LABELS[item.slot]}. Each upgrade level scales all item stats by +20% (up to +80% at Lv${item.maxLevel}).`,
-      },
-    ],
+    specialEffects,
     acquisition: `Armory Purchase: ${priceParts.join(' · ')}`,
-    searchKeywords: [item.name, item.slot, rarity.label, item.passiveText, 'gear', 'equipment'],
+    searchKeywords: [
+      item.name,
+      item.slot,
+      rarity.label,
+      item.passiveText,
+      item.rarityEffect?.label ?? '',
+      'gear',
+      'equipment',
+    ].filter(Boolean),
   };
 });

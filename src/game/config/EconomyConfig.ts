@@ -550,9 +550,14 @@ export const EQUIPMENT_PRICING: Record<string, CurrencyAmount> = {
   def_phase_armor: { credits: 4600, crystals: 16 },
   spec_nova_prism: { credits: 4950, crystals: 18 },
 
+  off_overclock_rail: { credits: 6900, crystals: 24 },
+  spec_drone_command: { credits: 7400, crystals: 26 },
   util_astral_navigator: { credits: 7600, crystals: 26 },
   def_immortal_bulwark: { credits: 8400, crystals: 30 },
+
+  util_quantum_slipstream: { credits: 10600, crystals: 38 },
   spec_omega_relayer: { credits: 10800, crystals: 38 },
+  def_phoenix_barrier: { credits: 11200, crystals: 40 },
   off_singularity_core: { credits: 11600, crystals: 42 },
 };
 
@@ -580,6 +585,7 @@ export const DRONE_PRICING: Record<string, CurrencyAmount> = {
   shield: { credits: 2350, crystals: 8 },
   collector: { credits: 3600, crystals: 13 },
   repair: { credits: 4400, crystals: 16 },
+  prism: { credits: 6200, crystals: 22 },
 };
 
 export function calculateDroneUpgradeCost(rarity: Rarity, currentLevel: number): CurrencyAmount {

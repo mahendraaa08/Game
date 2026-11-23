@@ -1,8 +1,14 @@
 import Phaser from 'phaser';
+import { ECONOMY_CAPS } from '../config/EconomyConfig';
+import {
+  EquipmentRarityEffect,
+  RarityEffectTrigger,
+} from '../config/EquipmentConfig';
 import { GAME_CONSTANTS } from '../config/GameConfig';
 import { SHIPS } from '../config/ShipConfig';
 import {
   getWeaponFireRateAtLevel,
+  SpecialDefinition,
   SpecialId,
   SPECIAL_ATTACKS,
   WeaponId,
@@ -19,6 +25,26 @@ import { EventBus } from '../utils/EventBus';
 import { GameSettings, StorageManager } from '../utils/StorageManager';
 import { BeamHitMeta, ProjectileManager } from './ProjectileManager';
 import { allocateEnemyAttackId, Targetable } from './Targetable';
+
+export interface PrismActiveModifiers {
+  damagePct: number;
+  fireRatePct: number;
+  damageReductionPct: number;
+  shieldRegenPct: number;
+  pickupRangePx: number;
+  creditBonusPct: number;
+}
+
+export interface SpecialActivatedPayload {
+  id: SpecialId;
+  damage: number;
+  def: SpecialDefinition;
+}
+
+interface ActiveRarityTempBuff {
+  effect: EquipmentRarityEffect;
+  remainingMs: number;
+}
 
 export class Player {
   scene: Phaser.Scene;
@@ -52,6 +78,15 @@ export class Player {
   private timeSinceHitMs = 0;
   private afterimageTimerMs = 0;
   private passiveSystem: PassiveSystem | null = null;
+
+  // Gear Rarity Effect runtime state (ICD gated, capped)
+  private equippedRarityEffects: EquipmentRarityEffect[] = [];
+  private rarityEffectCooldowns: Map<string, number> = new Map();
+  private activeRarityBuffs: ActiveRarityTempBuff[] = [];
+  private onRarityProc?: (label: string, colorHex: string) => void;
+
+  // Prism Drone single-mode active buff state
+  private prismModifiers: PrismActiveModifiers | null = null;
 
   // Evolution II proc & barrage runtime timers
   private plasmaBurstCooldownMs = 0;
@@ -91,7 +126,9 @@ export class Player {
     special: SpecialId,
     stats: ComputedPlayerStats,
     weaponLevels: Record<WeaponId, number>,
-    allowedWeapons: WeaponId[] | null = null
+    allowedWeapons: WeaponId[] | null = null,
+    equippedRarityEffects: EquipmentRarityEffect[] = [],
+    onRarityProc?: (label: string, colorHex: string) => void
   ) {
     this.scene = scene;
     this.stats = stats;
@@ -103,6 +140,8 @@ export class Player {
     this.allowedWeapons = allowedWeapons;
     this.weaponId = allowedWeapons && !allowedWeapons.includes(weapon) ? allowedWeapons[0] : weapon;
     this.specialId = special;
+    this.equippedRarityEffects = equippedRarityEffects;
+    this.onRarityProc = onRarityProc;
 
     const shipDef = SHIPS[stats.shipId] ?? SHIPS.falcon_x;
     this.thrusterGfx = scene.add.graphics().setDepth(9);
@@ -141,24 +180,138 @@ export class Player {
     return 16;
   }
 
+  getTimeSinceHitMs(): number {
+    return this.timeSinceHitMs;
+  }
+
   setPassiveSystem(ps: PassiveSystem | null): void {
     this.passiveSystem = ps;
+  }
+
+  setPrismActiveModifiers(mods: PrismActiveModifiers | null): void {
+    this.prismModifiers = mods;
   }
 
   get weaponLevel(): number {
     return this.weaponLevels[this.weaponId] ?? 1;
   }
 
+  private sumTempBuff(
+    field:
+      | 'tempDamagePct'
+      | 'tempFireRatePct'
+      | 'tempCritDamagePct'
+      | 'tempDamageReductionPct'
+      | 'tempShieldRegenPct'
+      | 'tempMoveSpeedPct'
+  ): number {
+    let total = 0;
+    for (let i = 0; i < this.activeRarityBuffs.length; i++) {
+      total += this.activeRarityBuffs[i].effect[field] ?? 0;
+    }
+    return total;
+  }
+
+  private triggerRarityEffects(trigger: RarityEffectTrigger): void {
+    if (this.equippedRarityEffects.length === 0) return;
+    for (let i = 0; i < this.equippedRarityEffects.length; i++) {
+      const eff = this.equippedRarityEffects[i];
+      if (eff.trigger !== trigger) continue;
+      if ((this.rarityEffectCooldowns.get(eff.id) ?? 0) > 0) continue;
+
+      this.rarityEffectCooldowns.set(eff.id, eff.cooldownMs);
+
+      if (eff.shieldRestore) {
+        this.restoreShield(eff.shieldRestore);
+      }
+      if (eff.hpRestore) {
+        this.healHp(eff.hpRestore);
+      }
+      if (eff.specialCdTrimMs) {
+        this.specialCooldownMs = Math.max(0, this.specialCooldownMs - eff.specialCdTrimMs);
+      }
+      if (eff.dashCdTrimMs) {
+        this.dashCooldownMs = Math.max(0, this.dashCooldownMs - eff.dashCdTrimMs);
+      }
+      if (eff.durationMs && eff.durationMs > 0) {
+        const existing = this.activeRarityBuffs.find((b) => b.effect.id === eff.id);
+        if (existing) {
+          existing.remainingMs = eff.durationMs;
+        } else {
+          this.activeRarityBuffs.push({ effect: eff, remainingMs: eff.durationMs });
+        }
+      }
+
+      if (trigger !== 'on_kill') {
+        this.onRarityProc?.(eff.label.toUpperCase(), '#38BDF8');
+      }
+    }
+  }
+
+  notifyCritLanded(): void {
+    this.triggerRarityEffects('on_crit');
+  }
+
+  notifyEnemyKilled(): void {
+    this.triggerRarityEffects('on_kill');
+  }
+
+  notifyPowerUpCollected(): void {
+    this.triggerRarityEffects('on_pickup');
+  }
+
   getEffectiveCritChance(): number {
     return Math.min(0.65, this.stats.critChance + (this.passiveSystem?.getCritChanceBonus() ?? 0));
   }
 
+  getEffectiveCritDamageMult(): number {
+    return this.stats.critDamageMult + this.sumTempBuff('tempCritDamagePct') / 100;
+  }
+
   getEffectiveFireRateMult(): number {
-    return this.stats.fireRateMult * (this.rapidFireMs > 0 ? 1.75 : 1);
+    const tempFire = this.sumTempBuff('tempFireRatePct');
+    const prismFire = this.prismModifiers?.fireRatePct ?? 0;
+    return (
+      this.stats.fireRateMult *
+      (1 + Math.min(0.45, (tempFire + prismFire) / 100)) *
+      (this.rapidFireMs > 0 ? 1.75 : 1)
+    );
   }
 
   getNormalDamageMult(): number {
-    return this.stats.damageMult * (this.doubleDamageMs > 0 ? 2 : 1);
+    const tempDmg = this.sumTempBuff('tempDamagePct');
+    const prismDmg = this.prismModifiers?.damagePct ?? 0;
+    return (
+      this.stats.damageMult *
+      (1 + Math.min(0.5, (tempDmg + prismDmg) / 100)) *
+      (this.doubleDamageMs > 0 ? 2 : 1)
+    );
+  }
+
+  getEffectiveDamageReduction(): number {
+    const extraDr =
+      (this.sumTempBuff('tempDamageReductionPct') + (this.prismModifiers?.damageReductionPct ?? 0)) / 100;
+    return Math.min(0.6, Math.max(0, this.stats.damageReduction + extraDr));
+  }
+
+  getEffectiveShieldRegenMult(): number {
+    const extraRegen =
+      (this.sumTempBuff('tempShieldRegenPct') + (this.prismModifiers?.shieldRegenPct ?? 0)) / 100;
+    return Math.min(2.8, Math.max(0.5, this.stats.shieldRegenMult + extraRegen));
+  }
+
+  getEffectiveMoveSpeed(): number {
+    const tempSpd = this.sumTempBuff('tempMoveSpeedPct');
+    return Math.round(this.stats.moveSpeed * (1 + Math.min(0.35, tempSpd / 100)));
+  }
+
+  getEffectivePickupRadiusBonus(): number {
+    return this.stats.pickupRadiusBonus + (this.prismModifiers?.pickupRangePx ?? 0);
+  }
+
+  getEffectiveCreditBonusMult(): number {
+    const prismCredit = (this.prismModifiers?.creditBonusPct ?? 0) / 100;
+    return Math.min(ECONOMY_CAPS.maxCreditBonusMult, Math.max(1, this.stats.creditBonusMult + prismCredit));
   }
 
   isWantingFire(): boolean {
@@ -253,7 +406,7 @@ export class Player {
     const isCrit = Math.random() < this.getEffectiveCritChance();
     return {
       isCrit,
-      mult: isCrit ? this.stats.critDamageMult : 1,
+      mult: isCrit ? this.getEffectiveCritDamageMult() : 1,
     };
   }
 
@@ -277,6 +430,7 @@ export class Player {
     this.dashTimerMs = GAME_CONSTANTS.DASH_DURATION_MS;
     this.dashCooldownMs = Math.round(GAME_CONSTANTS.DASH_COOLDOWN_MS * this.stats.dashCooldownMult);
     this.passiveSystem?.onPlayerDash();
+    this.triggerRarityEffects('on_dash');
     SoundManager.playDash();
     return true;
   }
@@ -285,7 +439,8 @@ export class Player {
     projectiles: ProjectileManager,
     targets: Targetable[],
     onHitTarget: (t: Targetable, dmg: number, isCrit?: boolean, hitMeta?: BeamHitMeta) => void,
-    onCameraShake: (intensity: number) => void
+    onCameraShake: (intensity: number) => void,
+    onSpecialActivated?: (payload: SpecialActivatedPayload) => void
   ): boolean {
     if (this.specialCooldownMs > 0) return false;
     const spec = SPECIAL_ATTACKS[this.specialId];
@@ -302,7 +457,8 @@ export class Player {
 
     if (this.specialId === 'emp_nova') {
       projectiles.clearEnemyBullets();
-      const ring = this.scene.add.circle(this.x, this.y, 18, 0x38bdf8, 0.16).setDepth(15);
+      const radius = spec.radiusPx ?? 520;
+      const ring = this.scene.add.circle(this.x, this.y, 18, spec.colorNum, 0.16).setDepth(15);
       ring.setStrokeStyle(4, 0x7dd3fc, 0.95);
       this.scene.tweens.add({
         targets: ring,
@@ -316,51 +472,38 @@ export class Player {
       targets.forEach((t) => {
         if (!t.active) return;
         const d = Math.hypot(t.x - this.x, t.y - this.y);
-        if (d < 500) {
+        if (d <= radius) {
           const crit = this.rollCrit();
           onHitTarget(t, Math.round(dmgBase * crit.mult), crit.isCrit, specialMeta);
         }
       });
-    } else if (this.specialId === 'orbital_strike') {
-      const w = this.scene.scale.width;
-      const h = this.scene.scale.height;
-      const lanes = [this.x - 110, this.x, this.x + 110].filter((lx) => lx > 20 && lx < w - 20);
-      lanes.forEach((lx) => {
-        projectiles.addVisualBeam(lx, h, lx, 0, 0xa855f7, 36, 0.48);
-        targets.forEach((t) => {
-          if (t.active && Math.abs(t.x - lx) <= t.radius + 44) {
-            const crit = this.rollCrit();
-            onHitTarget(t, Math.round(dmgBase * crit.mult), crit.isCrit, specialMeta);
-          }
-        });
+    } else if (this.specialId === 'chrono_singularity') {
+      const pulse = this.scene.add.circle(this.x, this.y, 24, spec.colorNum, 0.14).setDepth(15);
+      pulse.setStrokeStyle(3.5, 0xe9d5ff, 0.95);
+      this.scene.tweens.add({
+        targets: pulse,
+        scaleX: 28,
+        scaleY: 28,
+        alpha: 0,
+        duration: 540,
+        ease: 'Cubic.easeOut',
+        onComplete: () => pulse.destroy(),
       });
-    } else if (this.specialId === 'photon_barrage') {
-      const warheadDmg = Math.round(dmgBase / 4);
-      for (let i = 0; i < 14; i++) {
-        const ang = -Math.PI / 2 + (i - 6.5) * 0.16;
-        const spd = 560;
+      targets.forEach((t) => {
+        if (!t.active) return;
         const crit = this.rollCrit();
-        projectiles.spawnPlayerBullet(
-          this.x + (i - 6.5) * 6,
-          this.y - 16,
-          Math.cos(ang) * spd,
-          Math.sin(ang) * spd,
-          Math.round(warheadDmg * crit.mult),
-          'proj_missile',
-          {
-            homing: true,
-            radius: 10,
-            scale: 1.15,
-            isCrit: crit.isCrit,
-            source: 'special',
-            firingActionId: 0,
-            countsForFiringAction: false,
-          }
-        );
-      }
+        onHitTarget(t, Math.round(dmgBase * crit.mult), crit.isCrit, specialMeta);
+      });
     }
 
+    onSpecialActivated?.({
+      id: this.specialId,
+      damage: dmgBase,
+      def: spec,
+    });
+
     this.passiveSystem?.onPlayerSpecialActivated();
+    this.triggerRarityEffects('on_special');
     return true;
   }
 
@@ -396,17 +539,15 @@ export class Player {
     const resolvedAttackId = attackId ?? allocateEnemyAttackId();
     const prevHp = this.hp;
     const prevShield = this.shield;
+    const effectiveDr = this.getEffectiveDamageReduction();
 
-    let mitigated = Math.max(
-      1,
-      Math.round(amount * (1 - Math.min(0.6, Math.max(0, this.stats.damageReduction))))
-    );
+    let mitigated = Math.max(1, Math.round(amount * (1 - effectiveDr)));
     if (this.passiveSystem) {
       const drRes = this.passiveSystem.computeIncomingPlayerDamage({
         rawAmount: amount,
         attackId: resolvedAttackId,
         prevShield,
-        equipmentDR: this.stats.damageReduction,
+        equipmentDR: effectiveDr,
       });
       if (drRes.duplicated) return false;
       mitigated = drRes.mitigatedDamage;
@@ -432,6 +573,11 @@ export class Player {
     this.scene.time.delayedCall(95, () => {
       if (this.sprite.active) this.sprite.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
     });
+
+    this.triggerRarityEffects('on_hit');
+    if (prevShield > 0 && this.shield <= 0) {
+      this.triggerRarityEffects('on_shield_break');
+    }
 
     this.passiveSystem?.onPlayerDamagedPostApply({
       prevHp,
@@ -473,7 +619,8 @@ export class Player {
     onInstantHit: (t: Targetable, dmg: number, isCrit?: boolean, hitMeta?: BeamHitMeta) => void,
     onSpecialUsed: () => void,
     onCameraShake: (intensity: number) => void,
-    onStunApplied?: (t: Targetable) => void
+    onStunApplied?: (t: Targetable) => void,
+    onSpecialActivated?: (payload: SpecialActivatedPayload) => void
   ): void {
     const dtMs = dt * 1000;
     this.fireTimerMs = Math.max(0, this.fireTimerMs - dtMs);
@@ -489,6 +636,19 @@ export class Player {
     this.beamSoundCooldownMs = Math.max(0, this.beamSoundCooldownMs - dtMs);
     this.timeSinceHitMs += dtMs;
 
+    // Tick rarity effect ICDs & active temporary buffs
+    this.rarityEffectCooldowns.forEach((rem, key) => {
+      const next = rem - dtMs;
+      if (next <= 0) this.rarityEffectCooldowns.delete(key);
+      else this.rarityEffectCooldowns.set(key, next);
+    });
+    for (let i = this.activeRarityBuffs.length - 1; i >= 0; i--) {
+      this.activeRarityBuffs[i].remainingMs -= dtMs;
+      if (this.activeRarityBuffs[i].remainingMs <= 0) {
+        this.activeRarityBuffs.splice(i, 1);
+      }
+    }
+
     // Passive shield recharge after delay
     if (
       this.maxShield > 0 &&
@@ -497,7 +657,7 @@ export class Player {
     ) {
       this.shield = Math.min(
         this.maxShield,
-        this.shield + GAME_CONSTANTS.SHIELD_REGEN_PER_SEC * this.stats.shieldRegenMult * dt
+        this.shield + GAME_CONSTANTS.SHIELD_REGEN_PER_SEC * this.getEffectiveShieldRegenMult() * dt
       );
     }
 
@@ -507,14 +667,22 @@ export class Player {
         this.triggerDash();
       }
       if (Phaser.Input.Keyboard.JustDown(this.keys.E)) {
-        if (this.tryTriggerSpecial(projectiles, targets, onInstantHit, onCameraShake)) {
+        if (
+          this.tryTriggerSpecial(
+            projectiles,
+            targets,
+            onInstantHit,
+            onCameraShake,
+            onSpecialActivated
+          )
+        ) {
           onSpecialUsed();
         }
       }
     }
 
     const followSpeed = Phaser.Math.Linear(48, 18, this.cachedSettings.movementSmoothing ?? 0.7);
-    const speedCap = this.stats.moveSpeed;
+    const speedCap = this.getEffectiveMoveSpeed();
 
     // Movement
     if (this.dashTimerMs > 0) {
@@ -807,6 +975,9 @@ export class Player {
   destroy(): void {
     this.settingsUnsub?.();
     this.settingsUnsub = undefined;
+    this.activeRarityBuffs.length = 0;
+    this.rarityEffectCooldowns.clear();
+    this.prismModifiers = null;
     this.sprite.destroy();
     this.shieldGfx.destroy();
     this.thrusterGfx.destroy();

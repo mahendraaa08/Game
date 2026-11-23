@@ -11,54 +11,54 @@ const SPECIAL_METADATA: Record<
   }
 > = {
   emp_nova: {
-    subtitle: 'Active Special · Radial Countermeasure',
+    subtitle: 'Active Special · Instant AoE & Bullet Clear',
     extraStats: [
-      { label: 'Shockwave Radius', value: '500 px', numericValue: 500, maxReference: 600, tone: 'sky' },
+      { label: 'Shockwave Radius', value: '520 px', numericValue: 520, maxReference: 600, tone: 'sky' },
       { label: 'Projectile Clear', value: 'Full Screen', tone: 'cyan' },
     ],
     effects: [
       {
-        title: 'Bullet Erasure',
-        description: 'Instantly vaporizes every active hostile projectile in the arena on activation.',
+        title: 'Bullet Erasure & Emergency Shielding',
+        description: 'Instantly vaporizes every active hostile projectile across the arena while dealing high radial shock damage.',
       },
       {
         title: 'Crit & Cooldown Scaling',
-        description: 'Scales with Equipment Special Power, Fleet Critical Damage & Cooldown Reduction upgrades, and Critical rolls.',
+        description: 'Damage scales with Special Power, Critical Chance/Damage, and Fleet upgrades; cooldown scales with Special Cooldown Reduction.',
       },
     ],
   },
-  orbital_strike: {
-    subtitle: 'Active Special · Vertical Lance Barrage',
+  chrono_singularity: {
+    subtitle: 'Active Special · Selective Stasis Field',
     extraStats: [
-      { label: 'Strike Lanes', value: '3 Columns', tone: 'purple' },
-      { label: 'Lane Width', value: '88 px', numericValue: 88, maxReference: 120, tone: 'sky' },
+      { label: 'Stasis Duration', value: '3.6 s', numericValue: 3.6, maxReference: 5, tone: 'purple' },
+      { label: 'Stasis Scope', value: 'Enemies, Boss & Bullets', tone: 'cyan' },
     ],
     effects: [
       {
-        title: 'Tri-Column Sweep',
-        description: 'Fires twin flanking orbital beams (±110 px) plus a centered lance spanning full arena height.',
+        title: 'Selective Time Manipulation',
+        description: 'Freezes hostile ships, boss actions/timers, and enemy projectiles in place while your starfighter, weapons, and companion drones operate at full speed.',
       },
       {
         title: 'Crit & Cooldown Scaling',
-        description: 'Scales with Equipment Special Power, Fleet Critical Damage & Cooldown Reduction upgrades, and Critical rolls.',
+        description: 'Initial temporal shockwave scales with Special Power and Critical rolls; ends cleanly when the 3.6s stasis field expires.',
       },
     ],
   },
-  photon_barrage: {
-    subtitle: 'Active Special · Homing Salvo',
+  gravity_well: {
+    subtitle: 'Active Special · Gravitational Crowd Control',
     extraStats: [
-      { label: 'Warheads Fired', value: '14 missiles', numericValue: 14, maxReference: 16, tone: 'amber' },
-      { label: 'Seek Range', value: '480 px', numericValue: 480, maxReference: 600, tone: 'cyan' },
-      { label: 'Warhead Velocity', value: '560 px/s', tone: 'sky' },
+      { label: 'Pull Radius', value: '235 px', numericValue: 235, maxReference: 300, tone: 'amber' },
+      { label: 'Vortex Duration', value: '4.2 s', numericValue: 4.2, maxReference: 5, tone: 'purple' },
+      { label: 'Damage Tick', value: '0.28 s', numericValue: 0.28, maxReference: 1, tone: 'cyan' },
     ],
     effects: [
       {
-        title: 'Warhead Payload & Crit Scaling',
-        description: 'Each warhead deals 25% of Special Base Damage multiplied by Equipment Special Power and Critical Damage rolls.',
+        title: 'Black Hole Pull & Sustained AoE',
+        description: 'Anchors a gravity vortex in the upper-center arena that pulls standard enemies inward (safely clamped within bounds) and deals rapid periodic Special damage.',
       },
       {
-        title: 'Autonomous Tracking',
-        description: 'Warheads lock onto active enemies and bosses across a wide fan arc.',
+        title: 'Boss Crowd-Control Immunity',
+        description: 'Boss flagships resist gravitational displacement while still taking full periodic AoE damage inside the singularity.',
       },
     ],
   },
@@ -76,17 +76,17 @@ const SPECIAL_CODEX: CodexEntry[] = SPECIAL_LIST.map((spec) => {
     description: spec.description,
     stats: [
       {
-        label: 'Base Damage',
-        value: `${spec.damage} DMG`,
+        label: spec.id === 'gravity_well' ? 'Tick Base Damage' : 'Base Damage',
+        value: spec.id === 'gravity_well' ? `${spec.damage} DMG / tick` : `${spec.damage} DMG`,
         numericValue: spec.damage,
-        maxReference: 200,
+        maxReference: 180,
         tone: 'rose',
       },
       {
         label: 'Base Cooldown',
         value: `${(spec.cooldownMs / 1000).toFixed(1)} s`,
         numericValue: spec.cooldownMs / 1000,
-        maxReference: 14,
+        maxReference: 15,
         tone: 'amber',
       },
       ...(meta?.extraStats ?? []),

@@ -1,8 +1,8 @@
 import type { BossId } from '../config/BossConfig';
-import { DRONE_SLOT_IDS, type DroneId, type DroneSlotId } from '../config/DroneConfig';
+import { DRONE_LIST, DRONE_SLOT_IDS, type DroneId, type DroneSlotId } from '../config/DroneConfig';
 import { ECONOMY_START, getMigrationBonus, MAX_SHIP_LEVEL } from '../config/EconomyConfig';
 import type { EnemyClass } from '../config/EnemyConfig';
-import type { EquipmentSlot } from '../config/EquipmentConfig';
+import { EQUIPMENT_BY_ID, type EquipmentSlot } from '../config/EquipmentConfig';
 import {
   MAX_PLAYER_LEVEL,
   getExpRequiredForNextLevel,
@@ -382,8 +382,17 @@ class StorageManagerImpl {
           ? parsed.selectedShip
           : 'falcon_x';
 
+      const rawSpecial = parsed.selectedSpecial as string | undefined;
+      const migratedSpecial =
+        rawSpecial === 'orbital_strike'
+          ? 'chrono_singularity'
+          : rawSpecial === 'photon_barrage'
+          ? 'gravity_well'
+          : rawSpecial;
       const selectedSpecial: SpecialId =
-        parsed.selectedSpecial && parsed.selectedSpecial in SPECIAL_ATTACKS ? parsed.selectedSpecial : 'emp_nova';
+        migratedSpecial && migratedSpecial in SPECIAL_ATTACKS
+          ? (migratedSpecial as SpecialId)
+          : 'emp_nova';
 
       const upgrades = { ...DEFAULT_UPGRADES };
       if (parsed.upgrades && typeof parsed.upgrades === 'object') {
@@ -415,6 +424,7 @@ class StorageManagerImpl {
       const ownedEquipment: Record<string, number> = {};
       if (parsed.ownedEquipment && typeof parsed.ownedEquipment === 'object') {
         Object.entries(parsed.ownedEquipment).forEach(([id, lvl]) => {
+          if (!(id in EQUIPMENT_BY_ID)) return;
           const safeLvl = safeInt(lvl, 0, 0, 5);
           if (safeLvl >= 1) ownedEquipment[id] = safeLvl;
         });
@@ -424,7 +434,11 @@ class StorageManagerImpl {
       if (parsed.equippedGear && typeof parsed.equippedGear === 'object') {
         (['offensive', 'defensive', 'utility', 'special'] as EquipmentSlot[]).forEach((slot) => {
           const itemId = (parsed.equippedGear as Record<string, unknown>)[slot];
-          if (typeof itemId === 'string' && ownedEquipment[itemId]) {
+          if (
+            typeof itemId === 'string' &&
+            ownedEquipment[itemId] &&
+            EQUIPMENT_BY_ID[itemId]?.slot === slot
+          ) {
             equippedGear[slot] = itemId;
           }
         });
@@ -432,7 +446,7 @@ class StorageManagerImpl {
 
       const ownedDrones: Partial<Record<DroneId, number>> = {};
       if (parsed.ownedDrones && typeof parsed.ownedDrones === 'object') {
-        (['assault', 'shield', 'repair', 'collector'] as DroneId[]).forEach((dId) => {
+        DRONE_LIST.forEach(({ id: dId }) => {
           const lvl = safeInt((parsed.ownedDrones as Record<string, unknown>)[dId], 0, 0, 5);
           if (lvl >= 1) ownedDrones[dId] = lvl;
         });
