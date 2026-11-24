@@ -563,12 +563,17 @@ export const VictoryModal: React.FC<{ data: VictoryPayload }> = ({ data }) => {
     ? CAMPAIGN_DIFFICULTIES[data.unlockedNextDifficulty]?.label
     : null;
   const perf = data.bossRushPerformance ?? null;
+  const ascensionCleared = data.bossRushAscensionCleared ?? null;
+  const nextAscensionRank = data.bossRushNextAscensionRank ?? null;
 
   const extraBanner =
     isBossRush && perf ? (
       <div className="mt-3 rounded-xl border border-amber-300/30 bg-amber-500/10 px-3.5 py-2.5 text-xs">
-        <div className="flex items-center justify-between font-mono-num">
-          <span className="font-bold text-amber-200">GAUNTLET GRADE: {perf.grade}</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 font-mono-num">
+          <span className="font-bold text-amber-200">
+            GAUNTLET GRADE: {perf.grade}
+            {ascensionCleared ? ` · RANK ${ascensionCleared}` : ''}
+          </span>
           <span className="text-slate-300">
             {formatClearDuration(perf.clearTimeSec)} · {perf.hpRemainingPct}% HP
           </span>
@@ -576,6 +581,7 @@ export const VictoryModal: React.FC<{ data: VictoryPayload }> = ({ data }) => {
         <div className="mt-1 font-mono-num text-[11px] text-amber-300/90">
           Performance Bonus Included: +{perf.bonusCredits} CR
           {perf.bonusCrystals > 0 ? ` · +${perf.bonusCrystals} Gems` : ''}
+          {nextAscensionRank ? ` · Rank ${nextAscensionRank} Unlocked` : ''}
         </div>
       </div>
     ) : !isBossRush && unlockedNextLabel ? (
@@ -590,7 +596,7 @@ export const VictoryModal: React.FC<{ data: VictoryPayload }> = ({ data }) => {
       headline="VICTORY"
       summaryLine={
         isBossRush
-          ? 'Boss Rush · 5-Boss Gauntlet Cleared'
+          ? `Boss Rush${ascensionCleared ? ` (Ascension Rank ${ascensionCleared})` : ''} · 5-Boss Gauntlet Cleared`
           : `Campaign Complete (${diffLabel}) · Void Emperor Defeated`
       }
       metrics={[

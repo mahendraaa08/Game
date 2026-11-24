@@ -31,6 +31,7 @@ export interface BossRushRecoveryDraftPayload {
   totalBosses: number;
   defeatedBossName: string;
   nextBossName: string;
+  ascensionRank?: number;
   currentHp: number;
   maxHp: number;
   currentShield: number;
@@ -89,6 +90,8 @@ export interface VictoryPayload {
   crystalsEarned: number;
   expEarned?: number;
   bossRushPerformance?: BossRushPerformanceSummary | null;
+  bossRushAscensionCleared?: number;
+  bossRushNextAscensionRank?: number;
 }
 
 export interface BossWarningPayload {

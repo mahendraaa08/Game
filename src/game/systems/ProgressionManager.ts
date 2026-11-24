@@ -10,12 +10,15 @@ import {
   isDroneCompatibleWithSlot,
 } from '../config/DroneConfig';
 import {
+  ARMORY_UNLOCK_MESSAGE,
   BOSS_RUSH_CLEAR_REWARD,
   ECONOMY_CAPS,
   type ExchangeDirection,
   PLAYER_NAME_CHANGE_COST_GEMS,
   getCampaignClearReward,
   getChallengePayout,
+  hasCampaignClearRequirement,
+  isArmoryUnlocked,
   previewCurrencyExchange,
   validatePlayerName,
 } from '../config/EconomyConfig';
@@ -33,6 +36,8 @@ import {
   type ChallengeDifficulty,
   type ChallengeRule,
   type GameMode,
+  getBossRushAscensionRank,
+  getBossRushAscensionReward,
   getNextCampaignDifficulty,
   resolveChallengeTier,
 } from '../config/GameModeConfig';
@@ -435,11 +440,13 @@ class ProgressionManagerImpl {
 
     if (
       def.unlock.minSectorCompleted &&
-      !p.completedLevels.includes(def.unlock.minSectorCompleted)
+      !hasCampaignClearRequirement(p, def.unlock.minSectorCompleted, def.unlock.minDifficulty ?? 'easy')
     ) {
+      const reqDiffLabel =
+        CAMPAIGN_DIFFICULTIES[def.unlock.minDifficulty ?? 'easy']?.label ?? 'Easy';
       return {
         ok: false,
-        message: `Clear Sector ${String(def.unlock.minSectorCompleted).padStart(2, '0')} first.`,
+        message: `Clear Sector ${String(def.unlock.minSectorCompleted).padStart(2, '0')} on ${reqDiffLabel} difficulty or higher first.`,
       };
     }
 
@@ -521,6 +528,9 @@ class ProgressionManagerImpl {
     const def = EQUIPMENT_BY_ID[eqId];
     if (!def) return { ok: false, message: 'Invalid equipment item.' };
     const p = StorageManager.load();
+    if (!isArmoryUnlocked(p)) {
+      return { ok: false, message: ARMORY_UNLOCK_MESSAGE };
+    }
     const cur = p.ownedEquipment[eqId] ?? 0;
 
     if (cur === 0) {
@@ -552,6 +562,9 @@ class ProgressionManagerImpl {
     const def = EQUIPMENT_BY_ID[eqId];
     if (!def) return { ok: false, message: 'Invalid item.' };
     const p = StorageManager.load();
+    if (!isArmoryUnlocked(p)) {
+      return { ok: false, message: ARMORY_UNLOCK_MESSAGE };
+    }
     if (!p.ownedEquipment[eqId]) {
       return { ok: false, message: `Purchase ${def.name} first.` };
     }
@@ -569,6 +582,9 @@ class ProgressionManagerImpl {
     const def = DRONES[droneId];
     if (!def) return { ok: false, message: 'Invalid drone module.' };
     const p = StorageManager.load();
+    if (!isArmoryUnlocked(p)) {
+      return { ok: false, message: ARMORY_UNLOCK_MESSAGE };
+    }
     const cur = p.ownedDrones[droneId] ?? 0;
 
     if (cur === 0) {
@@ -618,6 +634,9 @@ class ProgressionManagerImpl {
     }
 
     const p = StorageManager.load();
+    if (!isArmoryUnlocked(p)) {
+      return { ok: false, message: ARMORY_UNLOCK_MESSAGE };
+    }
     if (!p.ownedDrones[droneId] || p.ownedDrones[droneId]! <= 0) {
       return { ok: false, message: `Purchase ${def.name} first.` };
     }
@@ -1203,9 +1222,16 @@ class ProgressionManagerImpl {
     } else if (params.mode === 'boss_rush') {
       p.stats.bestBossRushScore = Math.max(p.stats.bestBossRushScore, params.score);
       if (params.bossRushCleared) {
+        const preClearRank = getBossRushAscensionRank(p.stats.bossRushClears);
+        const rankReward = getBossRushAscensionReward(
+          preClearRank,
+          BOSS_RUSH_CLEAR_REWARD.credits,
+          BOSS_RUSH_CLEAR_REWARD.crystals,
+          PLAYER_EXP_SOURCES.bossRushClearBonus
+        );
         p.stats.bossRushClears += 1;
-        totalCredits += BOSS_RUSH_CLEAR_REWARD.credits;
-        totalCrystals += BOSS_RUSH_CLEAR_REWARD.crystals;
+        totalCredits += rankReward.totalClearCredits;
+        totalCrystals += rankReward.totalClearCrystals;
         if (params.bossRushPerformance) {
           totalCredits += params.bossRushPerformance.bonusCredits;
           totalCrystals += params.bossRushPerformance.bonusCrystals;
@@ -1221,7 +1247,7 @@ class ProgressionManagerImpl {
               ? cleanSec
               : Math.min(p.stats.bestBossRushTimeSec, cleanSec);
         }
-        runExp += PLAYER_EXP_SOURCES.bossRushClearBonus;
+        runExp += rankReward.clearExp;
       }
     } else if (params.mode === 'challenge' && params.challengeCompleted && params.challengeId) {
       const resolved = resolveChallengeTier(params.challengeId, params.challengeDifficulty);

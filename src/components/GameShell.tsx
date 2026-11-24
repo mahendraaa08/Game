@@ -1,7 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type Phaser from 'phaser';
 import titleKeyArt from '../assets/images/title_key_art_1794922504898.jpg';
-import { ExchangeDirection } from '../game/config/EconomyConfig';
+import {
+  ARMORY_UNLOCK_MESSAGE,
+  ExchangeDirection,
+  isArmoryUnlocked,
+} from '../game/config/EconomyConfig';
 import { HudSnapshot, SceneId } from '../game/config/GameConfig';
 import { SHIPS, ShipId } from '../game/config/ShipConfig';
 import { WeaponId } from '../game/config/WeaponConfig';
@@ -172,8 +176,20 @@ export const GameShell: React.FC = () => {
   const navigateTo = useCallback(
     (route: Exclude<AppRoute, 'menu'>) => {
       clearFeedback();
+      const latest = StorageManager.load();
+      if (route === 'armory' && !isArmoryUnlocked(latest)) {
+        showFeedback({ ok: false, message: ARMORY_UNLOCK_MESSAGE });
+        setInspectedShipId(latest.selectedShip);
+        setInspectedWeaponId(latest.selectedWeapon);
+        setRouteStack(['menu', 'ships']);
+        if (engineReadyRef.current) {
+          EventBus.emit('ui:open-hangar');
+        } else {
+          pendingHangarRef.current = true;
+        }
+        return;
+      }
       if (route === 'ships') {
-        const latest = StorageManager.load();
         setInspectedShipId(latest.selectedShip);
         setInspectedWeaponId(latest.selectedWeapon);
         setRouteStack(['menu', 'ships']);
@@ -189,7 +205,7 @@ export const GameShell: React.FC = () => {
         return [...prev, route];
       });
     },
-    [clearFeedback]
+    [clearFeedback, showFeedback]
   );
 
   const openExchange = useCallback(
@@ -203,6 +219,15 @@ export const GameShell: React.FC = () => {
   const replaceHangarTab = useCallback(
     (tab: HangarTabRoute) => {
       clearFeedback();
+      if (tab === 'armory' && !isArmoryUnlocked(StorageManager.load())) {
+        showFeedback({ ok: false, message: ARMORY_UNLOCK_MESSAGE });
+        setRouteStack((prev) => {
+          const top = prev[prev.length - 1];
+          if (top === 'armory') return [...prev.slice(0, -1), 'ships'];
+          return prev;
+        });
+        return;
+      }
       setRouteStack((prev) => {
         const top = prev[prev.length - 1];
         if (top === tab) return prev;
@@ -212,7 +237,7 @@ export const GameShell: React.FC = () => {
         return [...prev, tab];
       });
     },
-    [clearFeedback]
+    [clearFeedback, showFeedback]
   );
 
   const popRoute = useCallback(() => {
@@ -292,8 +317,12 @@ export const GameShell: React.FC = () => {
         } else if (next === 'HangarScene') {
           engineReadyRef.current = true;
           syncProgress();
+          const armoryOpen = isArmoryUnlocked(StorageManager.load());
           setRouteStack((prev) => {
             const top = prev[prev.length - 1];
+            if (top === 'armory' && !armoryOpen) {
+              return ['menu', 'ships'];
+            }
             if (top === 'ships' || top === 'weapons' || top === 'armory') {
               return prev;
             }
@@ -306,6 +335,11 @@ export const GameShell: React.FC = () => {
       EventBus.on('ui:navigate-route', (route) => {
         if (route === 'menu') {
           setRouteStack(['menu']);
+          return;
+        }
+        if (route === 'armory' && !isArmoryUnlocked(StorageManager.load())) {
+          showFeedback({ ok: false, message: ARMORY_UNLOCK_MESSAGE });
+          setRouteStack(['menu', 'ships']);
           return;
         }
         if (route === 'ships') {
@@ -436,8 +470,21 @@ export const GameShell: React.FC = () => {
     return false;
   }, [transitionFromGuestToMenu]);
 
-  const activeRoute: AppRoute = routeStack[routeStack.length - 1] ?? 'menu';
+  const rawActiveRoute: AppRoute = routeStack[routeStack.length - 1] ?? 'menu';
+  const armoryUnlocked = isArmoryUnlocked(progress);
+  const activeRoute: AppRoute =
+    rawActiveRoute === 'armory' && !armoryUnlocked ? 'ships' : rawActiveRoute;
   const isStartupDone = startupStage === 'ready';
+
+  useEffect(() => {
+    if (rawActiveRoute === 'armory' && !armoryUnlocked) {
+      setRouteStack((prev) => {
+        const top = prev[prev.length - 1];
+        if (top !== 'armory') return prev;
+        return [...prev.slice(0, -1), 'ships'];
+      });
+    }
+  }, [rawActiveRoute, armoryUnlocked]);
 
   // Display Level-Up popup exclusively after returning to Main Menu and consume once so it never repeats
   useEffect(() => {
@@ -570,7 +617,7 @@ export const GameShell: React.FC = () => {
         </DedicatedScreenShell>
       )}
 
-      {isStartupDone && isNonCombatUiScene && activeRoute === 'armory' && (
+      {isStartupDone && isNonCombatUiScene && activeRoute === 'armory' && armoryUnlocked && (
         <DedicatedScreenShell
           title="Hangar & Upgrades"
           subtitle="Equipment Gear · Companion Drones"

@@ -13,6 +13,7 @@ export interface BossCombatModifiers {
   attackRateMult?: number;
   projectileSpeedMult?: number;
   aggressionMult?: number;
+  patternPressure?: 0 | 1 | 2;
 }
 
 interface PendingBossBeat {
@@ -77,6 +78,7 @@ export class BossEntity implements Targetable {
   private attackRateMult = 1;
   private projectileSpeedMult = 1;
   private aggressionMult = 1;
+  private patternPressure: 0 | 1 | 2 = 0;
 
   private onSpawnMinion: (enemyClass: EnemyClass, x: number, y: number) => void;
   private onPhaseShift: (newPhase: 1 | 2 | 3) => void;
@@ -100,6 +102,8 @@ export class BossEntity implements Targetable {
     this.attackRateMult = Phaser.Math.Clamp(combatMods?.attackRateMult ?? 1, 0.65, 2.0);
     this.projectileSpeedMult = Phaser.Math.Clamp(combatMods?.projectileSpeedMult ?? 1, 0.7, 1.65);
     this.aggressionMult = Phaser.Math.Clamp(combatMods?.aggressionMult ?? 1, 0.7, 1.8);
+    const rawPressure = combatMods?.patternPressure ?? 0;
+    this.patternPressure = rawPressure >= 2 ? 2 : rawPressure >= 1 ? 1 : 0;
 
     this.maxHp = Math.max(1, Math.round(this.def.maxHp * hpMultiplier));
     this.hp = this.maxHp;
@@ -726,9 +730,20 @@ export class BossEntity implements Targetable {
       case 'iron_guardian': {
         if (pattern === 0) {
           // P1: Siege Bomb Fan · P2: 2-beat staggered + twin Homing Siege Seekers · P3: Twin Splitters + Fan
-          for (let i = -2; i <= 2; i++) {
-            const ang = Math.PI / 2 + i * 0.22;
-            projectiles.spawnEnemyBullet(sx, sy, Math.cos(ang) * 280, Math.sin(ang) * 280, 18, 'proj_enemy_bomb', 9);
+          const fanSpan = this.patternPressure >= 1 ? 3 : 2;
+          for (let i = -fanSpan; i <= fanSpan; i++) {
+            const ang = Math.PI / 2 + i * 0.21;
+            const isOuter = Math.abs(i) === 3;
+            projectiles.spawnEnemyBullet(
+              sx,
+              sy,
+              Math.cos(ang) * (isOuter ? 295 : 280),
+              Math.sin(ang) * (isOuter ? 295 : 280),
+              isOuter ? 16 : 18,
+              isOuter ? 'proj_enemy_shard' : 'proj_enemy_bomb',
+              isOuter ? 7 : 9,
+              isOuter ? 0xfef08a : undefined
+            );
           }
           if (this.phase >= 2) {
             this.scheduleBeat(340, (_px, _py, proj) => {
@@ -749,12 +764,12 @@ export class BossEntity implements Targetable {
             });
           }
         } else if (pattern === 1) {
-          // Twin Pod Aimed Burst (2-beat salvo in P2/P3)
-          const fireTwinPods = (px: number, py: number, proj: ProjectileManager, speed: number) => {
+          // Twin Pod Aimed Burst (2-beat salvo in P2/P3; 3rd tight salvo at high pattern pressure)
+          const fireTwinPods = (px: number, py: number, proj: ProjectileManager, speed: number, spread = 0.14) => {
             const bx = this.x;
             const by = this.y + 36;
             const ang = Math.atan2(py - by, px - bx);
-            [-0.14, 0, 0.14].forEach((off) => {
+            [-spread, 0, spread].forEach((off) => {
               proj.spawnEnemyBullet(bx - 44, by, Math.cos(ang + off) * speed, Math.sin(ang + off) * speed, 16);
               proj.spawnEnemyBullet(bx + 44, by, Math.cos(ang + off) * speed, Math.sin(ang + off) * speed, 16);
             });
@@ -763,6 +778,9 @@ export class BossEntity implements Targetable {
           if (this.phase >= 2) {
             this.scheduleBeat(280, (px, py, proj) => fireTwinPods(px, py, proj, 355));
           }
+          if (this.patternPressure >= 2 && this.phase >= 2) {
+            this.scheduleBeat(540, (px, py, proj) => fireTwinPods(px, py, proj, 365, 0.1));
+          }
         } else if (pattern === 2) {
           // Siege Hyper-Lance (P3 fires Twin Wing Lances framing the lane)
           if (this.phase === 3) {
@@ -770,6 +788,12 @@ export class BossEntity implements Targetable {
             this.queueLaser(48, 36, Math.min(w - 70, playerX + 88), { color: 0xf59e0b, trackSpeed: 1.5, width: 26 });
           } else {
             this.queueLaser(0, 38, playerX, { color: 0xf59e0b, trackSpeed: 2.0 });
+            if (this.patternPressure >= 1) {
+              [-0.34, 0.34].forEach((off) => {
+                const ang = Math.PI / 2 + off;
+                projectiles.spawnEnemyBullet(sx, sy, Math.cos(ang) * 290, Math.sin(ang) * 290, 16, 'proj_enemy_bolt', 7, 0xf59e0b);
+              });
+            }
           }
         } else {
           // P2: Twin Shoulder Homing Mortar + Nova · P3: Splitting Mortar Orbs + 12-Orb Siege Nova
@@ -785,9 +809,22 @@ export class BossEntity implements Targetable {
                 spinRate: 4.5,
               });
             });
+          } else if (this.patternPressure >= 2) {
+            [-0.32, 0.32].forEach((off) => {
+              const ang = Math.PI / 2 + off;
+              projectiles.spawnEnemyBullet(sx, sy, Math.cos(ang) * 230, Math.sin(ang) * 230, 17, 'proj_enemy_splitter', 9, 0xf59e0b, {
+                splitAfterSec: 0.75,
+                splitCount: 4,
+                splitSpeed: 245,
+                splitTextureKey: 'proj_enemy_shard',
+                splitTint: 0xfef08a,
+                spinRate: 4.2,
+              });
+            });
           }
-          for (let i = 0; i < (this.phase === 3 ? 12 : 8); i++) {
-            const ang = (Math.PI * 2 * i) / (this.phase === 3 ? 12 : 8) + this.spiralAngle;
+          const orbCount = this.phase === 3 ? 12 : this.patternPressure >= 1 ? 10 : 8;
+          for (let i = 0; i < orbCount; i++) {
+            const ang = (Math.PI * 2 * i) / orbCount + this.spiralAngle;
             projectiles.spawnEnemyBullet(sx, sy, Math.cos(ang) * 245, Math.sin(ang) * 245, 18, 'proj_enemy_bomb', 9, 0xef4444);
           }
           this.spiralAngle += 0.28;
@@ -798,7 +835,7 @@ export class BossEntity implements Targetable {
       case 'venom_queen': {
         if (pattern === 0) {
           // Corrosive Bio-Ring (P2/P3 adds counter-curving inner wave)
-          const count = 10 + this.phase * 2;
+          const count = 10 + this.phase * 2 + (this.patternPressure >= 1 ? 2 : 0);
           for (let i = 0; i < count; i++) {
             const ang = (Math.PI * 2 * i) / count + this.spiralAngle;
             projectiles.spawnEnemyBullet(sx, sy, Math.cos(ang) * 240, Math.sin(ang) * 240, 18, 'proj_enemy_bomb', 8, 0x22c55e);
@@ -830,6 +867,15 @@ export class BossEntity implements Targetable {
                 homingDuration: 1.5,
               });
             });
+            if (this.patternPressure >= 2) {
+              [-0.45, 0.45].forEach((off, idx) => {
+                const bAng = Math.PI / 2 + off;
+                projectiles.spawnEnemyBullet(sx, sy, Math.cos(bAng) * 265, Math.sin(bAng) * 265, 16, 'proj_enemy_bolt', 7, 0xa855f7, {
+                  turnRate: idx === 0 ? 0.45 : -0.45,
+                  turnDuration: 0.65,
+                });
+              });
+            }
           } else {
             const ang = Math.atan2(playerY - sy, playerX - sx);
             [-0.25, 0.25].forEach((off) => {
@@ -847,6 +893,11 @@ export class BossEntity implements Targetable {
               wavePhase: i % 2 === 0 ? 0 : Math.PI,
             });
           }
+          if (this.patternPressure >= 1) {
+            [-0.42, 0.42].forEach((off) => {
+              projectiles.spawnEnemyBullet(sx, sy, Math.cos(ang + off) * 290, Math.sin(ang + off) * 290, 15, 'proj_enemy_shard', 7, 0x22c55e);
+            });
+          }
         } else {
           // P2: Twin Splitting Spore Pods · P3: Splitting Spore Pods + Crossfire Wing Arcs
           [-0.28, 0.28].forEach((off) => {
@@ -860,10 +911,11 @@ export class BossEntity implements Targetable {
               spinRate: 4.8,
             });
           });
-          if (this.phase === 3) {
+          if (this.phase === 3 || this.patternPressure >= 2) {
             [-70, 70].forEach((dx) => {
               const ang = Math.atan2(playerY - sy, playerX - (sx + dx));
-              [-0.16, 0, 0.16].forEach((off) => {
+              const spread = this.phase === 3 ? [-0.16, 0, 0.16] : [-0.12, 0.12];
+              spread.forEach((off) => {
                 projectiles.spawnEnemyBullet(sx + dx, sy, Math.cos(ang + off) * 335, Math.sin(ang + off) * 335, 17, 'proj_enemy_bolt', 7, 0x22c55e);
               });
             });
@@ -874,16 +926,22 @@ export class BossEntity implements Targetable {
 
       case 'shadow_titan': {
         if (pattern === 0) {
-          // Cryo Hyper-Lance (P3 unleashes Twin V-Angle Lances)
+          // Cryo Hyper-Lance (P3 unleashes Twin V-Angle Lances; pressure 2 adds center telegraphed lane in P2+)
           if (this.phase === 3) {
             this.queueLaser(-36, 36, Math.max(60, playerX - 95), { color: 0x38bdf8, trackSpeed: 1.7 });
             this.queueLaser(36, 36, Math.min(w - 60, playerX + 95), { color: 0x818cf8, trackSpeed: 1.7 });
+            if (this.patternPressure >= 2) {
+              this.queueLaser(0, 38, w * 0.5, { color: 0x67e8f9, trackSpeed: 0, timerMs: 920, width: 24 });
+            }
           } else {
             this.queueLaser(0, 38, playerX, { color: 0x38bdf8, trackSpeed: 2.3 });
+            if (this.patternPressure >= 2 && this.phase >= 2) {
+              this.queueLaser(0, 38, w * 0.5, { color: 0x818cf8, trackSpeed: 0, timerMs: 920, width: 24 });
+            }
           }
         } else if (pattern === 1) {
           // Rotating Cryo Spiral Nova + Homing Cryo Seekers in P2/P3
-          const count = this.phase >= 2 ? 14 : 12;
+          const count = (this.phase >= 2 ? 14 : 12) + (this.patternPressure >= 1 ? 2 : 0);
           const turnRate = this.phase >= 2 ? (this.patternIndex % 2 === 0 ? 0.55 : -0.55) : 0;
           for (let i = 0; i < count; i++) {
             const ang = (Math.PI * 2 * i) / count + this.spiralAngle;
@@ -916,6 +974,16 @@ export class BossEntity implements Targetable {
           fireSniper(playerX, playerY, projectiles);
           if (this.phase >= 2) {
             this.scheduleBeat(240, (px, py, proj) => fireSniper(px, py, proj));
+            if (this.patternPressure >= 1) {
+              this.scheduleBeat(410, (px, py, proj) => {
+                const bx = this.x;
+                const by = this.y + 36;
+                [-75, 75].forEach((dx) => {
+                  const ang = Math.atan2(py - by, px - (bx + dx));
+                  proj.spawnEnemyBullet(bx + dx, by, Math.cos(ang) * 405, Math.sin(ang) * 405, 18, 'proj_enemy_shard', 7, 0x67e8f9);
+                });
+              });
+            }
             [-0.25, 0.25].forEach((off, idx) => {
               const ang = Math.PI / 2 + off;
               projectiles.spawnEnemyBullet(sx, sy, Math.cos(ang) * 285, Math.sin(ang) * 285, 17, 'proj_enemy_bolt', 7, 0x38bdf8, {
@@ -926,16 +994,16 @@ export class BossEntity implements Targetable {
             });
           }
         } else {
-          // P2/P3: Stealth Phase-Blink + 3-Beat Precision Volley + Splitting Cryo Cores in P3
+          // P2/P3: Stealth Phase-Blink + 3-Beat Precision Volley + Splitting Cryo Cores in P3 (or pressure 2)
           this.moveMode = 'phase_glide';
           this.anchorX = this.x < w * 0.5 ? w * 0.76 : w * 0.24;
           this.anchorY = this.targetY;
           this.spawnAfterimageRing();
-          if (this.phase === 3) {
+          if (this.phase === 3 || this.patternPressure >= 2) {
             [-45, 45].forEach((dx) => {
               projectiles.spawnEnemyBullet(sx + dx, sy, dx * 0.8, 240, 19, 'proj_enemy_splitter', 10, 0x67e8f9, {
                 splitAfterSec: 0.68,
-                splitCount: 6,
+                splitCount: this.phase === 3 ? 6 : 4,
                 splitSpeed: 270,
                 splitTextureKey: 'proj_enemy_shard',
                 splitTint: 0x38bdf8,
@@ -961,7 +1029,7 @@ export class BossEntity implements Targetable {
       case 'cyber_leviathan': {
         if (pattern === 0) {
           // Emerald Weaving Spiral Matrix (accelerating & sinusoidal in P2/P3)
-          const count = 12 + this.phase * 2;
+          const count = 12 + this.phase * 2 + (this.patternPressure >= 1 ? 2 : 0);
           for (let i = 0; i < count; i++) {
             const ang = (Math.PI * 2 * i) / count + this.spiralAngle;
             projectiles.spawnEnemyBullet(sx, sy, Math.cos(ang) * 265, Math.sin(ang) * 265, 19, 'proj_enemy_bomb', 8, 0x10b981, {
@@ -979,6 +1047,9 @@ export class BossEntity implements Targetable {
           } else if (this.phase === 2) {
             this.queueLaser(-56, 36, Math.max(70, playerX - 105), { color: 0x10b981, trackSpeed: 1.4, width: 26 });
             this.queueLaser(56, 36, Math.min(w - 70, playerX + 105), { color: 0x06b6d4, trackSpeed: 1.4, width: 26 });
+            if (this.patternPressure >= 2) {
+              this.queueLaser(0, 38, w * 0.5, { color: 0x22d3ee, trackSpeed: 0, width: 24, timerMs: 900 });
+            }
           } else {
             this.queueLaser(-68, 36, w * 0.22, { color: 0x10b981, trackSpeed: 0, width: 28, timerMs: 880 });
             this.queueLaser(0, 38, w * 0.5, { color: 0x06b6d4, trackSpeed: 0, width: 28, timerMs: 880 });
@@ -1006,6 +1077,11 @@ export class BossEntity implements Targetable {
           [-0.22, -0.11, 0, 0.11, 0.22].forEach((off) => {
             projectiles.spawnEnemyBullet(sx, sy, Math.cos(ang + off) * 355, Math.sin(ang + off) * 355, 18, 'proj_enemy_bolt', 7, 0x22d3ee);
           });
+          if (this.patternPressure >= 1) {
+            [-0.35, 0.35].forEach((off) => {
+              projectiles.spawnEnemyBullet(sx, sy, Math.cos(ang + off) * 320, Math.sin(ang + off) * 320, 17, 'proj_enemy_shard', 7, 0x10b981);
+            });
+          }
           if (this.phase >= 2) {
             [-64, 64].forEach((dx, idx) => {
               const sAng = Math.PI / 2 + (idx === 0 ? -0.35 : 0.35);
@@ -1019,13 +1095,14 @@ export class BossEntity implements Targetable {
         } else {
           // P2/P3 Pattern 4: Multi-Beat Cyber Matrix Wave + Lock-On Seekers
           const span = this.phase === 3 ? 3 : 2;
-          for (let beat = 0; beat < 2; beat++) {
-            this.scheduleBeat(beat * 280, (px, py, proj) => {
+          const totalBeats = this.patternPressure >= 2 ? 3 : 2;
+          for (let beat = 0; beat < totalBeats; beat++) {
+            this.scheduleBeat(beat * 260, (px, py, proj) => {
               const bx = this.x;
               const by = this.y + 36;
               const base = Math.atan2(py - by, px - bx);
               for (let i = -span; i <= span; i++) {
-                const ang = base + i * 0.13 + (beat === 1 ? 0.065 : 0);
+                const ang = base + i * 0.13 + (beat % 2 === 1 ? 0.065 : 0);
                 proj.spawnEnemyBullet(bx, by, Math.cos(ang) * 340, Math.sin(ang) * 340, 18, 'proj_enemy_shard', 7, 0x10b981);
               }
             });
@@ -1047,7 +1124,7 @@ export class BossEntity implements Targetable {
       case 'void_emperor': {
         if (pattern === 0) {
           // Imperial Spiral Storm (P2/P3 adds counter-curving inner ring + Splitting Void Rifts in P3)
-          const count = 14 + this.phase * 4;
+          const count = 14 + this.phase * 4 + (this.patternPressure >= 1 ? 2 : 0);
           for (let i = 0; i < count; i++) {
             const ang = (Math.PI * 2 * i) / count + this.spiralAngle;
             projectiles.spawnEnemyBullet(sx, sy, Math.cos(ang) * 265, Math.sin(ang) * 265, 20, 'proj_enemy_bomb', 9, tint);
@@ -1087,6 +1164,16 @@ export class BossEntity implements Targetable {
           } else if (this.phase === 2) {
             this.queueLaser(-64, 38, Math.max(70, playerX - 110), { color: 0xf43f5e, trackSpeed: 1.5, width: 28 });
             this.queueLaser(64, 38, Math.min(w - 70, playerX + 110), { color: 0xa855f7, trackSpeed: 1.5, width: 28 });
+            if (this.patternPressure >= 2) {
+              projectiles.spawnEnemyBullet(sx, sy, 0, 235, 19, 'proj_enemy_splitter', 10, 0xe879f9, {
+                splitAfterSec: 0.76,
+                splitCount: 4,
+                splitSpeed: 255,
+                splitTextureKey: 'proj_enemy_shard',
+                splitTint: 0xf43f5e,
+                spinRate: 4.8,
+              });
+            }
           } else {
             this.queueLaser(-76, 38, Math.max(60, playerX - 155), { color: 0xf43f5e, trackSpeed: 1.2, width: 26, timerMs: 880 });
             this.queueLaser(0, 40, playerX, { color: 0xfda4af, trackSpeed: 1.6, width: 30, timerMs: 880 });
@@ -1116,6 +1203,12 @@ export class BossEntity implements Targetable {
                   homingDuration: 1.6,
                 });
               });
+              if (this.patternPressure >= 1) {
+                const centerAng = Math.atan2(py - (this.y + 36), px - this.x);
+                [-0.08, 0.08].forEach((off) => {
+                  proj.spawnEnemyBullet(this.x, this.y + 36, Math.cos(centerAng + off) * 390, Math.sin(centerAng + off) * 390, 18, 'proj_enemy_bolt', 7, 0xfda4af);
+                });
+              }
             });
           }
         } else {
@@ -1142,9 +1235,9 @@ export class BossEntity implements Targetable {
               });
             }
           }
-          if (this.phase === 3) {
+          if (this.phase === 3 || this.patternPressure >= 2) {
             this.scheduleBeat(460, (_px, _py, proj) => {
-              const offsetCols = 7;
+              const offsetCols = this.phase === 3 ? 7 : 5;
               for (let i = 0; i < offsetCols; i++) {
                 const px = (w / (offsetCols + 1)) * (i + 1);
                 proj.spawnEnemyBullet(px, 20, 0, 285, 20, 'proj_enemy_bomb', 9, 0xf43f5e);

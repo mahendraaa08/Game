@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Coins, Gem, Lock, Shield, Zap } from 'lucide-react';
 import { GAME_CONSTANTS } from '../../game/config/GameConfig';
+import {
+  formatCampaignRequirementLabel,
+  hasCampaignClearRequirement,
+} from '../../game/config/EconomyConfig';
+import { CAMPAIGN_DIFFICULTIES } from '../../game/config/GameModeConfig';
 import { getShipBaseMoveSpeedPx, SHIP_LIST, ShipId, SHIPS } from '../../game/config/ShipConfig';
 import { SPECIAL_LIST, SpecialId } from '../../game/config/WeaponConfig';
 import { SoundManager } from '../../game/audio/SoundManager';
@@ -57,6 +62,14 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
   const equipped = SHIPS[progress.selectedShip] ?? SHIPS.falcon_x;
   const isUnlocked = progress.unlockedShips.includes(inspected.id);
   const isEquipped = progress.selectedShip === inspected.id;
+
+  const minSector = inspected.unlock.minSectorCompleted;
+  const minDiff = inspected.unlock.minDifficulty ?? 'easy';
+  const minDiffLabel = CAMPAIGN_DIFFICULTIES[minDiff]?.label ?? 'Easy';
+  const campaignMet = hasCampaignClearRequirement(progress, minSector, minDiff);
+  const creditsShort = Math.max(0, inspected.unlock.credits - progress.credits);
+  const crystalsShort = Math.max(0, inspected.unlock.crystals - progress.crystals);
+  const canUnlockNow = !isUnlocked && campaignMet && creditsShort === 0 && crystalsShort === 0;
 
   const currentSpecial =
     SPECIAL_LIST.find((s) => s.id === progress.selectedSpecial) ?? SPECIAL_LIST[0];
@@ -155,8 +168,13 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
   const openShipUnlockConfirm = () => {
     SoundManager.unlock();
     SoundManager.playButtonClick();
-    const minSector = inspected.unlock.minSectorCompleted;
-    const sectorMet = !minSector || progress.completedLevels.includes(minSector);
+    if (!campaignMet && minSector) {
+      onFeedback({
+        ok: false,
+        message: `Clear Sector ${String(minSector).padStart(2, '0')} on ${minDiffLabel} difficulty or higher first.`,
+      });
+      return;
+    }
     setPendingAction({
       id: `unlock-ship-${inspected.id}`,
       category: 'unlock',
@@ -165,8 +183,8 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
       itemSubtitle: `${inspected.role} · 3 Tactical Passives`,
       description: inspected.description,
       note:
-        minSector && !sectorMet
-          ? `Requirement not met: Clear Sector ${String(minSector).padStart(2, '0')} first.`
+        minSector && !campaignMet
+          ? `Requirement not met: Clear Sector ${String(minSector).padStart(2, '0')} on ${minDiffLabel} difficulty or higher first.`
           : undefined,
       icon: <ShipArtBadge shipId={inspected.id} size={36} />,
       statDeltas: [
@@ -421,19 +439,41 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
                 >
                   <span>EQUIP {inspected.name}</span>
                 </button>
+              ) : !campaignMet && minSector ? (
+                <button
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  className="flex min-h-[46px] w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-slate-700/80 bg-[#0b1325] px-5 py-2.5 font-display text-xs sm:text-sm font-bold tracking-wider text-slate-400"
+                >
+                  <Lock className="h-4 w-4 shrink-0 text-amber-400/80" />
+                  <span>
+                    REQUIRES: {formatCampaignRequirementLabel(minSector, minDiff).toUpperCase()}
+                  </span>
+                </button>
               ) : (
                 <button
                   type="button"
                   onClick={openShipUnlockConfirm}
-                  className="relative flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-amber-400 px-5 py-2.5 font-display text-sm font-bold text-slate-950 transition-[filter,transform] duration-150 hover:bg-amber-300 active:scale-[0.98]"
+                  className={`relative flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl px-5 py-2.5 font-display text-sm font-bold transition-[filter,transform] duration-150 active:scale-[0.98] ${
+                    canUnlockNow
+                      ? 'bg-amber-400 text-slate-950 hover:bg-amber-300'
+                      : 'border border-amber-400/45 bg-amber-500/12 text-amber-200 hover:bg-amber-500/20'
+                  }`}
                 >
                   <NotificationDot
                     visible={notifications.shipIds[inspected.id]}
                     position="corner"
                     label={`Ready to unlock ${inspected.name}`}
                   />
-                  <span>UNLOCK {inspected.name}</span>
-                  <span className="font-mono-num text-xs">
+                  <span>
+                    {canUnlockNow
+                      ? `UNLOCK ${inspected.name}`
+                      : creditsShort > 0
+                      ? `NEED ${creditsShort.toLocaleString()} MORE CR`
+                      : `NEED ${crystalsShort} MORE GEMS`}
+                  </span>
+                  <span className="font-mono-num text-xs opacity-90">
                     ({inspected.unlock.credits.toLocaleString()} CR
                     {inspected.unlock.crystals > 0 ? ` · ${inspected.unlock.crystals} Gems` : ''})
                   </span>
@@ -441,18 +481,27 @@ export const HangarShipsPanel: React.FC<HangarShipsPanelProps> = ({
               )}
 
               {!isUnlocked && (
-                <div className="mt-2.5 flex flex-wrap items-center justify-center gap-3 font-mono-num text-[11px] text-slate-400">
-                  <span className="flex items-center gap-1 text-amber-300">
+                <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 font-mono-num text-[11px] text-slate-400">
+                  <span
+                    className={`flex items-center gap-1 ${
+                      creditsShort > 0 ? 'text-rose-300' : 'text-amber-300'
+                    }`}
+                  >
                     <Coins className="h-3 w-3" /> {inspected.unlock.credits.toLocaleString()} CR
                   </span>
                   {inspected.unlock.crystals > 0 && (
-                    <span className="flex items-center gap-1 text-cyan-300">
+                    <span
+                      className={`flex items-center gap-1 ${
+                        crystalsShort > 0 ? 'text-rose-300' : 'text-cyan-300'
+                      }`}
+                    >
                       <Gem className="h-3 w-3" /> {inspected.unlock.crystals} Gems
                     </span>
                   )}
-                  {inspected.unlock.minSectorCompleted && (
-                    <span>
-                      Requires Sector {String(inspected.unlock.minSectorCompleted).padStart(2, '0')} Clear
+                  {minSector && (
+                    <span className={campaignMet ? 'text-emerald-300' : 'text-amber-300'}>
+                      REQUIRES: {formatCampaignRequirementLabel(minSector, minDiff).toUpperCase()}
+                      {campaignMet ? ' (MET)' : '+'}
                     </span>
                   )}
                 </div>

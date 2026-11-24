@@ -1,5 +1,6 @@
 import { formatShipUnlockLabel, SHIP_ECONOMY } from './EconomyConfig';
 import { GAME_CONSTANTS } from './GameConfig';
+import type { CampaignDifficulty } from './GameModeConfig';
 
 export type ShipId =
   | 'falcon_x'
@@ -34,6 +35,7 @@ export interface ShipUnlockRequirement {
   credits: number;
   crystals: number;
   minSectorCompleted?: number;
+  minDifficulty?: CampaignDifficulty;
   description: string;
 }
 

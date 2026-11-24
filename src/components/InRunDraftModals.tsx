@@ -253,6 +253,7 @@ export const BossRushRecoveryModal: React.FC<{
       <div className="menu-enter my-auto w-full max-w-3xl rounded-2xl border border-rose-400/35 bg-[#090c1c]/96 p-5 sm:p-7 shadow-2xl shadow-black/75">
         <div className="text-center">
           <div className="font-mono-num text-[11px] font-bold uppercase tracking-[0.18em] text-rose-300">
+            {data.ascensionRank ? `Ascension Rank ${data.ascensionRank} · ` : ''}
             Stage {data.defeatedBossNumber}/{data.totalBosses} Cleared · {data.defeatedBossName} Destroyed
           </div>
           <h2

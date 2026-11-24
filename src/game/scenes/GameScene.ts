@@ -5,7 +5,6 @@ import {
   formatSectorRewardText,
   getBossCombatReward,
   getCampaignClearReward,
-  getEndlessBossHpMult,
   getEndlessDifficulty,
   getEndlessWaveReward,
   getEnemyCreditDrop,
@@ -25,7 +24,9 @@ import {
   type ChallengeTierConfig,
   ENDLESS_UPGRADE_SPECS,
   type GameMode,
-  getBossRushStageModifiers,
+  getBossRushAscensionRank,
+  getBossRushEffectiveBossModifiers,
+  getEndlessBossModifiers,
   pickEndlessUpgradeChoices,
   resolveChallengeTier,
 } from '../config/GameModeConfig';
@@ -84,8 +85,11 @@ export class GameScene extends Phaser.Scene {
   private enemiesDefeated = 0;
   private bossSpawned = false;
   private activeEndlessBossWave = 0;
+  private triggeredEndlessDraftWaves = new Set<number>();
   private inRunDraftModal = false;
   private bossRushIdx = 0;
+  private bossRushAscensionRank = 1;
+  private bossRushCompletedThisRun = false;
   private levelEnding = false;
   private elapsedSurvivalSec = 0;
   private pendingSurvivalSec = 0;
@@ -235,8 +239,11 @@ export class GameScene extends Phaser.Scene {
     this.boss = null;
     this.bossSpawned = false;
     this.activeEndlessBossWave = 0;
+    this.triggeredEndlessDraftWaves.clear();
     this.inRunDraftModal = false;
     this.bossRushIdx = 0;
+    this.bossRushAscensionRank = getBossRushAscensionRank(saved.stats.bossRushClears);
+    this.bossRushCompletedThisRun = false;
     this.levelEnding = false;
     this.hudEmitTimerMs = 0;
     this.elapsedSurvivalSec = 0;
@@ -829,13 +836,14 @@ export class GameScene extends Phaser.Scene {
     } else if (this.mode === 'endless') {
       const endlessWaveNum =
         this.activeEndlessBossWave || Math.max(5, this.waveDirector.currentWaveIdx + 1);
-      const endlessBossTier = Math.max(1, Math.floor(endlessWaveNum / 5));
-      bossHpMult = getEndlessBossHpMult(endlessWaveNum);
+      const endlessMods = getEndlessBossModifiers(endlessWaveNum);
+      bossHpMult = endlessMods.hpMult;
       bossCombatMods = {
-        damageMult: Math.min(1.85, 1 + (endlessBossTier - 1) * 0.08),
-        attackRateMult: Math.min(1.4, 1 + (endlessBossTier - 1) * 0.05),
-        projectileSpeedMult: Math.min(1.25, 1 + (endlessBossTier - 1) * 0.03),
-        aggressionMult: Math.min(1.35, 1 + (endlessBossTier - 1) * 0.04),
+        damageMult: endlessMods.damageMult,
+        attackRateMult: endlessMods.attackRateMult,
+        projectileSpeedMult: endlessMods.projectileSpeedMult,
+        aggressionMult: endlessMods.aggressionMult,
+        patternPressure: endlessMods.patternPressure,
       };
     } else if (this.mode === 'challenge' && this.challengeTier) {
       const rules = this.challengeTier.rules;
@@ -847,13 +855,17 @@ export class GameScene extends Phaser.Scene {
         aggressionMult: rules.bossAggressionMult ?? 1,
       };
     } else if (this.mode === 'boss_rush') {
-      const rushMods = getBossRushStageModifiers(this.bossRushIdx);
+      const rushMods = getBossRushEffectiveBossModifiers(
+        this.bossRushIdx,
+        this.bossRushAscensionRank
+      );
       bossHpMult = rushMods.hpMult;
       bossCombatMods = {
         damageMult: rushMods.damageMult,
         attackRateMult: rushMods.attackRateMult,
         projectileSpeedMult: rushMods.projectileSpeedMult,
         aggressionMult: rushMods.aggressionMult,
+        patternPressure: rushMods.patternPressure,
       };
     }
 
@@ -966,7 +978,7 @@ export class GameScene extends Phaser.Scene {
     SoundManager.playExplosion('boss');
     this.shakeCamera(550, 0.018);
 
-    // Endless Mode boss defeat continues survival loop cleanly & triggers Upgrade Draft every 10 waves!
+    // Endless Mode boss defeat continues survival loop cleanly & triggers Upgrade Draft every 5 waves!
     if (this.mode === 'endless') {
       this.combat.spawnExplosion(boss.x, boss.y, boss.def.primaryColor, 28, 320, 1.5);
       this.combat.maybeDropPowerUp(boss.x, boss.y + 20, true);
@@ -976,7 +988,12 @@ export class GameScene extends Phaser.Scene {
       this.activeEndlessBossWave = 0;
       SoundManager.playMusic('endless');
 
-      if (endlessBossWave >= 10 && endlessBossWave % 10 === 0) {
+      if (
+        endlessBossWave >= 5 &&
+        endlessBossWave % 5 === 0 &&
+        !this.triggeredEndlessDraftWaves.has(endlessBossWave)
+      ) {
+        this.triggeredEndlessDraftWaves.add(endlessBossWave);
         const choices = pickEndlessUpgradeChoices(this.player.getEndlessBonuses(), 3);
         if (choices.length > 0) {
           this.projectiles.clearEnemyBullets();
@@ -1013,6 +1030,7 @@ export class GameScene extends Phaser.Scene {
         totalBosses: BOSS_RUSH_ORDER.length,
         defeatedBossName,
         nextBossName: BOSS_CONFIGS[nextBossId].name,
+        ascensionRank: this.bossRushAscensionRank,
         currentHp: Math.ceil(this.player.hp),
         maxHp: this.player.maxHp,
         currentShield: Math.ceil(this.player.shield),
@@ -1166,6 +1184,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private completeBossRush(): void {
+    if (this.bossRushCompletedThisRun) return;
+    this.bossRushCompletedThisRun = true;
     this.flushCombatProgress();
     const bonusScore = 6000 + Math.round(this.player.hp * 30);
     const finalScore = this.score + bonusScore;
@@ -1197,6 +1217,8 @@ export class GameScene extends Phaser.Scene {
       crystalsEarned: granted.crystalsGranted,
       expEarned: this.expEarnedRun,
       bossRushPerformance: performance,
+      bossRushAscensionCleared: this.bossRushAscensionRank,
+      bossRushNextAscensionRank: this.bossRushAscensionRank + 1,
     });
   }
 

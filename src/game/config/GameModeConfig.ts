@@ -400,6 +400,88 @@ export function applyEndlessUpgradeStep(
   };
 }
 
+export interface EndlessBossModifiers {
+  waveNum: number;
+  tier: number;
+  hpMult: number;
+  damageMult: number;
+  attackRateMult: number;
+  projectileSpeedMult: number;
+  aggressionMult: number;
+  patternPressure: 0 | 1 | 2;
+}
+
+const ENDLESS_BOSS_ANCHORS: ReadonlyArray<{
+  wave: number;
+  hpMult: number;
+  damageMult: number;
+  attackRateMult: number;
+  projectileSpeedMult: number;
+  aggressionMult: number;
+}> = [
+  { wave: 5, hpMult: 1.0, damageMult: 1.0, attackRateMult: 1.0, projectileSpeedMult: 1.0, aggressionMult: 1.0 },
+  { wave: 10, hpMult: 1.35, damageMult: 1.08, attackRateMult: 1.05, projectileSpeedMult: 1.03, aggressionMult: 1.04 },
+  { wave: 15, hpMult: 1.8, damageMult: 1.17, attackRateMult: 1.1, projectileSpeedMult: 1.06, aggressionMult: 1.09 },
+  { wave: 20, hpMult: 2.35, damageMult: 1.27, attackRateMult: 1.16, projectileSpeedMult: 1.1, aggressionMult: 1.14 },
+  { wave: 25, hpMult: 2.95, damageMult: 1.38, attackRateMult: 1.22, projectileSpeedMult: 1.14, aggressionMult: 1.19 },
+  { wave: 30, hpMult: 3.6, damageMult: 1.5, attackRateMult: 1.28, projectileSpeedMult: 1.18, aggressionMult: 1.24 },
+  { wave: 40, hpMult: 5.0, damageMult: 1.72, attackRateMult: 1.38, projectileSpeedMult: 1.25, aggressionMult: 1.32 },
+];
+
+export function getEndlessBossModifiers(waveNum: number): EndlessBossModifiers {
+  const wave = Math.max(5, Math.floor(waveNum));
+  const tier = Math.max(1, Math.floor(wave / 5));
+  const patternPressure: 0 | 1 | 2 = wave >= 30 ? 2 : wave >= 15 ? 1 : 0;
+
+  if (wave <= ENDLESS_BOSS_ANCHORS[0].wave) {
+    return {
+      waveNum: wave,
+      tier,
+      hpMult: 1.0,
+      damageMult: 1.0,
+      attackRateMult: 1.0,
+      projectileSpeedMult: 1.0,
+      aggressionMult: 1.0,
+      patternPressure,
+    };
+  }
+
+  const last = ENDLESS_BOSS_ANCHORS[ENDLESS_BOSS_ANCHORS.length - 1];
+  if (wave <= last.wave) {
+    for (let i = 0; i < ENDLESS_BOSS_ANCHORS.length - 1; i++) {
+      const a = ENDLESS_BOSS_ANCHORS[i];
+      const b = ENDLESS_BOSS_ANCHORS[i + 1];
+      if (wave <= b.wave) {
+        const t = (wave - a.wave) / (b.wave - a.wave);
+        const lerp = (x: number, y: number) => x + (y - x) * t;
+        return {
+          waveNum: wave,
+          tier,
+          hpMult: Number(lerp(a.hpMult, b.hpMult).toFixed(2)),
+          damageMult: Number(lerp(a.damageMult, b.damageMult).toFixed(2)),
+          attackRateMult: Number(lerp(a.attackRateMult, b.attackRateMult).toFixed(3)),
+          projectileSpeedMult: Number(lerp(a.projectileSpeedMult, b.projectileSpeedMult).toFixed(3)),
+          aggressionMult: Number(lerp(a.aggressionMult, b.aggressionMult).toFixed(2)),
+          patternPressure,
+        };
+      }
+    }
+  }
+
+  // Smooth diminishing logarithmic progression beyond Wave 40 with controlled ceilings
+  const stepsOver40 = (wave - last.wave) / 5;
+  return {
+    waveNum: wave,
+    tier,
+    hpMult: Number(Math.min(12.0, last.hpMult + 1.45 * Math.log1p(stepsOver40 * 0.72)).toFixed(2)),
+    damageMult: Number(Math.min(2.35, last.damageMult + 0.34 * Math.log1p(stepsOver40 * 0.52)).toFixed(2)),
+    attackRateMult: Number(Math.min(1.58, last.attackRateMult + 0.13 * Math.log1p(stepsOver40 * 0.45)).toFixed(3)),
+    projectileSpeedMult: Number(Math.min(1.36, last.projectileSpeedMult + 0.08 * Math.log1p(stepsOver40 * 0.4)).toFixed(3)),
+    aggressionMult: Number(Math.min(1.48, last.aggressionMult + 0.11 * Math.log1p(stepsOver40 * 0.4)).toFixed(2)),
+    patternPressure,
+  };
+}
+
 // ============================================================================
 // 3. CHALLENGE MODE — 4 CATEGORIES x 3 DIFFICULTY TIERS
 // ============================================================================
@@ -1097,6 +1179,123 @@ export function getBossRushStageModifiers(stageIndex: number): BossRushStageModi
     attackRateMult: Number((0.96 + idx * 0.055).toFixed(3)),
     projectileSpeedMult: Number((0.98 + idx * 0.045).toFixed(3)),
     aggressionMult: Number((0.96 + idx * 0.06).toFixed(2)),
+  };
+}
+
+export interface BossRushAscensionModifiers {
+  ascensionRank: number;
+  hpMult: number;
+  damageMult: number;
+  attackRateMult: number;
+  projectileSpeedMult: number;
+  aggressionMult: number;
+  patternPressure: 0 | 1 | 2;
+}
+
+export interface BossRushEffectiveBossModifiers extends BossRushAscensionModifiers {
+  stageIndex: number;
+}
+
+export interface BossRushAscensionRewardBreakdown {
+  ascensionRank: number;
+  creditsBonusPct: number;
+  bonusCredits: number;
+  bonusCrystals: number;
+  totalClearCredits: number;
+  totalClearCrystals: number;
+  clearExp: number;
+}
+
+const BOSS_RUSH_ASCENSION_TABLE: ReadonlyArray<Omit<BossRushAscensionModifiers, 'ascensionRank'>> = [
+  { hpMult: 1.0, damageMult: 1.0, attackRateMult: 1.0, projectileSpeedMult: 1.0, aggressionMult: 1.0, patternPressure: 0 }, // Rank 1
+  { hpMult: 1.15, damageMult: 1.06, attackRateMult: 1.03, projectileSpeedMult: 1.02, aggressionMult: 1.03, patternPressure: 0 }, // Rank 2
+  { hpMult: 1.32, damageMult: 1.13, attackRateMult: 1.07, projectileSpeedMult: 1.04, aggressionMult: 1.06, patternPressure: 1 }, // Rank 3
+  { hpMult: 1.5, damageMult: 1.2, attackRateMult: 1.11, projectileSpeedMult: 1.06, aggressionMult: 1.09, patternPressure: 1 }, // Rank 4
+  { hpMult: 1.7, damageMult: 1.28, attackRateMult: 1.15, projectileSpeedMult: 1.09, aggressionMult: 1.13, patternPressure: 1 }, // Rank 5
+  { hpMult: 1.9, damageMult: 1.36, attackRateMult: 1.19, projectileSpeedMult: 1.12, aggressionMult: 1.17, patternPressure: 2 }, // Rank 6
+  { hpMult: 2.1, damageMult: 1.44, attackRateMult: 1.23, projectileSpeedMult: 1.15, aggressionMult: 1.21, patternPressure: 2 }, // Rank 7
+  { hpMult: 2.3, damageMult: 1.52, attackRateMult: 1.27, projectileSpeedMult: 1.18, aggressionMult: 1.25, patternPressure: 2 }, // Rank 8
+];
+
+export function getBossRushAscensionRank(bossRushClears: number): number {
+  const clears = Number.isFinite(bossRushClears) ? Math.max(0, Math.floor(bossRushClears)) : 0;
+  return 1 + clears;
+}
+
+export function getBossRushAscensionModifiers(ascensionRank: number): BossRushAscensionModifiers {
+  const rank = Number.isFinite(ascensionRank) ? Math.max(1, Math.floor(ascensionRank)) : 1;
+  if (rank <= BOSS_RUSH_ASCENSION_TABLE.length) {
+    return {
+      ascensionRank: rank,
+      ...BOSS_RUSH_ASCENSION_TABLE[rank - 1],
+    };
+  }
+
+  // Smooth diminishing progression beyond Rank 8 without runaway spikes
+  const extra = rank - BOSS_RUSH_ASCENSION_TABLE.length;
+  const r8 = BOSS_RUSH_ASCENSION_TABLE[BOSS_RUSH_ASCENSION_TABLE.length - 1];
+  return {
+    ascensionRank: rank,
+    hpMult: Number(Math.min(4.2, r8.hpMult + 0.55 * Math.log1p(extra * 0.42)).toFixed(2)),
+    damageMult: Number(Math.min(2.15, r8.damageMult + 0.24 * Math.log1p(extra * 0.35)).toFixed(2)),
+    attackRateMult: Number(Math.min(1.48, r8.attackRateMult + 0.09 * Math.log1p(extra * 0.32)).toFixed(3)),
+    projectileSpeedMult: Number(Math.min(1.3, r8.projectileSpeedMult + 0.06 * Math.log1p(extra * 0.3)).toFixed(3)),
+    aggressionMult: Number(Math.min(1.42, r8.aggressionMult + 0.08 * Math.log1p(extra * 0.3)).toFixed(2)),
+    patternPressure: 2,
+  };
+}
+
+export function getBossRushEffectiveBossModifiers(
+  stageIndex: number,
+  ascensionRank: number
+): BossRushEffectiveBossModifiers {
+  const stage = getBossRushStageModifiers(stageIndex);
+  const asc = getBossRushAscensionModifiers(ascensionRank);
+  return {
+    stageIndex: stage.stageIndex,
+    ascensionRank: asc.ascensionRank,
+    hpMult: Number((stage.hpMult * asc.hpMult).toFixed(3)),
+    damageMult: Number((stage.damageMult * asc.damageMult).toFixed(3)),
+    attackRateMult: Number((stage.attackRateMult * asc.attackRateMult).toFixed(3)),
+    projectileSpeedMult: Number((stage.projectileSpeedMult * asc.projectileSpeedMult).toFixed(3)),
+    aggressionMult: Number((stage.aggressionMult * asc.aggressionMult).toFixed(3)),
+    patternPressure: asc.patternPressure,
+  };
+}
+
+export function getBossRushAscensionReward(
+  ascensionRank: number,
+  baseClearCredits = 750,
+  baseClearCrystals = 3,
+  baseClearExp = 140
+): BossRushAscensionRewardBreakdown {
+  const rank = Math.max(1, Math.floor(ascensionRank));
+  const rawCreditsMult =
+    rank <= 8
+      ? 1 + (rank - 1) * 0.1
+      : 1 + Math.min(1.25, 0.7 + 0.24 * Math.log1p((rank - 8) * 0.35));
+  const totalClearCredits =
+    rank === 1 ? baseClearCredits : Math.round((baseClearCredits * rawCreditsMult) / 10) * 10;
+  const bonusCredits = Math.max(0, totalClearCredits - baseClearCredits);
+
+  const bonusCrystals =
+    rank === 1
+      ? 0
+      : rank <= 8
+      ? Math.min(4, Math.floor(rank / 2))
+      : 4 + (rank >= 11 ? 1 : 0);
+  const totalClearCrystals = baseClearCrystals + bonusCrystals;
+  const expMult = 1 + Math.min(0.6, (rank - 1) * 0.06);
+  const clearExp = Math.round(baseClearExp * expMult);
+
+  return {
+    ascensionRank: rank,
+    creditsBonusPct: Math.round(((totalClearCredits - baseClearCredits) / Math.max(1, baseClearCredits)) * 100),
+    bonusCredits,
+    bonusCrystals,
+    totalClearCredits,
+    totalClearCrystals,
+    clearExp,
   };
 }
 

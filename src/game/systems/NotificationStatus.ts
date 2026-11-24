@@ -14,7 +14,12 @@ import {
   EquipmentSlot,
   getEquipmentUpgradeCost,
 } from '../config/EquipmentConfig';
-import { calculateShipUpgradeCost, MAX_SHIP_LEVEL } from '../config/EconomyConfig';
+import {
+  calculateShipUpgradeCost,
+  hasCampaignClearRequirement,
+  isArmoryUnlocked,
+  MAX_SHIP_LEVEL,
+} from '../config/EconomyConfig';
 import { selectDailyMissions, selectWeeklyChallenges } from '../config/MissionConfig';
 import { SHIP_LIST, ShipId } from '../config/ShipConfig';
 import {
@@ -139,9 +144,11 @@ export function evaluateGlobalNotifications(progress: PlayerProgress): GlobalNot
     const unlocked = progress.unlockedShips.includes(ship.id);
     let actionable = false;
     if (!unlocked) {
-      const sectorMet =
-        !ship.unlock.minSectorCompleted ||
-        progress.completedLevels.includes(ship.unlock.minSectorCompleted);
+      const sectorMet = hasCampaignClearRequirement(
+        progress,
+        ship.unlock.minSectorCompleted,
+        ship.unlock.minDifficulty ?? 'easy'
+      );
       actionable = sectorMet && canAfford(progress, ship.unlock.credits, ship.unlock.crystals);
     } else {
       const curLvl = progress.shipLevels?.[ship.id] ?? 1;
@@ -191,7 +198,8 @@ export function evaluateGlobalNotifications(progress: PlayerProgress): GlobalNot
 
   const weaponsTab = primaryWeaponsSubTab || fleetSystemsSubTab;
 
-  // 4. Armory — Equipment Gear (slot-by-slot invariant matches modal items 1:1)
+  // 4 & 5. Armory — Equipment Gear & Companion Drones (suppressed completely while Armory is locked)
+  const armoryUnlocked = isArmoryUnlocked(progress);
   const gearSlots: Record<EquipmentSlot, boolean> = {
     offensive: false,
     defensive: false,
@@ -199,16 +207,17 @@ export function evaluateGlobalNotifications(progress: PlayerProgress): GlobalNot
     special: false,
   };
   const gearItemIds: Record<string, boolean> = {};
-  for (const item of EQUIPMENT_LIST) {
-    const actionable = isEquipmentItemActionableInSlot(progress, item);
-    gearItemIds[item.id] = actionable;
-    if (actionable) {
-      gearSlots[item.slot] = true;
+  if (armoryUnlocked) {
+    for (const item of EQUIPMENT_LIST) {
+      const actionable = isEquipmentItemActionableInSlot(progress, item);
+      gearItemIds[item.id] = actionable;
+      if (actionable) {
+        gearSlots[item.slot] = true;
+      }
     }
   }
-  const gearSubTab = Object.values(gearSlots).some(Boolean);
+  const gearSubTab = armoryUnlocked && Object.values(gearSlots).some(Boolean);
 
-  // 5. Armory — Companion Drones (per-slot invariant matches drone slot modal 1:1)
   const droneSlots: Record<DroneSlotId, boolean> = {
     slot1: false,
     slot2: false,
@@ -217,17 +226,19 @@ export function evaluateGlobalNotifications(progress: PlayerProgress): GlobalNot
     slot1: {} as Record<DroneId, boolean>,
     slot2: {} as Record<DroneId, boolean>,
   };
-  for (const slotId of DRONE_SLOT_IDS) {
-    for (const drone of DRONE_LIST) {
-      const actionable = isDroneActionableInSlot(progress, drone, slotId);
-      droneItemIdsBySlot[slotId][drone.id] = actionable;
-      if (actionable) {
-        droneSlots[slotId] = true;
+  if (armoryUnlocked) {
+    for (const slotId of DRONE_SLOT_IDS) {
+      for (const drone of DRONE_LIST) {
+        const actionable = isDroneActionableInSlot(progress, drone, slotId);
+        droneItemIdsBySlot[slotId][drone.id] = actionable;
+        if (actionable) {
+          droneSlots[slotId] = true;
+        }
       }
     }
   }
-  const dronesSubTab = droneSlots.slot1 || droneSlots.slot2;
-  const armoryTab = gearSubTab || dronesSubTab;
+  const dronesSubTab = armoryUnlocked && (droneSlots.slot1 || droneSlots.slot2);
+  const armoryTab = armoryUnlocked && (gearSubTab || dronesSubTab);
 
   const hangarMenu = shipsTab || weaponsTab || armoryTab;
 

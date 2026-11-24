@@ -27,6 +27,9 @@ import {
   ChallengeCategory,
   ChallengeDifficulty,
   GameMode,
+  getBossRushAscensionModifiers,
+  getBossRushAscensionRank,
+  getBossRushAscensionReward,
 } from '../game/config/GameModeConfig';
 import { CAMPAIGN_LEVELS } from '../game/config/LevelConfig';
 import {
@@ -203,9 +206,6 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
   );
   const totalTiersPossible = CHALLENGES.length * CHALLENGE_DIFFICULTY_ORDER.length;
 
-  const bossRushClearExp =
-    PLAYER_EXP_SOURCES.bossRushClearBonus + PLAYER_EXP_SOURCES.runCompletionBase;
-
   const selectMode = (mode: GameMode) => {
     if (selectedMode === mode) return;
     SoundManager.unlock();
@@ -323,13 +323,30 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
     {
       id: 'boss_rush',
       title: 'Boss Rush',
-      metric: `${progress.stats.bossRushClears} Clears`,
+      metric: `Rank ${getBossRushAscensionRank(progress.stats.bossRushClears)} · ${progress.stats.bossRushClears} Clears`,
       icon: Skull,
       selectedBorder: 'border-rose-300/70',
       selectedBg: 'bg-[#1d0e18]/95',
       iconColor: 'text-rose-300',
     },
   ];
+
+  const bossRushRank = getBossRushAscensionRank(progress.stats.bossRushClears);
+  const bossRushAscMods = getBossRushAscensionModifiers(bossRushRank);
+  const bossRushAscReward = getBossRushAscensionReward(
+    bossRushRank,
+    BOSS_RUSH_CLEAR_REWARD.credits,
+    BOSS_RUSH_CLEAR_REWARD.crystals,
+    PLAYER_EXP_SOURCES.bossRushClearBonus
+  );
+  const nextBossRushRank = bossRushRank + 1;
+  const nextBossRushAscMods = getBossRushAscensionModifiers(nextBossRushRank);
+  const nextBossRushAscReward = getBossRushAscensionReward(
+    nextBossRushRank,
+    BOSS_RUSH_CLEAR_REWARD.credits,
+    BOSS_RUSH_CLEAR_REWARD.crystals,
+    PLAYER_EXP_SOURCES.bossRushClearBonus
+  );
 
   return (
     <DedicatedScreenShell
@@ -583,7 +600,7 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
                     Endless Survival Simulation
                   </h2>
                   <p className="mt-2 max-w-2xl text-xs sm:text-sm leading-relaxed text-slate-300">
-                    Waves continue indefinitely with steady hostile scaling. Milestone Dreadnoughts intercept every 5th wave; clearing Bosses on Waves 10, 20, 30, and onward opens a 3-choice <strong className="text-purple-300">Endless Upgrade Draft</strong> for temporary per-run combat boosts.
+                    Waves continue indefinitely with steady hostile scaling. Milestone Dreadnoughts intercept every 5th wave with escalating combat pressure; defeating each milestone Boss (Waves 5, 10, 15, and onward) opens a 3-choice <strong className="text-purple-300">Endless Upgrade Draft</strong> for temporary per-run combat boosts.
                   </p>
                 </div>
 
@@ -607,7 +624,7 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
                   <div>
                     <div className="text-[11px] text-slate-400">Upgrade Draft</div>
                     <div className="mt-1 text-base sm:text-lg font-bold text-cyan-300">
-                      Every 10 Waves
+                      Every 5 Waves
                     </div>
                   </div>
                   <div>
@@ -838,7 +855,7 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
               <div className="flex flex-col gap-5">
                 <div className="flex flex-wrap items-center justify-between gap-2 font-mono-num text-xs">
                   <span className="font-semibold uppercase tracking-wider text-rose-300">
-                    Boss Rush Gauntlet
+                    Boss Rush · Ascension Rank {bossRushRank}
                   </span>
                   <span className="text-slate-400">
                     {progress.stats.bossRushClears} Clears · Best{' '}
@@ -854,17 +871,41 @@ export const ModeSelectorOverlay: React.FC<ModeSelectorOverlayProps> = ({
                     Void Commander Boss Rush
                   </h2>
                   <p className="mt-2 max-w-2xl text-xs sm:text-sm leading-relaxed text-slate-300">
-                    Engage all {BOSS_RUSH_ORDER.length} scaled Void Empire dreadnoughts back-to-back without automatic healing. Between stages 1–4, choose 1 of 3 <strong className="text-rose-300">Tactical Recovery Draft</strong> protocols. Clearing all 5 bosses grants +{BOSS_RUSH_CLEAR_REWARD.credits.toLocaleString()} CR, +{BOSS_RUSH_CLEAR_REWARD.crystals} Gems, plus S+/S/A/B performance bonuses.
+                    Engage all {BOSS_RUSH_ORDER.length} scaled Void Empire dreadnoughts back-to-back without automatic healing. Between stages 1–4, choose 1 of 3 <strong className="text-rose-300">Tactical Recovery Draft</strong> protocols. Full gauntlet clears advance your Ascension Rank and unlock higher bounty tiers.
                   </p>
-                  <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono-num text-xs">
-                    <span className="inline-flex items-center gap-1.5 font-semibold text-purple-300">
-                      <ExpStarIcon className="h-3.5 w-3.5 shrink-0" />
-                      +{bossRushClearExp} Clear EXP
-                    </span>
-                    <span className="text-slate-600">·</span>
-                    <span className="text-slate-400">
-                      +{PLAYER_EXP_SOURCES.bossKillBonus} EXP per Void Commander defeated
-                    </span>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 border-y border-slate-800/80 py-3.5 font-mono-num text-xs sm:grid-cols-3">
+                  <div>
+                    <div className="text-[11px] text-slate-400">Ascension Scaling (Rank {bossRushRank})</div>
+                    <div className="mt-1 font-bold text-rose-300">
+                      {bossRushAscMods.hpMult.toFixed(2)}x HP · {bossRushAscMods.damageMult.toFixed(2)}x DMG · {bossRushAscMods.attackRateMult.toFixed(2)}x Rate
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-slate-400">
+                      Clear Bounty{bossRushAscReward.creditsBonusPct > 0 ? ` (+${bossRushAscReward.creditsBonusPct}% Rank)` : ''}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 font-bold">
+                      <span className="text-amber-300">
+                        +{bossRushAscReward.totalClearCredits.toLocaleString()} CR
+                      </span>
+                      <span className="text-slate-600">·</span>
+                      <span className="text-cyan-300">
+                        +{bossRushAscReward.totalClearCrystals} Gems
+                      </span>
+                      <span className="text-slate-600">·</span>
+                      <span className="inline-flex items-center gap-1 text-purple-300">
+                        <ExpStarIcon className="h-3.5 w-3.5 shrink-0" />
+                        +{bossRushAscReward.clearExp + PLAYER_EXP_SOURCES.runCompletionBase} EXP
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-slate-400">Next Rank ({nextBossRushRank}) Preview</div>
+                    <div className="mt-1 font-semibold text-slate-200">
+                      {nextBossRushAscMods.hpMult.toFixed(2)}x HP · +{nextBossRushAscReward.totalClearCredits.toLocaleString()} CR · +{nextBossRushAscReward.totalClearCrystals} Gems
+                    </div>
                   </div>
                 </div>
 

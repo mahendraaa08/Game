@@ -1,10 +1,66 @@
 import type { BossId } from './BossConfig';
 import type { EnemyClass } from './EnemyConfig';
 import type { Rarity } from './EquipmentConfig';
-import { CAMPAIGN_DIFFICULTIES, type CampaignDifficulty, type GameMode } from './GameModeConfig';
+import {
+  CAMPAIGN_DIFFICULTIES,
+  CAMPAIGN_DIFFICULTY_ORDER,
+  getEndlessBossModifiers,
+  type CampaignDifficulty,
+  type GameMode,
+} from './GameModeConfig';
 import type { ShipId } from './ShipConfig';
 import type { UpgradeId } from './UpgradeConfig';
 import type { WeaponId } from './WeaponConfig';
+
+export interface CampaignProgressLike {
+  campaignProgress?: Partial<Record<CampaignDifficulty, { completedLevels: number[] }>>;
+}
+
+export function hasCampaignClearRequirement(
+  progress: CampaignProgressLike | null | undefined,
+  requiredSector?: number,
+  minimumDifficulty: CampaignDifficulty = 'easy'
+): boolean {
+  if (!requiredSector || requiredSector <= 0) return true;
+  if (!progress?.campaignProgress) return false;
+  const minIdx = Math.max(0, CAMPAIGN_DIFFICULTY_ORDER.indexOf(minimumDifficulty));
+  for (let i = minIdx; i < CAMPAIGN_DIFFICULTY_ORDER.length; i++) {
+    const diff = CAMPAIGN_DIFFICULTY_ORDER[i];
+    const bucket = progress.campaignProgress[diff];
+    if (bucket && Array.isArray(bucket.completedLevels) && bucket.completedLevels.includes(requiredSector)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function formatCampaignRequirementLabel(
+  requiredSector: number,
+  minimumDifficulty: CampaignDifficulty = 'easy'
+): string {
+  const sectorTag = `Sector ${String(requiredSector).padStart(2, '0')}`;
+  const diffLabel = CAMPAIGN_DIFFICULTIES[minimumDifficulty]?.label ?? 'Easy';
+  return `${sectorTag} · ${diffLabel}`;
+}
+
+export const ARMORY_UNLOCK_REQUIREMENT: {
+  sector: number;
+  difficulty: CampaignDifficulty;
+} = {
+  sector: 3,
+  difficulty: 'normal',
+};
+
+export const ARMORY_UNLOCK_MESSAGE =
+  'Armory locked — Clear Sector 03 on Normal difficulty or higher.';
+
+export function isArmoryUnlocked(progress: CampaignProgressLike | null | undefined): boolean {
+  return hasCampaignClearRequirement(
+    progress,
+    ARMORY_UNLOCK_REQUIREMENT.sector,
+    ARMORY_UNLOCK_REQUIREMENT.difficulty
+  );
+}
 
 export interface CurrencyAmount {
   credits: number;
@@ -301,8 +357,7 @@ export function getEndlessDifficulty(waveIdxZeroBased: number): number {
 }
 
 export function getEndlessBossHpMult(waveNum: number): number {
-  const milestoneIdx = Math.max(0, Math.floor(waveNum / 5) - 1);
-  return 1 + milestoneIdx * 0.35;
+  return getEndlessBossModifiers(waveNum).hpMult;
 }
 
 export function getEndlessWaveReward(waveNum: number, creditBonusMult: number): CurrencyAmount {
@@ -531,19 +586,24 @@ export function calculateWeaponUpgradeCost(
   return { credits, crystals };
 }
 
-/** Exclusive Ship unlock pricing table tiered by hull class & combat potency */
+/** Exclusive Ship unlock pricing & Campaign difficulty requirement table */
 export const SHIP_ECONOMY: Record<
   ShipId,
-  { credits: number; crystals: number; minSectorCompleted?: number }
+  {
+    credits: number;
+    crystals: number;
+    minSectorCompleted?: number;
+    minDifficulty?: CampaignDifficulty;
+  }
 > = {
   falcon_x: { credits: 0, crystals: 0 },
-  destroyer: { credits: 2200, crystals: 4 },
-  phantom: { credits: 3400, crystals: 8 },
-  thunderbolt: { credits: 5200, crystals: 13, minSectorCompleted: 2 },
-  aegis: { credits: 8600, crystals: 24, minSectorCompleted: 4 },
-  specter: { credits: 11500, crystals: 32, minSectorCompleted: 6 },
-  nova_prime: { credits: 14800, crystals: 42, minSectorCompleted: 7 },
-  celestial: { credits: 18500, crystals: 55, minSectorCompleted: 8 },
+  destroyer: { credits: 2200, crystals: 4, minSectorCompleted: 1, minDifficulty: 'easy' },
+  phantom: { credits: 3400, crystals: 8, minSectorCompleted: 3, minDifficulty: 'easy' },
+  thunderbolt: { credits: 5200, crystals: 13, minSectorCompleted: 2, minDifficulty: 'normal' },
+  aegis: { credits: 8600, crystals: 24, minSectorCompleted: 5, minDifficulty: 'normal' },
+  specter: { credits: 11500, crystals: 32, minSectorCompleted: 3, minDifficulty: 'hard' },
+  nova_prime: { credits: 14800, crystals: 42, minSectorCompleted: 7, minDifficulty: 'hard' },
+  celestial: { credits: 18500, crystals: 55, minSectorCompleted: 5, minDifficulty: 'insane' },
 };
 
 export function formatShipUnlockLabel(shipId: ShipId): string {
@@ -552,7 +612,9 @@ export function formatShipUnlockLabel(shipId: ShipId): string {
   const parts: string[] = [`${req.credits.toLocaleString()} Credits`];
   if (req.crystals > 0) parts.push(`${req.crystals} Gems`);
   if (req.minSectorCompleted) {
-    parts.push(`Clear Sector ${String(req.minSectorCompleted).padStart(2, '0')}`);
+    const diff = req.minDifficulty ?? 'easy';
+    const diffLabel = CAMPAIGN_DIFFICULTIES[diff]?.label ?? 'Easy';
+    parts.push(`Clear Sector ${String(req.minSectorCompleted).padStart(2, '0')} (${diffLabel}+)`);
   }
   return parts.join(' · ');
 }
