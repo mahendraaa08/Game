@@ -1,7 +1,7 @@
 import type { BossId } from './BossConfig';
 import type { EnemyClass } from './EnemyConfig';
 import type { Rarity } from './EquipmentConfig';
-import type { GameMode } from './GameModeConfig';
+import { CAMPAIGN_DIFFICULTIES, type CampaignDifficulty, type GameMode } from './GameModeConfig';
 import type { ShipId } from './ShipConfig';
 import type { UpgradeId } from './UpgradeConfig';
 import type { WeaponId } from './WeaponConfig';
@@ -38,7 +38,56 @@ export const CURRENCY_EXCHANGE_CONFIG = {
 } as const;
 
 export const PLAYER_NAME_CHANGE_COST_GEMS = 25;
-export const PLAYER_NAME_MAX_LENGTH = 20;
+export const PLAYER_NAME_MAX_LENGTH = 15;
+
+const UNSAFE_PLAYER_NAME_CHARS = /[\u0000-\u001F\u007F<>`\\{}\[\]]/;
+
+export interface PlayerNameValidation {
+  valid: boolean;
+  cleaned: string;
+  error: string | null;
+}
+
+export function validatePlayerName(rawName: string, currentName?: string): PlayerNameValidation {
+  if (UNSAFE_PLAYER_NAME_CHARS.test(rawName)) {
+    return {
+      valid: false,
+      cleaned: rawName.replace(UNSAFE_PLAYER_NAME_CHARS, '').trim().replace(/\s+/g, ' '),
+      error: 'Name contains unsupported characters.',
+    };
+  }
+
+  const cleaned = rawName.trim().replace(/\s+/g, ' ');
+  if (cleaned.length === 0) {
+    return {
+      valid: false,
+      cleaned,
+      error: 'Name cannot be empty or contain spaces only.',
+    };
+  }
+
+  if (cleaned.length > PLAYER_NAME_MAX_LENGTH) {
+    return {
+      valid: false,
+      cleaned,
+      error: `Name must be ${PLAYER_NAME_MAX_LENGTH} characters or fewer.`,
+    };
+  }
+
+  if (typeof currentName === 'string' && cleaned === currentName) {
+    return {
+      valid: false,
+      cleaned,
+      error: 'Enter a different name from your current Commander name.',
+    };
+  }
+
+  return {
+    valid: true,
+    cleaned,
+    error: null,
+  };
+}
 
 export interface ExchangePreview {
   valid: boolean;
@@ -264,22 +313,24 @@ export function getEndlessWaveReward(waveNum: number, creditBonusMult: number): 
   return { credits, crystals };
 }
 
-/** Campaign clear + one-time first-clear milestone reward (hundreds per run; 1,000+ reserved for endgame feats) */
+/** Campaign clear + one-time first-clear milestone reward calibrated per difficulty & sector */
 export function getCampaignClearReward(
   levelNumber: number,
   hasBoss: boolean,
   isFirstClear: boolean,
-  creditBonusMult: number
+  creditBonusMult: number,
+  difficulty: CampaignDifficulty = 'normal'
 ): CampaignRewardBreakdown {
   const lvl = Math.max(1, Math.floor(levelNumber));
   const cappedBonus = Math.min(ECONOMY_CAPS.maxCreditBonusMult, Math.max(1, creditBonusMult));
+  const diffCfg = CAMPAIGN_DIFFICULTIES[difficulty] ?? CAMPAIGN_DIFFICULTIES.normal;
 
-  const baseClearCredits = 55 + lvl * 25;
+  const baseClearCredits = roundCredits((55 + lvl * 25) * diffCfg.rewardMult, 10);
   const clearCredits = Math.round(baseClearCredits * cappedBonus);
   const clearCrystals = 0;
 
-  const firstClearCredits = 90 + lvl * 55;
-  const firstClearCrystals = hasBoss
+  const firstClearCredits = roundCredits((90 + lvl * 55) * diffCfg.rewardMult, 10);
+  const baseFirstCrystals = hasBoss
     ? lvl >= 10
       ? 3
       : lvl >= 6
@@ -288,6 +339,7 @@ export function getCampaignClearReward(
     : lvl >= 9
     ? 2
     : 1;
+  const firstClearCrystals = baseFirstCrystals + diffCfg.firstClearCrystalBonus;
 
   return {
     clearCredits,
@@ -303,12 +355,13 @@ export function formatSectorRewardText(
   levelNumber: number,
   totalSectors: number,
   hasBoss: boolean,
-  nextSectorName?: string
+  nextSectorName?: string,
+  difficulty: CampaignDifficulty = 'normal'
 ): string {
-  const breakdown = getCampaignClearReward(levelNumber, hasBoss, true, 1);
+  const breakdown = getCampaignClearReward(levelNumber, hasBoss, true, 1, difficulty);
   const bonusStr = `+${breakdown.totalFirstClearBonusCredits.toLocaleString()} CR · +${breakdown.totalFirstClearBonusCrystals} Gems First Clear`;
   if (levelNumber >= totalSectors) {
-    return `Galactic Liberation · ${bonusStr}`;
+    return `Sector Mastery · ${bonusStr}`;
   }
   const nextTag = nextSectorName
     ? `Unlocks S${String(levelNumber + 1).padStart(2, '0')}: ${nextSectorName}`
@@ -336,13 +389,17 @@ export function getChallengePayout(
   };
 }
 
-/** Challenge bounty table (hundreds; Final Duel nears 1,000+ when paired with combat drops) */
+/** Legacy Challenge bounty fallback table */
 export const CHALLENGE_REWARDS: Record<string, CurrencyAmount> = {
   chal_glass_cannon: { credits: 320, crystals: 1 },
+  chal_shieldless_gauntlet: { credits: 600, crystals: 2 },
   chal_laser_trial: { credits: 390, crystals: 1 },
   chal_timed_gauntlet: { credits: 480, crystals: 2 },
+  chal_lightning_protocol: { credits: 680, crystals: 3 },
   chal_venom_duel: { credits: 580, crystals: 2 },
   chal_lightning_storm: { credits: 640, crystals: 2 },
+  chal_arsenal_lockdown: { credits: 660, crystals: 2 },
+  chal_titan_duel: { credits: 720, crystals: 3 },
   chal_emperor_duel: { credits: 980, crystals: 4 },
 };
 
@@ -636,5 +693,9 @@ export const ACHIEVEMENT_REWARDS: Record<string, CurrencyAmount> = {
   ach_ships_4: { credits: 500, crystals: 2 },
   ach_ships_8: { credits: 2200, crystals: 8 },
   ach_sectors_10: { credits: 1650, crystals: 6 },
+  ach_campaign_hard: { credits: 1850, crystals: 6 },
+  ach_campaign_nightmare: { credits: 3200, crystals: 10 },
+  ach_challenges_6: { credits: 860, crystals: 3 },
+  ach_challenge_extreme: { credits: 1250, crystals: 5 },
   ach_score_30000: { credits: 840, crystals: 3 },
 };

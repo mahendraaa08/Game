@@ -18,6 +18,9 @@ export type AchievementMetric =
   | 'unlocked_weapons_count'
   | 'best_endless_wave'
   | 'completed_challenges_count'
+  | 'completed_extreme_challenges_count'
+  | 'hard_sectors_completed'
+  | 'nightmare_sectors_completed'
   | 'boss_rush_clears'
   | 'high_score'
   | 'total_upgrades_bought'
@@ -142,6 +145,26 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     rewardCredits: ACHIEVEMENT_REWARDS.ach_challenges_3.credits,
     rewardCrystals: ACHIEVEMENT_REWARDS.ach_challenges_3.crystals,
   },
+  {
+    id: 'ach_challenges_6',
+    category: 'Galaxy Explorer',
+    title: 'Protocol Tactician',
+    description: 'Complete 6 unique Challenge missions across any tier.',
+    metric: 'completed_challenges_count',
+    target: 6,
+    rewardCredits: ACHIEVEMENT_REWARDS.ach_challenges_6.credits,
+    rewardCrystals: ACHIEVEMENT_REWARDS.ach_challenges_6.crystals,
+  },
+  {
+    id: 'ach_challenge_extreme',
+    category: 'Galaxy Explorer',
+    title: 'Extreme Overcomer',
+    description: 'Complete 3 Challenge missions on Extreme tier.',
+    metric: 'completed_extreme_challenges_count',
+    target: 3,
+    rewardCredits: ACHIEVEMENT_REWARDS.ach_challenge_extreme.credits,
+    rewardCrystals: ACHIEVEMENT_REWARDS.ach_challenge_extreme.crystals,
+  },
 
   // Weapon Specialist
   {
@@ -197,6 +220,26 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     target: 10,
     rewardCredits: ACHIEVEMENT_REWARDS.ach_sectors_10.credits,
     rewardCrystals: ACHIEVEMENT_REWARDS.ach_sectors_10.crystals,
+  },
+  {
+    id: 'ach_campaign_hard',
+    category: 'Campaign Hero',
+    title: 'Hardened Vanguard',
+    description: 'Complete all 10 Campaign sectors on Hard difficulty.',
+    metric: 'hard_sectors_completed',
+    target: 10,
+    rewardCredits: ACHIEVEMENT_REWARDS.ach_campaign_hard.credits,
+    rewardCrystals: ACHIEVEMENT_REWARDS.ach_campaign_hard.crystals,
+  },
+  {
+    id: 'ach_campaign_nightmare',
+    category: 'Campaign Hero',
+    title: 'Nightmare Liberator',
+    description: 'Conquer all 10 Campaign sectors on Nightmare difficulty.',
+    metric: 'nightmare_sectors_completed',
+    target: 10,
+    rewardCredits: ACHIEVEMENT_REWARDS.ach_campaign_nightmare.credits,
+    rewardCrystals: ACHIEVEMENT_REWARDS.ach_campaign_nightmare.crystals,
   },
 
   // Legendary Pilot

@@ -31,13 +31,19 @@ export class VictoryScene extends Phaser.Scene {
 
     this.unsubs.push(
       EventBus.on('ui:start-level', (lvl) => {
-        this.scene.start('GameScene', { mode: 'campaign', levelNumber: lvl });
+        this.scene.start('GameScene', {
+          mode: 'campaign',
+          campaignDifficulty: data.campaignDifficulty ?? 'easy',
+          levelNumber: lvl,
+        });
       }),
       EventBus.on('ui:start-mode', (req) => {
         this.scene.start('GameScene', {
           mode: req.mode,
+          campaignDifficulty: req.campaignDifficulty,
           levelNumber: req.levelNumber ?? 1,
           challengeId: req.challengeId,
+          challengeDifficulty: req.challengeDifficulty,
         });
       }),
       EventBus.on('ui:open-hangar', () => {

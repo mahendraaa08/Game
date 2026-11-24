@@ -14,10 +14,10 @@ import {
   ECONOMY_CAPS,
   type ExchangeDirection,
   PLAYER_NAME_CHANGE_COST_GEMS,
-  PLAYER_NAME_MAX_LENGTH,
   getCampaignClearReward,
   getChallengePayout,
   previewCurrencyExchange,
+  validatePlayerName,
 } from '../config/EconomyConfig';
 import type { EnemyClass } from '../config/EnemyConfig';
 import {
@@ -26,7 +26,16 @@ import {
   getEquipmentUpgradeCost,
   scaleEquipmentBonuses,
 } from '../config/EquipmentConfig';
-import { CHALLENGE_BY_ID, type ChallengeRule, type GameMode } from '../config/GameModeConfig';
+import {
+  CAMPAIGN_DIFFICULTIES,
+  type BossRushPerformanceSummary,
+  type CampaignDifficulty,
+  type ChallengeDifficulty,
+  type ChallengeRule,
+  type GameMode,
+  getNextCampaignDifficulty,
+  resolveChallengeTier,
+} from '../config/GameModeConfig';
 import { CAMPAIGN_LEVELS } from '../config/LevelConfig';
 import {
   MAX_PLAYER_LEVEL,
@@ -52,7 +61,11 @@ import { type ShipId, SHIPS } from '../config/ShipConfig';
 import { getUpgradeCost, getWeaponUpgradeCost, type UpgradeId, UPGRADES } from '../config/UpgradeConfig';
 import { type WeaponId, WEAPONS } from '../config/WeaponConfig';
 import { EventBus, type LevelUpPayload, type LevelUpStepSummary } from '../utils/EventBus';
-import { type PlayerProgress, StorageManager } from '../utils/StorageManager';
+import {
+  type PlayerProgress,
+  StorageManager,
+  syncAggregateCampaignFields,
+} from '../utils/StorageManager';
 
 export interface ActionResult {
   ok: boolean;
@@ -170,6 +183,12 @@ export function computePlayerStats(
   }
   if (challengeRule?.disableShield) {
     maxShield = 0;
+  } else if (
+    typeof challengeRule?.shieldCapRatio === 'number' &&
+    challengeRule.shieldCapRatio >= 0 &&
+    challengeRule.shieldCapRatio < 1
+  ) {
+    maxShield = Math.round(maxShield * challengeRule.shieldCapRatio);
   }
 
   return {
@@ -243,6 +262,14 @@ class ProgressionManagerImpl {
         return p.stats.bestEndlessWave;
       case 'completed_challenges_count':
         return p.stats.completedChallenges.length;
+      case 'completed_extreme_challenges_count':
+        return Object.values(p.stats.completedChallengeTiers ?? {}).filter((tiers) =>
+          Array.isArray(tiers) && tiers.includes('Extreme')
+        ).length;
+      case 'hard_sectors_completed':
+        return p.campaignProgress?.hard?.completedLevels?.length ?? 0;
+      case 'nightmare_sectors_completed':
+        return p.campaignProgress?.nightmare?.completedLevels?.length ?? 0;
       case 'boss_rush_clears':
         return p.stats.bossRushClears;
       case 'high_score':
@@ -254,6 +281,20 @@ class ProgressionManagerImpl {
       default:
         return 0;
     }
+  }
+
+  setSelectedCampaignDifficulty(difficulty: CampaignDifficulty): ActionResult {
+    const p = StorageManager.load();
+    const bucket = p.campaignProgress[difficulty];
+    if (!bucket || bucket.highestUnlockedLevel <= 0) {
+      return { ok: false, message: `${CAMPAIGN_DIFFICULTIES[difficulty].label} is locked.` };
+    }
+    if (p.selectedCampaignDifficulty !== difficulty) {
+      p.selectedCampaignDifficulty = difficulty;
+      StorageManager.save(p);
+      this.emitChanged();
+    }
+    return { ok: true, message: `${CAMPAIGN_DIFFICULTIES[difficulty].label} difficulty selected.` };
   }
 
   private addRewardHistory(p: PlayerProgress, label: string, credits: number, crystals: number): void {
@@ -899,26 +940,12 @@ class ProgressionManagerImpl {
   }
 
   changePlayerName(rawName: string): ActionResult {
-    const cleaned = rawName.trim().replace(/\s+/g, ' ');
-    if (cleaned.length === 0) {
-      return {
-        ok: false,
-        message: 'Name cannot be empty or contain spaces only.',
-      };
-    }
-
-    if (cleaned.length > PLAYER_NAME_MAX_LENGTH) {
-      return {
-        ok: false,
-        message: `Name must be ${PLAYER_NAME_MAX_LENGTH} characters or fewer.`,
-      };
-    }
-
     const p = StorageManager.load();
-    if (cleaned === p.playerName) {
+    const validation = validatePlayerName(rawName, p.playerName);
+    if (!validation.valid) {
       return {
         ok: false,
-        message: 'Enter a different name from your current Commander name.',
+        message: validation.error ?? 'Invalid Commander name.',
       };
     }
 
@@ -932,12 +959,12 @@ class ProgressionManagerImpl {
     const err = this.trySpend(p, 0, PLAYER_NAME_CHANGE_COST_GEMS);
     if (err) return err;
 
-    p.playerName = cleaned;
+    p.playerName = validation.cleaned;
     StorageManager.save(p);
     this.emitChanged();
     return {
       ok: true,
-      message: `Commander name changed to "${cleaned}" (-${PLAYER_NAME_CHANGE_COST_GEMS} Gems).`,
+      message: `Commander name changed to "${validation.cleaned}" (-${PLAYER_NAME_CHANGE_COST_GEMS} Gems).`,
     };
   }
 
@@ -1113,12 +1140,22 @@ class ProgressionManagerImpl {
     score: number;
     kills: number;
     levelNumber?: number;
+    campaignDifficulty?: CampaignDifficulty;
     endlessWave?: number;
     challengeId?: string;
+    challengeDifficulty?: ChallengeDifficulty;
     challengeCompleted?: boolean;
     bossRushCleared?: boolean;
+    bossRushElapsedSec?: number;
+    bossRushPerformance?: BossRushPerformanceSummary | null;
     shipUsed: ShipId;
-  }): { creditsGranted: number; crystalsGranted: number; expGranted: number } {
+  }): {
+    creditsGranted: number;
+    crystalsGranted: number;
+    expGranted: number;
+    unlockedNextDifficulty: CampaignDifficulty | null;
+    isFirstClear: boolean;
+  } {
     const p = StorageManager.load();
     p.stats.totalRuns += 1;
     if (params.score > p.highScore) p.highScore = params.score;
@@ -1126,20 +1163,37 @@ class ProgressionManagerImpl {
     let totalCredits = Math.max(0, Math.floor(params.creditsEarned));
     let totalCrystals = Math.max(0, Math.floor(params.crystalsEarned));
     let runExp: number = PLAYER_EXP_SOURCES.runCompletionBase;
+    let unlockedNextDifficulty: CampaignDifficulty | null = null;
+    let isFirstClear = false;
 
     if (params.mode === 'campaign' && params.levelNumber) {
-      const lvl = params.levelNumber;
+      const lvl = Math.max(1, Math.min(10, Math.floor(params.levelNumber)));
+      const diff: CampaignDifficulty = params.campaignDifficulty ?? p.selectedCampaignDifficulty ?? 'easy';
+      const bucket = p.campaignProgress[diff];
       const levelDef = CAMPAIGN_LEVELS[lvl - 1];
       const hasBoss = Boolean(levelDef?.bossId);
-      const isFirstClear = !p.completedLevels.includes(lvl);
-      const campaignBonus = getCampaignClearReward(lvl, hasBoss, isFirstClear, 1);
+
+      isFirstClear = !bucket.completedLevels.includes(lvl);
+      const campaignBonus = getCampaignClearReward(lvl, hasBoss, isFirstClear, 1, diff);
       if (isFirstClear) {
-        p.completedLevels = [...p.completedLevels, lvl];
+        bucket.completedLevels = [...bucket.completedLevels, lvl].sort((a, b) => a - b);
         totalCredits += campaignBonus.firstClearCredits;
         totalCrystals += campaignBonus.firstClearCrystals;
       }
-      p.highestUnlockedLevel = Math.min(10, Math.max(p.highestUnlockedLevel, lvl + 1));
-      p.levelScores[lvl] = Math.max(p.levelScores[lvl] ?? 0, params.score);
+      bucket.highestUnlockedLevel = Math.min(10, Math.max(bucket.highestUnlockedLevel || 1, lvl + 1));
+      bucket.levelScores[lvl] = Math.max(bucket.levelScores[lvl] ?? 0, params.score);
+
+      if (lvl === 10) {
+        const nextDiff = getNextCampaignDifficulty(diff);
+        if (nextDiff && p.campaignProgress[nextDiff].highestUnlockedLevel <= 0) {
+          p.campaignProgress[nextDiff].highestUnlockedLevel = 1;
+          unlockedNextDifficulty = nextDiff;
+        }
+      }
+
+      const diffMult = CAMPAIGN_DIFFICULTIES[diff]?.rewardMult ?? 1;
+      runExp = Math.round(runExp * diffMult);
+      syncAggregateCampaignFields(p);
     } else if (params.mode === 'endless') {
       p.stats.bestEndlessScore = Math.max(p.stats.bestEndlessScore, params.score);
       if (params.endlessWave) {
@@ -1152,30 +1206,65 @@ class ProgressionManagerImpl {
         p.stats.bossRushClears += 1;
         totalCredits += BOSS_RUSH_CLEAR_REWARD.credits;
         totalCrystals += BOSS_RUSH_CLEAR_REWARD.crystals;
+        if (params.bossRushPerformance) {
+          totalCredits += params.bossRushPerformance.bonusCredits;
+          totalCrystals += params.bossRushPerformance.bonusCrystals;
+        }
+        if (
+          typeof params.bossRushElapsedSec === 'number' &&
+          Number.isFinite(params.bossRushElapsedSec) &&
+          params.bossRushElapsedSec > 0
+        ) {
+          const cleanSec = Math.round(params.bossRushElapsedSec);
+          p.stats.bestBossRushTimeSec =
+            p.stats.bestBossRushTimeSec === null
+              ? cleanSec
+              : Math.min(p.stats.bestBossRushTimeSec, cleanSec);
+        }
         runExp += PLAYER_EXP_SOURCES.bossRushClearBonus;
       }
     } else if (params.mode === 'challenge' && params.challengeCompleted && params.challengeId) {
-      const chal = CHALLENGE_BY_ID[params.challengeId];
-      const alreadyCompleted = p.stats.completedChallenges.includes(params.challengeId);
-      if (chal) {
-        const payout = getChallengePayout(chal.rewardCredits, chal.rewardCrystals, alreadyCompleted);
+      const resolved = resolveChallengeTier(params.challengeId, params.challengeDifficulty);
+      if (resolved) {
+        const { challenge, tier } = resolved;
+        const completedTiers = p.stats.completedChallengeTiers[challenge.id] ?? [];
+        const tierAlreadyCompleted = completedTiers.includes(tier.difficulty);
+        isFirstClear = !tierAlreadyCompleted;
+
+        const payout = getChallengePayout(
+          tier.rewardCredits,
+          tier.rewardCrystals,
+          tierAlreadyCompleted
+        );
         totalCredits += payout.credits;
         totalCrystals += payout.crystals;
+
+        if (!tierAlreadyCompleted) {
+          p.stats.completedChallengeTiers = {
+            ...p.stats.completedChallengeTiers,
+            [challenge.id]: [...completedTiers, tier.difficulty],
+          };
+        }
+        if (!p.stats.completedChallenges.includes(challenge.id)) {
+          p.stats.completedChallenges = [...p.stats.completedChallenges, challenge.id];
+        }
+        const tierExpMult =
+          tier.difficulty === 'Extreme' ? 1.5 : tier.difficulty === 'Hard' ? 1.25 : 1.0;
+        runExp += Math.round(PLAYER_EXP_SOURCES.challengeClearBonus * tierExpMult);
       }
-      if (!alreadyCompleted) {
-        p.stats.completedChallenges = [...p.stats.completedChallenges, params.challengeId];
-      }
-      runExp += PLAYER_EXP_SOURCES.challengeClearBonus;
     }
 
     const modeLabel =
       params.mode === 'campaign'
-        ? `Sector ${String(params.levelNumber ?? 1).padStart(2, '0')} Run`
+        ? `Sector ${String(params.levelNumber ?? 1).padStart(2, '0')} (${
+            CAMPAIGN_DIFFICULTIES[params.campaignDifficulty ?? p.selectedCampaignDifficulty ?? 'easy']
+              .shortLabel
+          })`
         : params.mode === 'endless'
         ? `Endless Wave ${params.endlessWave ?? 1}`
         : params.mode === 'boss_rush'
         ? 'Boss Rush'
-        : 'Challenge Mission';
+        : `Challenge (${params.challengeDifficulty ?? 'Standard'})`;
 
     this.addRewardHistory(p, modeLabel, totalCredits, totalCrystals);
     const { expAdded, levelUp } = this.applyExpAndRewards(p, runExp);
@@ -1184,7 +1273,13 @@ class ProgressionManagerImpl {
     if (levelUp) {
       EventBus.emit('player:leveled-up', levelUp);
     }
-    return { creditsGranted: totalCredits, crystalsGranted: totalCrystals, expGranted: expAdded };
+    return {
+      creditsGranted: totalCredits,
+      crystalsGranted: totalCrystals,
+      expGranted: expAdded,
+      unlockedNextDifficulty,
+      isFirstClear,
+    };
   }
 }
 

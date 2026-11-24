@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { BOSS_CONFIGS, BossId } from '../config/BossConfig';
 import {
   ECONOMY_CAPS,
+  formatSectorRewardText,
   getBossCombatReward,
   getCampaignClearReward,
   getEndlessBossHpMult,
@@ -11,12 +12,28 @@ import {
 } from '../config/EconomyConfig';
 import { EQUIPMENT_BY_ID, EquipmentRarityEffect, type EquipmentSlot } from '../config/EquipmentConfig';
 import { GAME_CONSTANTS, HudSnapshot } from '../config/GameConfig';
-import { BOSS_RUSH_ORDER, CHALLENGE_BY_ID, ChallengeDefinition, GameMode } from '../config/GameModeConfig';
+import {
+  BOSS_RUSH_ORDER,
+  BOSS_RUSH_RECOVERY_BY_ID,
+  calculateBossRushPerformanceBonus,
+  CAMPAIGN_DIFFICULTIES,
+  type CampaignDifficulty,
+  CHALLENGE_BY_ID,
+  type ChallengeDefinition,
+  type ChallengeDifficulty,
+  type ChallengeRule,
+  type ChallengeTierConfig,
+  ENDLESS_UPGRADE_SPECS,
+  type GameMode,
+  getBossRushStageModifiers,
+  pickEndlessUpgradeChoices,
+  resolveChallengeTier,
+} from '../config/GameModeConfig';
 import { CAMPAIGN_LEVELS, LevelDefinition } from '../config/LevelConfig';
 import { SHIPS } from '../config/ShipConfig';
 import { SpecialId, SPECIAL_ATTACKS, WeaponId, WEAPONS, WEAPON_LIST, getWeaponDamageAtLevel } from '../config/WeaponConfig';
 import { SoundManager } from '../audio/SoundManager';
-import { BossEntity } from '../entities/Boss';
+import { type BossCombatModifiers, BossEntity } from '../entities/Boss';
 import { DroneManager } from '../entities/DroneManager';
 import { EnemyEntity } from '../entities/Enemy';
 import { Player, SpecialActivatedPayload } from '../entities/Player';
@@ -27,7 +44,7 @@ import { BackgroundSystem } from '../systems/BackgroundSystem';
 import { CombatSystem } from '../systems/CombatSystem';
 import { PassiveSystem, PassiveTarget } from '../systems/PassiveSystem';
 import { computePlayerStats, ProgressionManager } from '../systems/ProgressionManager';
-import { WaveDirector } from '../systems/WaveDirector';
+import { WaveDirector, type WaveModifiers } from '../systems/WaveDirector';
 import { generateAllTextures } from '../textures/TextureGenerator';
 import { EventBus, BossPosePayload } from '../utils/EventBus';
 import { StorageManager } from '../utils/StorageManager';
@@ -35,7 +52,9 @@ import { StorageManager } from '../utils/StorageManager';
 export interface GameSceneData {
   mode?: GameMode;
   levelNumber: number;
+  campaignDifficulty?: CampaignDifficulty;
   challengeId?: string;
+  challengeDifficulty?: ChallengeDifficulty;
   weaponId?: WeaponId;
   specialId?: SpecialId;
   carryScore?: number;
@@ -43,7 +62,10 @@ export interface GameSceneData {
 
 export class GameScene extends Phaser.Scene {
   private mode: GameMode = 'campaign';
+  private campaignDifficulty: CampaignDifficulty = 'easy';
   private challengeDef: ChallengeDefinition | null = null;
+  private challengeDifficulty: ChallengeDifficulty = 'Standard';
+  private challengeTier: ChallengeTierConfig | null = null;
   private levelDef!: LevelDefinition;
   private bg!: BackgroundSystem;
   private player!: Player;
@@ -61,6 +83,8 @@ export class GameScene extends Phaser.Scene {
   private combo = 1;
   private enemiesDefeated = 0;
   private bossSpawned = false;
+  private activeEndlessBossWave = 0;
+  private inRunDraftModal = false;
   private bossRushIdx = 0;
   private levelEnding = false;
   private elapsedSurvivalSec = 0;
@@ -95,6 +119,18 @@ export class GameScene extends Phaser.Scene {
     tickTimerMs: 0,
     tickIntervalMs: 280,
     tickDamage: 34,
+  };
+  private lightningHazard = {
+    enabled: false,
+    intervalSec: 4.5,
+    cooldownSec: 2.6,
+    telegraphing: false,
+    telegraphTimerSec: 0,
+    telegraphDurationSec: 0.9,
+    strikeX: 0,
+    strikeY: 0,
+    radiusPx: 46,
+    flashTimerSec: 0,
   };
   private bossPoseScratch: BossPosePayload = {
     active: false,
@@ -161,14 +197,23 @@ export class GameScene extends Phaser.Scene {
     generateAllTextures(this);
     const saved = StorageManager.load();
     this.mode = data?.mode ?? 'campaign';
-    this.challengeDef =
+    const rawDiff = data?.campaignDifficulty ?? saved.selectedCampaignDifficulty ?? 'easy';
+    this.campaignDifficulty =
+      saved.campaignProgress[rawDiff]?.highestUnlockedLevel >= 1 ? rawDiff : 'easy';
+
+    const resolvedChallenge =
       this.mode === 'challenge' && data?.challengeId
-        ? CHALLENGE_BY_ID[data.challengeId] ?? null
+        ? resolveChallengeTier(data.challengeId, data.challengeDifficulty)
         : null;
+    this.challengeDef = resolvedChallenge?.challenge ?? null;
+    this.challengeTier = resolvedChallenge?.tier ?? null;
+    this.challengeDifficulty = resolvedChallenge?.tier.difficulty ?? 'Standard';
+    const activeRules: ChallengeRule | undefined =
+      this.challengeTier?.rules ?? this.challengeDef?.rules;
 
     const baseLvlNum =
-      this.mode === 'challenge' && this.challengeDef
-        ? this.challengeDef.rules.levelBase
+      this.mode === 'challenge' && activeRules
+        ? activeRules.levelBase
         : data?.levelNumber ?? 1;
 
     const levelNumber = Phaser.Math.Clamp(baseLvlNum, 1, CAMPAIGN_LEVELS.length);
@@ -176,7 +221,9 @@ export class GameScene extends Phaser.Scene {
     this.currentData = {
       mode: this.mode,
       levelNumber,
+      campaignDifficulty: this.mode === 'campaign' ? this.campaignDifficulty : undefined,
       challengeId: this.challengeDef?.id,
+      challengeDifficulty: this.mode === 'challenge' ? this.challengeDifficulty : undefined,
       weaponId: data?.weaponId ?? saved.selectedWeapon,
       specialId: data?.specialId ?? saved.selectedSpecial,
       carryScore: data?.carryScore ?? 0,
@@ -187,6 +234,8 @@ export class GameScene extends Phaser.Scene {
     this.enemiesDefeated = 0;
     this.boss = null;
     this.bossSpawned = false;
+    this.activeEndlessBossWave = 0;
+    this.inRunDraftModal = false;
     this.bossRushIdx = 0;
     this.levelEnding = false;
     this.hudEmitTimerMs = 0;
@@ -203,6 +252,18 @@ export class GameScene extends Phaser.Scene {
     this.gravityWell.active = false;
     this.gravityWell.remainingMs = 0;
     this.gravityWell.tickTimerMs = 0;
+    this.lightningHazard = {
+      enabled: Boolean(this.mode === 'challenge' && activeRules?.lightningProtocol),
+      intervalSec: activeRules?.lightningIntervalSec ?? 4.5,
+      cooldownSec: 2.5,
+      telegraphing: false,
+      telegraphTimerSec: 0,
+      telegraphDurationSec: 0.9,
+      strikeX: 0,
+      strikeY: 0,
+      radiusPx: 46,
+      flashTimerSec: 0,
+    };
 
     EventBus.emit('scene:changed', 'GameScene');
     EventBus.emit('boss:warning', null);
@@ -216,17 +277,46 @@ export class GameScene extends Phaser.Scene {
     this.combat = new CombatSystem(this, fxQuality);
     this.specialVfxGfx = this.add.graphics().setDepth(14);
 
+    let waveModifiers: WaveModifiers = {};
+    if (this.mode === 'campaign') {
+      const diffCfg = CAMPAIGN_DIFFICULTIES[this.campaignDifficulty];
+      waveModifiers = {
+        spawnIntervalMult: diffCfg.spawnIntervalMult,
+        densityMult: diffCfg.densityMult,
+        eliteChanceBonus: diffCfg.eliteChanceBonus,
+        enemyMods: {
+          hpMult: diffCfg.enemyHpMult,
+          damageMult: diffCfg.enemyDamageMult,
+          attackRateMult: diffCfg.enemyAttackRateMult,
+          projectileSpeedMult: diffCfg.enemyProjectileSpeedMult,
+        },
+      };
+    } else if (this.mode === 'challenge' && activeRules) {
+      waveModifiers = {
+        spawnIntervalMult: activeRules.spawnIntervalMult ?? 1,
+        densityMult: activeRules.densityMult ?? 1,
+        eliteChanceBonus: activeRules.eliteChanceBonus ?? 0,
+        enemyMods: {
+          hpMult: activeRules.enemyHpMult ?? 1,
+          damageMult: activeRules.enemyDamageMult ?? 1,
+          attackRateMult: activeRules.enemyAttackRateMult ?? 1,
+          projectileSpeedMult: activeRules.enemyProjectileSpeedMult ?? 1,
+        },
+      };
+    }
+
     this.waveDirector = new WaveDirector(
       this,
       this.levelDef,
       this.mode,
       (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass),
       (waveNum) => this.handleWaveCleared(waveNum),
-      (waveNum, phase) => this.handleWavePhaseStarted(waveNum, phase)
+      (waveNum, phase) => this.handleWavePhaseStarted(waveNum, phase),
+      waveModifiers
     );
 
-    const stats = computePlayerStats(saved, this.challengeDef?.rules);
-    const allowedWeapons = this.challengeDef?.rules.allowedWeapons ?? null;
+    const stats = computePlayerStats(saved, activeRules);
+    const allowedWeapons = activeRules?.allowedWeapons ?? null;
     const equippedEffects: EquipmentRarityEffect[] = [];
     (['offensive', 'defensive', 'utility', 'special'] as EquipmentSlot[]).forEach((slot) => {
       const eqId = saved.equippedGear[slot];
@@ -269,7 +359,7 @@ export class GameScene extends Phaser.Scene {
           1,
           Math.round(
             getWeaponDamageAtLevel(WEAPONS[this.player.weaponId], this.player.weaponLevel) *
-              this.player.stats.damageMult
+              this.player.getWeaponBaseDamageMult()
           )
         ),
       getTargets: () => this.fillAllTargets(),
@@ -326,7 +416,7 @@ export class GameScene extends Phaser.Scene {
       this.ghostDecoySprite = null;
     }
 
-    this.drones = !this.challengeDef?.rules.disableDrones
+    this.drones = !activeRules?.disableDrones
       ? new DroneManager(this, saved.equippedDroneSlots, saved.ownedDrones, startX, startY)
       : null;
 
@@ -380,11 +470,15 @@ export class GameScene extends Phaser.Scene {
         this.pauseGame();
       }),
       EventBus.on('ui:abort-mission', () => {
+        this.inRunDraftModal = false;
         if (!this.levelEnding) {
           this.levelEnding = true;
           this.flushCombatProgress();
         }
         this.player?.endDrag();
+        if (this.scene.isPaused('GameScene')) {
+          this.scene.resume('GameScene');
+        }
         if (this.scene.isActive('BossScene')) {
           this.scene.stop('BossScene');
         }
@@ -393,13 +487,69 @@ export class GameScene extends Phaser.Scene {
         }
         this.scene.start('MainMenuScene');
       }),
+      EventBus.on('ui:select-endless-upgrade', (statId) => {
+        if (!this.inRunDraftModal || this.mode !== 'endless' || this.levelEnding) return;
+        const delta = this.player.applyEndlessUpgrade(statId);
+        this.inRunDraftModal = false;
+        this.scene.resume('GameScene');
+        if (delta > 0) {
+          const spec = ENDLESS_UPGRADE_SPECS[statId];
+          this.combat.spawnFloatingLabel(
+            this.player.x,
+            this.player.y - 30,
+            `${spec.label.toUpperCase()} UP!`,
+            spec.accentHex
+          );
+        }
+        this.emitHud();
+      }),
+      EventBus.on('ui:select-boss-rush-recovery', (recoveryId) => {
+        if (!this.inRunDraftModal || this.mode !== 'boss_rush' || this.levelEnding) return;
+        const opt = BOSS_RUSH_RECOVERY_BY_ID[recoveryId];
+        if (opt) {
+          if (opt.hpRestoreRatio > 0) {
+            const gainedHp = this.player.healHp(Math.round(this.player.maxHp * opt.hpRestoreRatio));
+            if (gainedHp > 0) {
+              this.combat.spawnFloatingLabel(
+                this.player.x,
+                this.player.y - 26,
+                `+${gainedHp} HP`,
+                '#34D399'
+              );
+            }
+          }
+          if (opt.shieldRestoreRatio > 0) {
+            const gainedShd = this.player.restoreShield(
+              Math.round(this.player.maxShield * opt.shieldRestoreRatio)
+            );
+            if (gainedShd > 0) {
+              this.combat.spawnFloatingLabel(
+                this.player.x,
+                this.player.y - 44,
+                `+${gainedShd} SHD`,
+                '#38BDF8'
+              );
+            }
+          }
+        }
+        this.inRunDraftModal = false;
+        this.bossRushIdx++;
+        this.scene.resume('GameScene');
+        this.emitHud();
+
+        this.time.delayedCall(750, () => {
+          if (this.scene.isActive('GameScene') && !this.levelEnding) {
+            this.spawnBossEncounter(BOSS_RUSH_ORDER[this.bossRushIdx]);
+          }
+        });
+      }),
       EventBus.on('ui:trigger-dash', () => {
-        if (this.scene.isPaused('GameScene') || this.levelEnding) return;
+        if (this.scene.isPaused('GameScene') || this.levelEnding || this.inRunDraftModal) return;
         this.player.triggerDash();
         this.emitHud();
       }),
       EventBus.on('ui:trigger-special', () => {
-        if (this.scene.isPaused('GameScene') || this.levelEnding) return;
+        if (this.scene.isPaused('GameScene') || this.levelEnding || this.inRunDraftModal) return;
         this.triggerPlayerSpecial();
         this.emitHud();
       }),
@@ -428,7 +578,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private pauseGame(): void {
-    if (this.levelEnding || this.scene.isPaused('GameScene')) return;
+    if (this.levelEnding || this.inRunDraftModal || this.scene.isPaused('GameScene')) return;
     this.player?.endDrag();
     if (this.scene.isActive('BossScene')) {
       this.scene.pause('BossScene');
@@ -646,10 +796,11 @@ export class GameScene extends Phaser.Scene {
     this.combat.maybeDropPowerUp(enemy.x, enemy.y, false);
 
     // Check Challenge kill target completion
+    const activeTargetKills = this.challengeTier?.rules.targetKills ?? this.challengeDef?.rules.targetKills;
     if (
       this.mode === 'challenge' &&
-      this.challengeDef?.rules.targetKills &&
-      this.enemiesDefeated >= this.challengeDef.rules.targetKills &&
+      activeTargetKills &&
+      this.enemiesDefeated >= activeTargetKills &&
       !this.levelEnding
     ) {
       this.levelEnding = true;
@@ -663,8 +814,48 @@ export class GameScene extends Phaser.Scene {
     ProgressionManager.recordBossEncounter(bossId);
     SoundManager.playMusic('boss');
 
-    const endlessWaveNum = this.mode === 'endless' ? Math.max(5, this.waveDirector.currentWaveIdx + 1) : 1;
-    const bossHpMult = this.mode === 'endless' ? getEndlessBossHpMult(endlessWaveNum) : 1;
+    let bossHpMult = 1;
+    let bossCombatMods: BossCombatModifiers = {};
+
+    if (this.mode === 'campaign') {
+      const diffCfg = CAMPAIGN_DIFFICULTIES[this.campaignDifficulty];
+      bossHpMult = diffCfg.bossHpMult;
+      bossCombatMods = {
+        damageMult: diffCfg.bossDamageMult,
+        attackRateMult: diffCfg.bossAggressionMult,
+        projectileSpeedMult: diffCfg.enemyProjectileSpeedMult,
+        aggressionMult: diffCfg.bossAggressionMult,
+      };
+    } else if (this.mode === 'endless') {
+      const endlessWaveNum =
+        this.activeEndlessBossWave || Math.max(5, this.waveDirector.currentWaveIdx + 1);
+      const endlessBossTier = Math.max(1, Math.floor(endlessWaveNum / 5));
+      bossHpMult = getEndlessBossHpMult(endlessWaveNum);
+      bossCombatMods = {
+        damageMult: Math.min(1.85, 1 + (endlessBossTier - 1) * 0.08),
+        attackRateMult: Math.min(1.4, 1 + (endlessBossTier - 1) * 0.05),
+        projectileSpeedMult: Math.min(1.25, 1 + (endlessBossTier - 1) * 0.03),
+        aggressionMult: Math.min(1.35, 1 + (endlessBossTier - 1) * 0.04),
+      };
+    } else if (this.mode === 'challenge' && this.challengeTier) {
+      const rules = this.challengeTier.rules;
+      bossHpMult = rules.bossHpMult ?? 1;
+      bossCombatMods = {
+        damageMult: rules.bossDamageMult ?? 1,
+        attackRateMult: rules.bossAggressionMult ?? 1,
+        projectileSpeedMult: rules.enemyProjectileSpeedMult ?? 1,
+        aggressionMult: rules.bossAggressionMult ?? 1,
+      };
+    } else if (this.mode === 'boss_rush') {
+      const rushMods = getBossRushStageModifiers(this.bossRushIdx);
+      bossHpMult = rushMods.hpMult;
+      bossCombatMods = {
+        damageMult: rushMods.damageMult,
+        attackRateMult: rushMods.attackRateMult,
+        projectileSpeedMult: rushMods.projectileSpeedMult,
+        aggressionMult: rushMods.aggressionMult,
+      };
+    }
 
     this.scene.launch('BossScene', { bossId });
     this.boss = new BossEntity(
@@ -677,7 +868,8 @@ export class GameScene extends Phaser.Scene {
         }
       },
       (defeatedBoss) => this.handleBossDefeated(defeatedBoss),
-      bossHpMult
+      bossHpMult,
+      bossCombatMods
     );
     this.emitBossPose();
     this.emitHud();
@@ -726,8 +918,9 @@ export class GameScene extends Phaser.Scene {
         survivalWaves: 1,
         runScore: this.score,
       });
-      // Endless milestone boss every 5 waves
+      // Endless milestone boss every 5 waves (must be defeated before next wave begins)
       if (waveNum % 5 === 0 && !this.boss) {
+        this.activeEndlessBossWave = waveNum;
         const bossPool = BOSS_RUSH_ORDER;
         const bId = bossPool[(Math.floor(waveNum / 5) - 1) % bossPool.length];
         this.spawnBossEncounter(bId);
@@ -752,10 +945,10 @@ export class GameScene extends Phaser.Scene {
     if (this.levelEnding) return;
 
     this.score += boss.def.scoreReward * this.combo;
+    const endlessBossWave =
+      this.activeEndlessBossWave || Math.max(5, Math.floor((this.waveDirector.currentWaveIdx + 1) / 5) * 5);
     const endlessBossTier =
-      this.mode === 'endless'
-        ? Math.max(1, Math.floor((this.waveDirector.currentWaveIdx + 1) / 5))
-        : 1;
+      this.mode === 'endless' ? Math.max(1, Math.floor(endlessBossWave / 5)) : 1;
     const bossReward = getBossCombatReward(
       boss.def.id,
       this.mode,
@@ -773,19 +966,36 @@ export class GameScene extends Phaser.Scene {
     SoundManager.playExplosion('boss');
     this.shakeCamera(550, 0.018);
 
-    // Endless Mode boss defeat continues survival loop cleanly!
+    // Endless Mode boss defeat continues survival loop cleanly & triggers Upgrade Draft every 10 waves!
     if (this.mode === 'endless') {
       this.combat.spawnExplosion(boss.x, boss.y, boss.def.primaryColor, 28, 320, 1.5);
       this.combat.maybeDropPowerUp(boss.x, boss.y + 20, true);
       boss.destroy();
       this.boss = null;
       this.bossSpawned = false;
+      this.activeEndlessBossWave = 0;
       SoundManager.playMusic('endless');
+
+      if (endlessBossWave >= 10 && endlessBossWave % 10 === 0) {
+        const choices = pickEndlessUpgradeChoices(this.player.getEndlessBonuses(), 3);
+        if (choices.length > 0) {
+          this.projectiles.clearEnemyBullets();
+          this.inRunDraftModal = true;
+          this.player?.endDrag();
+          this.emitHud();
+          this.scene.pause('GameScene');
+          EventBus.emit('endless:upgrade-draft', {
+            waveCompleted: endlessBossWave,
+            choices,
+          });
+        }
+      }
       return;
     }
 
-    // Boss Rush Mode: advance through all 5 bosses with limited between-boss recovery
+    // Boss Rush Mode: pause between bosses 1..4 for interactive Tactical Recovery Draft (never auto-heal)
     if (this.mode === 'boss_rush' && this.bossRushIdx < BOSS_RUSH_ORDER.length - 1) {
+      const defeatedBossName = boss.def.name;
       this.projectiles.clearEnemyBullets();
       this.waveDirector.clearAll();
       this.combat.spawnExplosion(boss.x, boss.y, boss.def.primaryColor, 28, 300, 1.5);
@@ -793,15 +1003,20 @@ export class GameScene extends Phaser.Scene {
       this.boss = null;
       this.bossSpawned = false;
 
-      // Limited tactical recovery between gauntlet bosses
-      this.player.healHp(Math.round(this.player.maxHp * 0.28));
-      this.player.restoreShield(Math.round(this.player.maxShield * 0.45));
-      this.bossRushIdx++;
-
-      this.time.delayedCall(1200, () => {
-        if (this.scene.isActive('GameScene') && !this.levelEnding) {
-          this.spawnBossEncounter(BOSS_RUSH_ORDER[this.bossRushIdx]);
-        }
+      const nextBossId = BOSS_RUSH_ORDER[this.bossRushIdx + 1];
+      this.inRunDraftModal = true;
+      this.player?.endDrag();
+      this.emitHud();
+      this.scene.pause('GameScene');
+      EventBus.emit('boss_rush:recovery-draft', {
+        defeatedBossNumber: this.bossRushIdx + 1,
+        totalBosses: BOSS_RUSH_ORDER.length,
+        defeatedBossName,
+        nextBossName: BOSS_CONFIGS[nextBossId].name,
+        currentHp: Math.ceil(this.player.hp),
+        maxHp: this.player.maxHp,
+        currentShield: Math.ceil(this.player.shield),
+        maxShield: this.player.maxShield,
       });
       return;
     }
@@ -837,13 +1052,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private completeCampaignLevel(bossDefeatedName: string | null): void {
+    const diffCfg = CAMPAIGN_DIFFICULTIES[this.campaignDifficulty];
     const bonusScore = this.levelDef.levelNumber * 1000 + Math.round(this.player.hp * 15);
-    const finalLevelScore = this.score + bonusScore;
+    const finalLevelScore = Math.round((this.score + bonusScore) * diffCfg.scoreMult);
     const clearReward = getCampaignClearReward(
       this.levelDef.levelNumber,
       Boolean(this.levelDef.bossId),
       false,
-      this.player.getEffectiveCreditBonusMult()
+      this.player.getEffectiveCreditBonusMult(),
+      this.campaignDifficulty
     );
     this.creditsEarnedRun += clearReward.clearCredits;
     this.crystalsEarnedRun += clearReward.clearCrystals;
@@ -856,9 +1073,19 @@ export class GameScene extends Phaser.Scene {
       score: finalLevelScore,
       kills: this.enemiesDefeated,
       levelNumber: this.levelDef.levelNumber,
+      campaignDifficulty: this.campaignDifficulty,
       shipUsed: this.player.stats.shipId,
     });
     this.expEarnedRun += granted.expGranted;
+
+    const nextDef = CAMPAIGN_LEVELS[this.levelDef.levelNumber] ?? null;
+    const rewardText = formatSectorRewardText(
+      this.levelDef.levelNumber,
+      CAMPAIGN_LEVELS.length,
+      Boolean(this.levelDef.bossId),
+      nextDef?.name,
+      this.campaignDifficulty
+    );
 
     SoundManager.playVictory();
     SoundManager.playMusic('victory');
@@ -866,6 +1093,8 @@ export class GameScene extends Phaser.Scene {
     if (this.levelDef.levelNumber >= CAMPAIGN_LEVELS.length) {
       this.scene.start('VictoryScene', {
         mode: 'campaign',
+        campaignDifficulty: this.campaignDifficulty,
+        unlockedNextDifficulty: granted.unlockedNextDifficulty,
         finalScore: finalLevelScore,
         enemiesDefeated: this.enemiesDefeated,
         creditsEarned: granted.creditsGranted,
@@ -875,17 +1104,19 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.scene.start('LevelResultScene', {
         mode: 'campaign',
+        campaignDifficulty: this.campaignDifficulty,
         levelNumber: this.levelDef.levelNumber,
         levelName: this.levelDef.name,
         score: finalLevelScore,
         bonusScore,
         enemiesDefeated: this.enemiesDefeated,
         bossDefeatedName,
-        rewardText: this.levelDef.rewardText,
+        rewardText,
         creditsEarned: granted.creditsGranted,
         crystalsEarned: granted.crystalsGranted,
         expEarned: this.expEarnedRun,
         nextLevelNumber: this.levelDef.levelNumber + 1,
+        unlockedNextDifficulty: granted.unlockedNextDifficulty,
         weaponId: this.player.weaponId,
         specialId: this.player.specialId,
       });
@@ -894,6 +1125,7 @@ export class GameScene extends Phaser.Scene {
 
   private completeChallenge(won: boolean, bossDefeatedName: string | null = null): void {
     const chal = this.challengeDef!;
+    const tierObj = this.challengeTier?.objective ?? chal.objective;
     this.flushCombatProgress();
     const bonusScore = won ? 2500 + Math.round(this.player.hp * 20) : 0;
     const finalScore = this.score + bonusScore;
@@ -905,6 +1137,7 @@ export class GameScene extends Phaser.Scene {
       score: finalScore,
       kills: this.enemiesDefeated,
       challengeId: chal.id,
+      challengeDifficulty: this.challengeDifficulty,
       challengeCompleted: won,
       shipUsed: this.player.stats.shipId,
     });
@@ -915,13 +1148,14 @@ export class GameScene extends Phaser.Scene {
     this.scene.start('LevelResultScene', {
       mode: 'challenge',
       challengeId: chal.id,
+      challengeDifficulty: this.challengeDifficulty,
       levelNumber: this.levelDef.levelNumber,
       levelName: chal.title,
       score: finalScore,
       bonusScore,
       enemiesDefeated: this.enemiesDefeated,
       bossDefeatedName,
-      rewardText: `Challenge Complete · ${chal.objective}`,
+      rewardText: `${this.challengeDifficulty} Clear · ${tierObj}`,
       creditsEarned: granted.creditsGranted,
       crystalsEarned: granted.crystalsGranted,
       expEarned: this.expEarnedRun,
@@ -935,6 +1169,11 @@ export class GameScene extends Phaser.Scene {
     this.flushCombatProgress();
     const bonusScore = 6000 + Math.round(this.player.hp * 30);
     const finalScore = this.score + bonusScore;
+    const performance = calculateBossRushPerformanceBonus({
+      hpRatio: this.player.hp / Math.max(1, this.player.maxHp),
+      clearTimeSec: this.elapsedSurvivalSec,
+      score: finalScore,
+    });
     const granted = ProgressionManager.recordRunReward({
       mode: 'boss_rush',
       creditsEarned: this.creditsEarnedRun,
@@ -942,6 +1181,8 @@ export class GameScene extends Phaser.Scene {
       score: finalScore,
       kills: this.enemiesDefeated,
       bossRushCleared: true,
+      bossRushElapsedSec: this.elapsedSurvivalSec,
+      bossRushPerformance: performance,
       shipUsed: this.player.stats.shipId,
     });
     this.expEarnedRun += granted.expGranted;
@@ -955,12 +1196,14 @@ export class GameScene extends Phaser.Scene {
       creditsEarned: granted.creditsGranted,
       crystalsEarned: granted.crystalsGranted,
       expEarned: this.expEarnedRun,
+      bossRushPerformance: performance,
     });
   }
 
   private triggerGameOver(): void {
     if (this.levelEnding) return;
     this.levelEnding = true;
+    this.inRunDraftModal = false;
     SoundManager.playExplosion('boss');
     SoundManager.playDefeat();
     SoundManager.playMusic('gameover');
@@ -978,6 +1221,9 @@ export class GameScene extends Phaser.Scene {
       crystalsEarned: this.crystalsEarnedRun,
       score: this.score,
       kills: this.enemiesDefeated,
+      campaignDifficulty: this.mode === 'campaign' ? this.campaignDifficulty : undefined,
+      challengeId: this.mode === 'challenge' ? this.challengeDef?.id : undefined,
+      challengeDifficulty: this.mode === 'challenge' ? this.challengeDifficulty : undefined,
       endlessWave: this.mode === 'endless' ? this.waveDirector.currentWaveIdx + 1 : undefined,
       shipUsed: this.player.stats.shipId,
     });
@@ -990,7 +1236,9 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(900, () => {
       this.scene.start('GameOverScene', {
         mode: this.mode,
+        campaignDifficulty: this.mode === 'campaign' ? this.campaignDifficulty : undefined,
         challengeId: this.challengeDef?.id,
+        challengeDifficulty: this.mode === 'challenge' ? this.challengeDifficulty : undefined,
         levelNumber: this.levelDef.levelNumber,
         levelName:
           this.mode === 'endless'
@@ -1062,10 +1310,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Challenge timed survival completion check
+    const activeTimeLimitSec =
+      this.challengeTier?.rules.timeLimitSec ?? this.challengeDef?.rules.timeLimitSec;
     if (
       this.mode === 'challenge' &&
-      this.challengeDef?.rules.timeLimitSec &&
-      this.elapsedSurvivalSec >= this.challengeDef.rules.timeLimitSec
+      activeTimeLimitSec &&
+      this.elapsedSurvivalSec >= activeTimeLimitSec
     ) {
       this.levelEnding = true;
       this.completeChallenge(true);
@@ -1133,37 +1383,30 @@ export class GameScene extends Phaser.Scene {
       },
     });
 
-    // Update Waves / Boss Trigger (paused cleanly during Chrono Singularity)
-    if (!isChronoFrozen) {
-      this.waveDirector.update(dt);
+    // Update Waves / Boss Trigger (paused cleanly during Chrono Singularity & Endless Boss fights)
+    const activeChallengeRules = this.challengeTier?.rules ?? this.challengeDef?.rules;
+    const blockWaveDuringEndlessBoss =
+      this.mode === 'endless' && Boolean(this.boss && this.boss.active);
+
+    if (!isChronoFrozen && !this.inRunDraftModal) {
+      if (!blockWaveDuringEndlessBoss) {
+        this.waveDirector.update(dt);
+      }
       if (this.waveDirector.isFinished()) {
         if (this.mode === 'campaign' && this.levelDef.bossId) {
           if (!this.bossSpawned) {
             this.spawnBossEncounter(this.levelDef.bossId);
           }
-        } else if (this.mode === 'challenge' && this.challengeDef?.rules.bossId) {
+        } else if (this.mode === 'challenge' && activeChallengeRules?.bossId) {
           if (!this.bossSpawned) {
-            this.spawnBossEncounter(this.challengeDef.rules.bossId);
+            this.spawnBossEncounter(activeChallengeRules.bossId);
           }
-        } else if (this.mode === 'challenge' && this.challengeDef?.rules.targetKills) {
-          // Keep endless waves feeding until kill count is reached
-          this.waveDirector = new WaveDirector(
-            this,
-            this.levelDef,
-            'endless',
-            (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass),
-            (waveNum) => this.handleWaveCleared(waveNum),
-            (waveNum, phase) => this.handleWavePhaseStarted(waveNum, phase)
-          );
-        } else if (this.mode === 'challenge' && this.challengeDef?.rules.timeLimitSec) {
-          this.waveDirector = new WaveDirector(
-            this,
-            this.levelDef,
-            'endless',
-            (enemyClass) => ProgressionManager.recordEnemyEncounter(enemyClass),
-            (waveNum) => this.handleWaveCleared(waveNum),
-            (waveNum, phase) => this.handleWavePhaseStarted(waveNum, phase)
-          );
+        } else if (
+          this.mode === 'challenge' &&
+          (activeChallengeRules?.targetKills || activeChallengeRules?.timeLimitSec)
+        ) {
+          // Switch cleanly to endless wave loop without leaking pooled sprites
+          this.waveDirector.switchToEndlessLoop();
         } else if (this.mode === 'campaign') {
           this.levelEnding = true;
           this.time.delayedCall(650, () => this.completeCampaignLevel(null));
@@ -1200,6 +1443,9 @@ export class GameScene extends Phaser.Scene {
         activeEnemies[i].update(dt, aim.x, aim.y, this.projectiles);
       }
     }
+
+    // Challenge Lightning Protocol hazard update
+    this.updateLightningProtocolHazard(dt, isChronoFrozen);
 
     // Gravity Well update (pulls standard enemies inside bounds & inflicts sustained AoE on enemies + Boss)
     this.updateGravityWellAndSpecialVfx(dt, rawDelta, activeEnemies, isChronoFrozen);
@@ -1291,20 +1537,21 @@ export class GameScene extends Phaser.Scene {
     const special = SPECIAL_ATTACKS[this.player.specialId];
     const shipDef = SHIPS[this.player.stats.shipId] ?? SHIPS.falcon_x;
     const bossDef = this.levelDef.bossId ? BOSS_CONFIGS[this.levelDef.bossId] : null;
+    const activeRules = this.challengeTier?.rules ?? this.challengeDef?.rules;
 
     let challengeProgressText: string | null = null;
     let challengeTimeLeftSec: number | null = null;
-    if (this.mode === 'challenge' && this.challengeDef) {
-      if (this.challengeDef.rules.targetKills) {
-        challengeProgressText = `Kills ${Math.min(this.enemiesDefeated, this.challengeDef.rules.targetKills)}/${this.challengeDef.rules.targetKills}`;
-      } else if (this.challengeDef.rules.timeLimitSec) {
+    if (this.mode === 'challenge' && this.challengeDef && activeRules) {
+      if (activeRules.targetKills) {
+        challengeProgressText = `Kills ${Math.min(this.enemiesDefeated, activeRules.targetKills)}/${activeRules.targetKills}`;
+      } else if (activeRules.timeLimitSec) {
         challengeTimeLeftSec = Math.max(
           0,
-          Math.ceil(this.challengeDef.rules.timeLimitSec - this.elapsedSurvivalSec)
+          Math.ceil(activeRules.timeLimitSec - this.elapsedSurvivalSec)
         );
         challengeProgressText = `Survive ${challengeTimeLeftSec}s`;
-      } else if (this.challengeDef.rules.bossId) {
-        challengeProgressText = 'Boss Duel';
+      } else if (activeRules.bossId) {
+        challengeProgressText = `${this.challengeDifficulty} Boss Duel`;
       }
     }
 
@@ -1314,8 +1561,8 @@ export class GameScene extends Phaser.Scene {
         : this.mode === 'boss_rush'
         ? 'BOSS RUSH'
         : this.mode === 'challenge'
-        ? 'CHALLENGE'
-        : `S${String(this.levelDef.levelNumber).padStart(2, '0')}`;
+        ? `CHAL · ${this.challengeDifficulty.toUpperCase()}`
+        : `${CAMPAIGN_DIFFICULTIES[this.campaignDifficulty].shortLabel} S${String(this.levelDef.levelNumber).padStart(2, '0')}`;
 
     const snapshot: HudSnapshot = {
       hp: Math.ceil(this.player.hp),
@@ -1326,6 +1573,10 @@ export class GameScene extends Phaser.Scene {
       combo: this.combo,
       mode: this.mode,
       modeLabel,
+      campaignDifficulty: this.mode === 'campaign' ? this.campaignDifficulty : undefined,
+      challengeDifficulty: this.mode === 'challenge' ? this.challengeDifficulty : undefined,
+      endlessUpgradeCount:
+        this.mode === 'endless' ? this.player.getEndlessUpgradeCount() : undefined,
       levelNumber: this.levelDef.levelNumber,
       levelName:
         this.mode === 'endless'
@@ -1333,7 +1584,7 @@ export class GameScene extends Phaser.Scene {
           : this.mode === 'boss_rush'
           ? 'Boss Rush'
           : this.challengeDef?.title ?? this.levelDef.name,
-      objective: this.challengeDef?.objective ?? this.levelDef.objective,
+      objective: this.challengeTier?.objective ?? this.challengeDef?.objective ?? this.levelDef.objective,
       waveIndex: this.waveDirector.currentWaveIdx + 1,
       wavePhase: this.waveDirector.currentPhase,
       totalWaves: this.waveDirector.totalWaves,
@@ -1375,6 +1626,56 @@ export class GameScene extends Phaser.Scene {
     EventBus.emit('hud:update', snapshot);
   }
 
+  private updateLightningProtocolHazard(dt: number, isChronoFrozen: boolean): void {
+    const lh = this.lightningHazard;
+    if (!lh.enabled) return;
+
+    if (lh.flashTimerSec > 0) {
+      lh.flashTimerSec = Math.max(0, lh.flashTimerSec - dt);
+    }
+
+    if (isChronoFrozen || this.inRunDraftModal || this.levelEnding) return;
+
+    const w = this.scale.width;
+    const h = this.scale.height;
+
+    if (!lh.telegraphing) {
+      lh.cooldownSec -= dt;
+      if (lh.cooldownSec <= 0) {
+        lh.telegraphing = true;
+        lh.telegraphTimerSec = lh.telegraphDurationSec;
+        const jitterX = (Math.random() - 0.5) * 36;
+        lh.strikeX = Phaser.Math.Clamp(this.player.x + jitterX, 48, Math.max(48, w - 48));
+        lh.strikeY = Phaser.Math.Clamp(this.player.y, 96, Math.max(96, h - 60));
+      }
+      return;
+    }
+
+    lh.telegraphTimerSec -= dt;
+    if (lh.telegraphTimerSec <= 0) {
+      lh.telegraphing = false;
+      lh.cooldownSec = lh.intervalSec;
+      lh.flashTimerSec = 0.28;
+
+      this.projectiles.addVisualBeam(lh.strikeX, 0, lh.strikeX, h, 0x38bdf8, 22, 0.25);
+      this.combat.spawnAoeShockwave(lh.strikeX, lh.strikeY, lh.radiusPx * 1.15, 0x38bdf8, false);
+      SoundManager.playBossLaser();
+
+      const distToBolt = Math.abs(this.player.x - lh.strikeX);
+      if (distToBolt <= lh.radiusPx) {
+        const prevHp = this.player.hp;
+        const strikeDamage = this.challengeDifficulty === 'Extreme' ? 28 : 22;
+        if (this.player.takeDamage(strikeDamage, allocateEnemyAttackId())) {
+          if (this.player.hp < prevHp) {
+            this.resetScoreMultiplierOnHpLoss();
+          }
+          this.shakeCamera(180, 0.01);
+          if (this.player.hp <= 0) this.triggerGameOver();
+        }
+      }
+    }
+  }
+
   private updateGravityWellAndSpecialVfx(
     dt: number,
     rawDeltaMs: number,
@@ -1387,6 +1688,22 @@ export class GameScene extends Phaser.Scene {
 
     const w = this.scale.width;
     const h = this.scale.height;
+
+    // Render Challenge Lightning Protocol telegraph / impact indicator
+    const lh = this.lightningHazard;
+    if (lh.enabled && lh.telegraphing) {
+      const progress = 1 - Math.max(0, Math.min(1, lh.telegraphTimerSec / lh.telegraphDurationSec));
+      const pulseAlpha = 0.35 + 0.55 * progress;
+      gfx.lineStyle(2 + progress * 1.8, 0x38bdf8, pulseAlpha);
+      gfx.lineBetween(lh.strikeX, 0, lh.strikeX, h);
+      gfx.strokeCircle(lh.strikeX, lh.strikeY, lh.radiusPx);
+      gfx.fillStyle(0x38bdf8, 0.08 + 0.14 * progress);
+      gfx.fillCircle(lh.strikeX, lh.strikeY, lh.radiusPx * (1 - progress * 0.65));
+    } else if (lh.enabled && lh.flashTimerSec > 0) {
+      const a = Math.min(1, lh.flashTimerSec / 0.28);
+      gfx.lineStyle(2.5, 0xbae6fd, 0.85 * a);
+      gfx.strokeCircle(lh.strikeX, lh.strikeY, lh.radiusPx * (1.25 - a * 0.2));
+    }
 
     if (isChronoFrozen) {
       const ratio = Math.max(0, Math.min(1, this.chronoFreezeMs / 3600));

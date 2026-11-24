@@ -1,5 +1,13 @@
 import { HudSnapshot, SceneId } from '../config/GameConfig';
-import { GameMode } from '../config/GameModeConfig';
+import type {
+  BossRushPerformanceSummary,
+  BossRushRecoveryId,
+  CampaignDifficulty,
+  ChallengeDifficulty,
+  EndlessUpgradeChoice,
+  EndlessUpgradeStatId,
+  GameMode,
+} from '../config/GameModeConfig';
 import { PowerUpType } from '../config/PowerUpConfig';
 import { ShipId } from '../config/ShipConfig';
 import { SpecialId, WeaponId } from '../config/WeaponConfig';
@@ -8,7 +16,25 @@ import { GameSettings } from './StorageManager';
 export interface StartRunRequest {
   mode: GameMode;
   levelNumber?: number;
+  campaignDifficulty?: CampaignDifficulty;
   challengeId?: string;
+  challengeDifficulty?: ChallengeDifficulty;
+}
+
+export interface EndlessUpgradeDraftPayload {
+  waveCompleted: number;
+  choices: EndlessUpgradeChoice[];
+}
+
+export interface BossRushRecoveryDraftPayload {
+  defeatedBossNumber: number;
+  totalBosses: number;
+  defeatedBossName: string;
+  nextBossName: string;
+  currentHp: number;
+  maxHp: number;
+  currentShield: number;
+  maxShield: number;
 }
 
 export interface PowerUpPickupPayload {
@@ -22,6 +48,9 @@ export interface LevelResultPayload {
   mode: GameMode;
   levelNumber: number;
   levelName: string;
+  campaignDifficulty?: CampaignDifficulty;
+  challengeId?: string;
+  challengeDifficulty?: ChallengeDifficulty;
   score: number;
   bonusScore: number;
   enemiesDefeated: number;
@@ -31,13 +60,16 @@ export interface LevelResultPayload {
   crystalsEarned: number;
   expEarned?: number;
   nextLevelNumber: number | null;
-  challengeId?: string;
+  unlockedNextDifficulty?: CampaignDifficulty | null;
 }
 
 export interface GameOverPayload {
   mode: GameMode;
   levelNumber: number;
   levelName: string;
+  campaignDifficulty?: CampaignDifficulty;
+  challengeId?: string;
+  challengeDifficulty?: ChallengeDifficulty;
   score: number;
   waveReached: number;
   totalWaves: number;
@@ -45,16 +77,18 @@ export interface GameOverPayload {
   creditsEarned: number;
   crystalsEarned: number;
   expEarned?: number;
-  challengeId?: string;
 }
 
 export interface VictoryPayload {
   mode: GameMode;
+  campaignDifficulty?: CampaignDifficulty;
+  unlockedNextDifficulty?: CampaignDifficulty | null;
   finalScore: number;
   enemiesDefeated: number;
   creditsEarned: number;
   crystalsEarned: number;
   expEarned?: number;
+  bossRushPerformance?: BossRushPerformanceSummary | null;
 }
 
 export interface BossWarningPayload {
@@ -116,6 +150,10 @@ type EventMap = {
   'campaign:victory': VictoryPayload;
   'boss:warning': BossWarningPayload | null;
   'boss:pose': BossPosePayload;
+  'endless:upgrade-draft': EndlessUpgradeDraftPayload;
+  'ui:select-endless-upgrade': EndlessUpgradeStatId;
+  'boss_rush:recovery-draft': BossRushRecoveryDraftPayload;
+  'ui:select-boss-rush-recovery': BossRushRecoveryId;
   'ui:start-level': number;
   'ui:start-mode': StartRunRequest;
   'ui:open-hangar': void;

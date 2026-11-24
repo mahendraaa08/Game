@@ -11,6 +11,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { SoundManager } from '../game/audio/SoundManager';
+import { CAMPAIGN_DIFFICULTIES } from '../game/config/GameModeConfig';
 import { ActionResult } from '../game/systems/ProgressionManager';
 import {
   EventBus,
@@ -211,6 +212,7 @@ interface ResultCardShellProps {
   creditsEarned: number;
   crystalsEarned: number;
   expEarned?: number;
+  extraBanner?: React.ReactNode;
   primaryAction: {
     label: string;
     icon: React.ReactNode;
@@ -233,6 +235,7 @@ const ResultCardShell: React.FC<ResultCardShellProps> = ({
   creditsEarned,
   crystalsEarned,
   expEarned = 0,
+  extraBanner,
   primaryAction,
   secondaryActions,
 }) => {
@@ -350,6 +353,8 @@ const ResultCardShell: React.FC<ResultCardShellProps> = ({
           </div>
         )}
 
+        {extraBanner}
+
         {/* Unified Action Hierarchy */}
         <div className="mt-5 flex flex-col gap-2.5">
           <button
@@ -383,14 +388,21 @@ const ResultCardShell: React.FC<ResultCardShellProps> = ({
 };
 
 export const LevelResultModal: React.FC<{ data: LevelResultPayload }> = ({ data }) => {
+  const diffLabel = data.campaignDifficulty
+    ? CAMPAIGN_DIFFICULTIES[data.campaignDifficulty]?.label
+    : null;
   const sectorLabel =
     data.mode === 'challenge'
-      ? `Challenge · ${data.levelName}`
-      : `Sector ${String(data.levelNumber).padStart(2, '0')} · ${data.levelName}`;
+      ? `Challenge${data.challengeDifficulty ? ` (${data.challengeDifficulty})` : ''} · ${data.levelName}`
+      : `${diffLabel ? `${diffLabel} · ` : ''}Sector ${String(data.levelNumber).padStart(2, '0')} · ${data.levelName}`;
 
   const summaryLine = data.bossDefeatedName
     ? `${sectorLabel} · ${data.bossDefeatedName} Defeated`
     : sectorLabel;
+
+  const unlockedDiffLabel = data.unlockedNextDifficulty
+    ? CAMPAIGN_DIFFICULTIES[data.unlockedNextDifficulty]?.label
+    : null;
 
   const secondaryActions = data.nextLevelNumber
     ? [
@@ -453,6 +465,13 @@ export const LevelResultModal: React.FC<{ data: LevelResultPayload }> = ({ data 
       creditsEarned={data.creditsEarned}
       crystalsEarned={data.crystalsEarned}
       expEarned={data.expEarned ?? 0}
+      extraBanner={
+        unlockedDiffLabel ? (
+          <div className="mt-3 rounded-xl border border-emerald-400/35 bg-emerald-500/10 px-3 py-2 text-center font-mono-num text-xs font-semibold text-emerald-300">
+            {unlockedDiffLabel} Campaign Difficulty Unlocked
+          </div>
+        ) : undefined
+      }
       primaryAction={
         data.nextLevelNumber
           ? {
@@ -472,14 +491,20 @@ export const LevelResultModal: React.FC<{ data: LevelResultPayload }> = ({ data 
 };
 
 export const GameOverModal: React.FC<{ data: GameOverPayload }> = ({ data }) => {
+  const diffLabel = data.campaignDifficulty
+    ? CAMPAIGN_DIFFICULTIES[data.campaignDifficulty]?.label
+    : null;
+  const waveText =
+    data.totalWaves > 0 ? `Wave ${data.waveReached}/${data.totalWaves}` : `Wave ${data.waveReached}`;
+
   const modeSummary =
     data.mode === 'endless'
       ? `Endless Survival · Wave ${data.waveReached}`
       : data.mode === 'boss_rush'
-      ? `Boss Rush · Wave ${data.waveReached}/${data.totalWaves}`
+      ? `Boss Rush · Boss ${data.waveReached}/${Math.max(1, data.totalWaves || 5)}`
       : data.mode === 'challenge'
-      ? `Challenge · ${data.levelName} · Wave ${data.waveReached}/${data.totalWaves}`
-      : `Sector ${String(data.levelNumber).padStart(2, '0')} · Wave ${data.waveReached}/${data.totalWaves}`;
+      ? `Challenge${data.challengeDifficulty ? ` (${data.challengeDifficulty})` : ''} · ${data.levelName} · ${waveText}`
+      : `${diffLabel ? `${diffLabel} · ` : ''}Sector ${String(data.levelNumber).padStart(2, '0')} · ${waveText}`;
 
   return (
     <ResultCardShell
@@ -523,8 +548,42 @@ export const GameOverModal: React.FC<{ data: GameOverPayload }> = ({ data }) => 
   );
 };
 
+function formatClearDuration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const mins = Math.floor(s / 60);
+  const rem = s % 60;
+  return mins > 0 ? `${mins}m ${String(rem).padStart(2, '0')}s` : `${rem}s`;
+}
+
 export const VictoryModal: React.FC<{ data: VictoryPayload }> = ({ data }) => {
   const isBossRush = data.mode === 'boss_rush';
+  const diff = data.campaignDifficulty ?? 'easy';
+  const diffLabel = CAMPAIGN_DIFFICULTIES[diff]?.label ?? 'Campaign';
+  const unlockedNextLabel = data.unlockedNextDifficulty
+    ? CAMPAIGN_DIFFICULTIES[data.unlockedNextDifficulty]?.label
+    : null;
+  const perf = data.bossRushPerformance ?? null;
+
+  const extraBanner =
+    isBossRush && perf ? (
+      <div className="mt-3 rounded-xl border border-amber-300/30 bg-amber-500/10 px-3.5 py-2.5 text-xs">
+        <div className="flex items-center justify-between font-mono-num">
+          <span className="font-bold text-amber-200">GAUNTLET GRADE: {perf.grade}</span>
+          <span className="text-slate-300">
+            {formatClearDuration(perf.clearTimeSec)} · {perf.hpRemainingPct}% HP
+          </span>
+        </div>
+        <div className="mt-1 font-mono-num text-[11px] text-amber-300/90">
+          Performance Bonus Included: +{perf.bonusCredits} CR
+          {perf.bonusCrystals > 0 ? ` · +${perf.bonusCrystals} Gems` : ''}
+        </div>
+      </div>
+    ) : !isBossRush && unlockedNextLabel ? (
+      <div className="mt-3 rounded-xl border border-emerald-400/35 bg-emerald-500/10 px-3.5 py-2.5 text-center font-mono-num text-xs font-semibold text-emerald-300">
+        {unlockedNextLabel} Campaign Difficulty Unlocked
+      </div>
+    ) : undefined;
+
   return (
     <ResultCardShell
       tone="victory_grand"
@@ -532,7 +591,7 @@ export const VictoryModal: React.FC<{ data: VictoryPayload }> = ({ data }) => {
       summaryLine={
         isBossRush
           ? 'Boss Rush · 5-Boss Gauntlet Cleared'
-          : 'Campaign Complete · Void Emperor Defeated'
+          : `Campaign Complete (${diffLabel}) · Void Emperor Defeated`
       }
       metrics={[
         { label: 'Score', value: data.finalScore.toLocaleString(), toneClass: 'text-white' },
@@ -546,14 +605,37 @@ export const VictoryModal: React.FC<{ data: VictoryPayload }> = ({ data }) => {
       creditsEarned={data.creditsEarned}
       crystalsEarned={data.crystalsEarned}
       expEarned={data.expEarned ?? 0}
-      primaryAction={{
-        label: 'Play Again',
-        icon: <Play className="h-4 w-4 fill-current" />,
-        onClick: () =>
-          isBossRush
-            ? EventBus.emit('ui:start-mode', { mode: 'boss_rush', levelNumber: 10 })
-            : EventBus.emit('ui:start-level', 1),
-      }}
+      extraBanner={extraBanner}
+      primaryAction={
+        isBossRush
+          ? {
+              label: 'Play Again',
+              icon: <Play className="h-4 w-4 fill-current" />,
+              onClick: () =>
+                EventBus.emit('ui:start-mode', { mode: 'boss_rush', levelNumber: 10 }),
+            }
+          : data.unlockedNextDifficulty
+          ? {
+              label: `Start ${unlockedNextLabel} · Sector 01`,
+              icon: <Play className="h-4 w-4 fill-current" />,
+              onClick: () =>
+                EventBus.emit('ui:start-mode', {
+                  mode: 'campaign',
+                  campaignDifficulty: data.unlockedNextDifficulty!,
+                  levelNumber: 1,
+                }),
+            }
+          : {
+              label: `Play ${diffLabel} Again`,
+              icon: <Play className="h-4 w-4 fill-current" />,
+              onClick: () =>
+                EventBus.emit('ui:start-mode', {
+                  mode: 'campaign',
+                  campaignDifficulty: diff,
+                  levelNumber: 1,
+                }),
+            }
+      }
       secondaryActions={[
         {
           label: 'Hangar',

@@ -8,8 +8,15 @@ import {
   WavePhaseDefinition,
   WaveSpawnGroup,
 } from '../config/LevelConfig';
-import { EnemyEntity } from '../entities/Enemy';
+import { EnemyEntity, type EnemySpawnModifiers } from '../entities/Enemy';
 import { ObjectPool } from '../utils/ObjectPool';
+
+export interface WaveModifiers {
+  spawnIntervalMult?: number;
+  densityMult?: number;
+  eliteChanceBonus?: number;
+  enemyMods?: EnemySpawnModifiers;
+}
 
 interface ScheduledSpawn {
   enemyClass: EnemyClass;
@@ -26,6 +33,7 @@ export class WaveDirector {
   private scene: Phaser.Scene;
   private level: LevelDefinition;
   private mode: GameMode;
+  private waveModifiers: WaveModifiers;
   private enemyPool: ObjectPool<EnemyEntity>;
   private onEnemyEncounter?: (enemyClass: EnemyClass) => void;
   private onWaveCleared?: (waveNum: number) => void;
@@ -48,12 +56,14 @@ export class WaveDirector {
     mode: GameMode = 'campaign',
     onEnemyEncounter?: (enemyClass: EnemyClass) => void,
     onWaveCleared?: (waveNum: number) => void,
-    onPhaseStarted?: (waveNum: number, phase: 1 | 2) => void
+    onPhaseStarted?: (waveNum: number, phase: 1 | 2) => void,
+    waveModifiers: WaveModifiers = {}
   ) {
     this.scene = scene;
     this.level = level;
     this.mode = mode;
-    this.totalWaves = mode === 'endless' ? 999 : mode === 'boss_rush' ? 0 : level.waves.length;
+    this.waveModifiers = waveModifiers;
+    this.totalWaves = mode === 'endless' ? 0 : mode === 'boss_rush' ? 0 : level.waves.length;
     this.onEnemyEncounter = onEnemyEncounter;
     this.onWaveCleared = onWaveCleared;
     this.onPhaseStarted = onPhaseStarted;
@@ -67,6 +77,16 @@ export class WaveDirector {
     if (mode === 'boss_rush') {
       this.allWavesCompleted = true;
     }
+  }
+
+  switchToEndlessLoop(): void {
+    this.mode = 'endless';
+    this.totalWaves = 0;
+    this.allWavesCompleted = false;
+    this.waveStarted = false;
+    this.activeWave = null;
+    this.currentPhaseIdx = 0;
+    this.waveCooldownMs = 600;
   }
 
   get currentPhase(): 1 | 2 {
@@ -110,7 +130,7 @@ export class WaveDirector {
         : enemyClass === 'elite'
         ? 'evasive'
         : 'formation';
-    e.spawn(enemyClass, x, y, minionBehavior, diff);
+    e.spawn(enemyClass, x, y, minionBehavior, diff, this.waveModifiers.enemyMods);
     this.onEnemyEncounter?.(enemyClass);
   }
 
@@ -157,7 +177,14 @@ export class WaveDirector {
       const e = this.enemyPool.acquire();
       if (e) {
         const sx = Phaser.Math.Clamp(next.xRatio * w, 52, w - 52);
-        e.spawn(next.enemyClass, sx, -36 - next.yOffset, next.behavior, diff);
+        e.spawn(
+          next.enemyClass,
+          sx,
+          -36 - next.yOffset,
+          next.behavior,
+          diff,
+          this.waveModifiers.enemyMods
+        );
         this.onEnemyEncounter?.(next.enemyClass);
       }
     }
@@ -352,7 +379,9 @@ export class WaveDirector {
   private enqueuePhase(phase: WavePhaseDefinition, defaultIntervalMs: number): void {
     this.phaseElapsedMs = 0;
     this.spawnQueue = [];
-    const interval = phase.spawnIntervalMs ?? defaultIntervalMs;
+    const baseInterval = phase.spawnIntervalMs ?? defaultIntervalMs;
+    const intervalMult = Math.max(0.55, Math.min(1.4, this.waveModifiers.spawnIntervalMult ?? 1));
+    const interval = Math.max(250, Math.round(baseInterval * intervalMult));
 
     phase.groups.forEach((group) => {
       this.enqueueGroup(group, interval);
@@ -361,9 +390,27 @@ export class WaveDirector {
     this.spawnQueue.sort((a, b) => a.spawnAtMs - b.spawnAtMs);
   }
 
+  private maybePromoteEnemyClass(baseClass: EnemyClass, idx: number): EnemyClass {
+    const eliteChance = Math.max(0, Math.min(0.45, this.waveModifiers.eliteChanceBonus ?? 0));
+    if (eliteChance <= 0) return baseClass;
+
+    // Deterministic-friendly stochastic promotion of light ships on higher difficulties
+    if (baseClass === 'scout' && Math.random() < eliteChance * 0.65) {
+      return idx % 3 === 0 ? 'fighter' : 'interceptor';
+    }
+    if (baseClass === 'fighter' && Math.random() < eliteChance * 0.55) {
+      return this.level.levelNumber >= 7 && idx % 4 === 0 ? 'harbinger' : 'elite';
+    }
+    if (baseClass === 'bomber' && this.level.levelNumber >= 4 && Math.random() < eliteChance * 0.4) {
+      return 'splitter';
+    }
+    return baseClass;
+  }
+
   private enqueueGroup(group: WaveSpawnGroup, intervalMs: number): void {
     const baseDelay = group.delayMs ?? 0;
-    const count = group.count;
+    const densityMult = Math.max(0.6, Math.min(1.8, this.waveModifiers.densityMult ?? 1));
+    const count = Math.max(1, Math.round(group.count * densityMult));
 
     for (let i = 0; i < count; i++) {
       let xRatio = 0.15 + ((i + 0.5) / Math.max(1, count)) * 0.7;
@@ -396,7 +443,7 @@ export class WaveDirector {
       }
 
       this.spawnQueue.push({
-        enemyClass: group.enemyClass,
+        enemyClass: this.maybePromoteEnemyClass(group.enemyClass, i),
         xRatio,
         yOffset,
         behavior: group.behavior,

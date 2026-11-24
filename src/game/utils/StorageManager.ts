@@ -1,6 +1,11 @@
 import type { BossId } from '../config/BossConfig';
 import { DRONE_LIST, DRONE_SLOT_IDS, type DroneId, type DroneSlotId } from '../config/DroneConfig';
-import { ECONOMY_START, getMigrationBonus, MAX_SHIP_LEVEL } from '../config/EconomyConfig';
+import {
+  ECONOMY_START,
+  MAX_SHIP_LEVEL,
+  PLAYER_NAME_MAX_LENGTH,
+  getMigrationBonus,
+} from '../config/EconomyConfig';
 import type { EnemyClass } from '../config/EnemyConfig';
 import { EQUIPMENT_BY_ID, type EquipmentSlot } from '../config/EquipmentConfig';
 import {
@@ -14,6 +19,13 @@ import {
   isValidAvatarId,
   isValidBorderId,
 } from '../config/ProfileCosmeticsConfig';
+import {
+  CAMPAIGN_DIFFICULTY_ORDER,
+  CHALLENGE_BY_ID,
+  CHALLENGE_DIFFICULTY_ORDER,
+  type CampaignDifficulty,
+  type ChallengeDifficulty,
+} from '../config/GameModeConfig';
 import { type ShipId, SHIPS } from '../config/ShipConfig';
 import { type UpgradeId, UPGRADES } from '../config/UpgradeConfig';
 import { type SpecialId, SPECIAL_ATTACKS, type WeaponId, WEAPONS } from '../config/WeaponConfig';
@@ -47,6 +59,12 @@ export interface MissionProgressBucket {
   claimedIds: string[];
 }
 
+export interface CampaignDifficultyProgress {
+  highestUnlockedLevel: number; // 0 = locked, 1..10 = unlocked sector ceiling
+  completedLevels: number[];
+  levelScores: Record<number, number>;
+}
+
 export interface PlayerStatsRecord {
   totalBossKills: number;
   totalCrits: number;
@@ -56,8 +74,10 @@ export interface PlayerStatsRecord {
   bestEndlessScore: number;
   bestEndlessWave: number;
   bestBossRushScore: number;
+  bestBossRushTimeSec: number | null;
   bossRushClears: number;
   completedChallenges: string[];
+  completedChallengeTiers: Record<string, ChallengeDifficulty[]>;
 }
 
 export interface CodexRecords {
@@ -77,6 +97,8 @@ export interface PlayerProgress {
   playerExp: number;
   highestRewardedLevel: number;
   pendingLevelUp: LevelUpPayload | null;
+  selectedCampaignDifficulty: CampaignDifficulty;
+  campaignProgress: Record<CampaignDifficulty, CampaignDifficultyProgress>;
   highestUnlockedLevel: number;
   completedLevels: number[];
   highScore: number;
@@ -180,8 +202,26 @@ const DEFAULT_EQUIPPED_DRONE_SLOTS: Record<DroneSlotId, DroneId | null> = {
 
 export function sanitizePlayerName(raw: unknown): string {
   if (typeof raw !== 'string') return 'Commander';
-  const cleaned = raw.trim().replace(/\s+/g, ' ').slice(0, 20);
+  const cleaned = raw
+    .replace(/[\u0000-\u001F\u007F<>`\\{}\[\]]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, PLAYER_NAME_MAX_LENGTH)
+    .trim();
   return cleaned.length > 0 ? cleaned : 'Commander';
+}
+
+export function createDefaultCampaignProgress(): Record<
+  CampaignDifficulty,
+  CampaignDifficultyProgress
+> {
+  return {
+    easy: { highestUnlockedLevel: 1, completedLevels: [], levelScores: {} },
+    normal: { highestUnlockedLevel: 0, completedLevels: [], levelScores: {} },
+    hard: { highestUnlockedLevel: 0, completedLevels: [], levelScores: {} },
+    insane: { highestUnlockedLevel: 0, completedLevels: [], levelScores: {} },
+    nightmare: { highestUnlockedLevel: 0, completedLevels: [], levelScores: {} },
+  };
 }
 
 export function createDefaultProgress(): PlayerProgress {
@@ -196,6 +236,8 @@ export function createDefaultProgress(): PlayerProgress {
     playerExp: 0,
     highestRewardedLevel: 1,
     pendingLevelUp: null,
+    selectedCampaignDifficulty: 'easy',
+    campaignProgress: createDefaultCampaignProgress(),
     highestUnlockedLevel: 1,
     completedLevels: [],
     highScore: 0,
@@ -235,8 +277,10 @@ export function createDefaultProgress(): PlayerProgress {
       bestEndlessScore: 0,
       bestEndlessWave: 0,
       bestBossRushScore: 0,
+      bestBossRushTimeSec: null,
       bossRushClears: 0,
       completedChallenges: [],
+      completedChallengeTiers: {},
     },
     codex: {
       discoveredEnemies: [],
@@ -258,6 +302,76 @@ function safeInt(val: unknown, fallback: number, min = 0, max = Number.MAX_SAFE_
 function safeFloat(val: unknown, fallback: number, min: number, max: number): number {
   if (typeof val !== 'number' || !Number.isFinite(val)) return fallback;
   return Math.max(min, Math.min(max, val));
+}
+
+function sanitizeLevelScores(raw: unknown): Record<number, number> {
+  const out: Record<number, number> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  Object.entries(raw as Record<string, unknown>).forEach(([k, v]) => {
+    const lvl = Number(k);
+    if (Number.isInteger(lvl) && lvl >= 1 && lvl <= 10 && typeof v === 'number' && Number.isFinite(v) && v > 0) {
+      out[lvl] = Math.floor(v);
+    }
+  });
+  return out;
+}
+
+function sanitizeCompletedLevels(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  return Array.from(
+    new Set(
+      raw.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 10)
+    )
+  ).sort((a, b) => a - b);
+}
+
+export function syncAggregateCampaignFields(p: PlayerProgress): void {
+  // Enforce sequential difficulty unlock chain whenever Lv10 of previous tier is cleared
+  p.campaignProgress.easy.highestUnlockedLevel = Math.max(
+    1,
+    Math.min(10, p.campaignProgress.easy.highestUnlockedLevel || 1)
+  );
+  for (let i = 0; i < CAMPAIGN_DIFFICULTY_ORDER.length - 1; i++) {
+    const curDiff = CAMPAIGN_DIFFICULTY_ORDER[i];
+    const nextDiff = CAMPAIGN_DIFFICULTY_ORDER[i + 1];
+    if (p.campaignProgress[curDiff].completedLevels.includes(10)) {
+      p.campaignProgress[nextDiff].highestUnlockedLevel = Math.max(
+        1,
+        p.campaignProgress[nextDiff].highestUnlockedLevel
+      );
+    }
+  }
+
+  const allCompleted = new Set<number>();
+  let maxUnlocked = 1;
+  const mergedScores: Record<number, number> = {};
+
+  CAMPAIGN_DIFFICULTY_ORDER.forEach((diff) => {
+    const bucket = p.campaignProgress[diff];
+    bucket.completedLevels.forEach((lvl) => allCompleted.add(lvl));
+    if (bucket.highestUnlockedLevel > maxUnlocked) {
+      maxUnlocked = bucket.highestUnlockedLevel;
+    }
+    Object.entries(bucket.levelScores).forEach(([k, v]) => {
+      const lvl = Number(k);
+      if (lvl >= 1 && lvl <= 10 && v > (mergedScores[lvl] ?? 0)) {
+        mergedScores[lvl] = v;
+      }
+    });
+  });
+
+  p.completedLevels = Array.from(allCompleted).sort((a, b) => a - b);
+  p.highestUnlockedLevel = Math.max(1, Math.min(10, maxUnlocked));
+  p.levelScores = mergedScores;
+
+  // Sync completedChallengeTiers -> completedChallenges union
+  const validChallengeIds = new Set<string>(p.stats.completedChallenges);
+  Object.entries(p.stats.completedChallengeTiers).forEach(([id, tiers]) => {
+    if (Array.isArray(tiers) && tiers.length > 0) {
+      validChallengeIds.add(id);
+    }
+  });
+  p.stats.completedChallenges = Array.from(validChallengeIds);
 }
 
 class StorageManagerImpl {
@@ -584,6 +698,90 @@ class StorageManagerImpl {
           ? parsed.guestModeConfirmed || this.hasSubstantiveGameplayProgress(parsed)
           : true;
 
+      const legacyCompletedLevels = sanitizeCompletedLevels(parsed.completedLevels);
+      const legacyScores = sanitizeLevelScores(parsed.levelScores);
+      const legacyHighestUnlocked = safeInt(parsed.highestUnlockedLevel, 1, 1, 10);
+
+      const campaignProgress = createDefaultCampaignProgress();
+      const rawCampaignProgress = (parsed as Partial<PlayerProgress>).campaignProgress;
+      const hasLegacyCampaign =
+        legacyCompletedLevels.length > 0 ||
+        legacyHighestUnlocked > 1 ||
+        Object.keys(legacyScores).length > 0;
+
+      if (rawCampaignProgress && typeof rawCampaignProgress === 'object') {
+        CAMPAIGN_DIFFICULTY_ORDER.forEach((diff) => {
+          const rawBucket = (rawCampaignProgress as Record<string, unknown>)[diff];
+          if (rawBucket && typeof rawBucket === 'object') {
+            const b = rawBucket as Partial<CampaignDifficultyProgress>;
+            campaignProgress[diff] = {
+              highestUnlockedLevel: safeInt(
+                b.highestUnlockedLevel,
+                diff === 'easy' ? 1 : 0,
+                0,
+                10
+              ),
+              completedLevels: sanitizeCompletedLevels(b.completedLevels),
+              levelScores: sanitizeLevelScores(b.levelScores),
+            };
+          }
+        });
+      } else if (hasLegacyCampaign) {
+        // Migrate legacy campaign saves cleanly into Normal difficulty without losing any completion/score
+        campaignProgress.normal = {
+          highestUnlockedLevel: Math.max(1, legacyHighestUnlocked),
+          completedLevels: legacyCompletedLevels,
+          levelScores: legacyScores,
+        };
+      }
+
+      const rawSelectedDiff = (parsed as Partial<PlayerProgress>).selectedCampaignDifficulty;
+      const selectedCampaignDifficulty: CampaignDifficulty =
+        rawSelectedDiff &&
+        CAMPAIGN_DIFFICULTY_ORDER.includes(rawSelectedDiff) &&
+        campaignProgress[rawSelectedDiff].highestUnlockedLevel >= 1
+          ? rawSelectedDiff
+          : !rawCampaignProgress && hasLegacyCampaign
+          ? 'normal'
+          : 'easy';
+
+      const legacyCompletedChallenges = Array.isArray(parsed.stats?.completedChallenges)
+        ? Array.from(
+            new Set(
+              parsed.stats!.completedChallenges.filter((id): id is string => typeof id === 'string')
+            )
+          )
+        : [];
+
+      const completedChallengeTiers: Record<string, ChallengeDifficulty[]> = {};
+      const rawTiers = (parsed.stats as Partial<PlayerStatsRecord> | undefined)?.completedChallengeTiers;
+      if (rawTiers && typeof rawTiers === 'object') {
+        Object.entries(rawTiers).forEach(([id, arr]) => {
+          if (!Array.isArray(arr)) return;
+          const valid = Array.from(
+            new Set(
+              arr.filter((t): t is ChallengeDifficulty =>
+                CHALLENGE_DIFFICULTY_ORDER.includes(t as ChallengeDifficulty)
+              )
+            )
+          );
+          if (valid.length > 0) completedChallengeTiers[id] = valid;
+        });
+      }
+      // Migrate any legacy completed challenge IDs onto their original tier
+      legacyCompletedChallenges.forEach((id) => {
+        if (!completedChallengeTiers[id] || completedChallengeTiers[id].length === 0) {
+          const def = CHALLENGE_BY_ID[id];
+          completedChallengeTiers[id] = [def?.legacyDifficulty ?? 'Standard'];
+        }
+      });
+
+      const rawBestRushTime = (parsed.stats as Partial<PlayerStatsRecord> | undefined)?.bestBossRushTimeSec;
+      const bestBossRushTimeSec =
+        typeof rawBestRushTime === 'number' && Number.isFinite(rawBestRushTime) && rawBestRushTime > 0
+          ? Math.round(rawBestRushTime)
+          : null;
+
       const merged: PlayerProgress = {
         version: 2,
         guestModeConfirmed: isConfirmedSession,
@@ -603,10 +801,12 @@ class StorageManagerImpl {
         playerExp: parsedPlayerExp,
         highestRewardedLevel: Math.max(parsedPlayerLevel, parsedHighestRewarded),
         pendingLevelUp: sanitizedPending,
-        highestUnlockedLevel: safeInt(parsed.highestUnlockedLevel, 1, 1, 10),
-        completedLevels,
+        selectedCampaignDifficulty,
+        campaignProgress,
+        highestUnlockedLevel: legacyHighestUnlocked,
+        completedLevels: legacyCompletedLevels,
         highScore: safeInt(parsed.highScore, 0, 0),
-        levelScores: parsed.levelScores && typeof parsed.levelScores === 'object' ? parsed.levelScores : {},
+        levelScores: legacyScores,
         selectedShip,
         unlockedShips: Array.from(new Set(unlockedShipsRaw)),
         shipLevels,
@@ -634,10 +834,10 @@ class StorageManagerImpl {
           bestEndlessScore: safeInt(parsed.stats?.bestEndlessScore, 0, 0),
           bestEndlessWave: safeInt(parsed.stats?.bestEndlessWave, 0, 0),
           bestBossRushScore: safeInt(parsed.stats?.bestBossRushScore, 0, 0),
+          bestBossRushTimeSec,
           bossRushClears: safeInt(parsed.stats?.bossRushClears, 0, 0),
-          completedChallenges: Array.isArray(parsed.stats?.completedChallenges)
-            ? Array.from(new Set(parsed.stats.completedChallenges.filter((id): id is string => typeof id === 'string')))
-            : [],
+          completedChallenges: legacyCompletedChallenges,
+          completedChallengeTiers,
         },
         codex: {
           discoveredEnemies: Array.isArray(parsed.codex?.discoveredEnemies) ? parsed.codex.discoveredEnemies : [],
@@ -650,8 +850,9 @@ class StorageManagerImpl {
         totalKills: safeInt(parsed.totalKills, 0, 0),
       };
 
+      syncAggregateCampaignFields(merged);
       this.cache = merged;
-      if (isMigratingV1) {
+      if (isMigratingV1 || !rawCampaignProgress) {
         this.save(merged);
       }
       return this.cache;
@@ -720,6 +921,7 @@ class StorageManagerImpl {
       crystals: Math.max(0, Math.floor(next.crystals)),
       muted: next.settings.muted,
     };
+    syncAggregateCampaignFields(sanitized);
     this.cache = sanitized;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));

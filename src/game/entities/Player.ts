@@ -5,6 +5,12 @@ import {
   RarityEffectTrigger,
 } from '../config/EquipmentConfig';
 import { GAME_CONSTANTS } from '../config/GameConfig';
+import {
+  applyEndlessUpgradeStep,
+  createEmptyEndlessBonuses,
+  type EndlessBonusState,
+  type EndlessUpgradeStatId,
+} from '../config/GameModeConfig';
 import { SHIPS } from '../config/ShipConfig';
 import {
   getWeaponFireRateAtLevel,
@@ -87,6 +93,10 @@ export class Player {
 
   // Prism Drone single-mode active buff state
   private prismModifiers: PrismActiveModifiers | null = null;
+
+  // Temporary Endless Survival Upgrade Draft bonuses (strictly per-session, reset on run end)
+  private endlessBonuses: EndlessBonusState = createEmptyEndlessBonuses();
+  private endlessUpgradeCount = 0;
 
   // Evolution II proc & barrage runtime timers
   private plasmaBurstCooldownMs = 0;
@@ -260,12 +270,47 @@ export class Player {
     this.triggerRarityEffects('on_pickup');
   }
 
+  getEndlessBonuses(): EndlessBonusState {
+    return { ...this.endlessBonuses };
+  }
+
+  getEndlessUpgradeCount(): number {
+    return this.endlessUpgradeCount;
+  }
+
+  applyEndlessUpgrade(statId: EndlessUpgradeStatId): number {
+    const { nextState, appliedDelta } = applyEndlessUpgradeStep(this.endlessBonuses, statId);
+    this.endlessBonuses = nextState;
+    if (appliedDelta > 0) {
+      this.endlessUpgradeCount += 1;
+    }
+    // Recompute Max HP / Max Shield strictly WITHOUT restoring current HP or Shield
+    if (statId === 'max_hp') {
+      this.maxHp = Math.max(10, Math.round(this.stats.maxHp * (1 + this.endlessBonuses.max_hp)));
+      this.hp = Math.min(this.maxHp, this.hp);
+      this.passiveSystem?.syncHpState(this.hp, this.maxHp);
+    } else if (statId === 'max_shield') {
+      this.maxShield = Math.max(0, Math.round(this.stats.maxShield * (1 + this.endlessBonuses.max_shield)));
+      this.shield = Math.min(this.maxShield, this.shield);
+    }
+    return appliedDelta;
+  }
+
   getEffectiveCritChance(): number {
-    return Math.min(0.65, this.stats.critChance + (this.passiveSystem?.getCritChanceBonus() ?? 0));
+    return Math.min(
+      0.8,
+      this.stats.critChance +
+        this.endlessBonuses.crit_chance +
+        (this.passiveSystem?.getCritChanceBonus() ?? 0)
+    );
   }
 
   getEffectiveCritDamageMult(): number {
-    return this.stats.critDamageMult + this.sumTempBuff('tempCritDamagePct') / 100;
+    return (
+      this.stats.critDamageMult +
+      this.endlessBonuses.crit_damage +
+      this.sumTempBuff('tempCritDamagePct') / 100
+    );
   }
 
   getEffectiveFireRateMult(): number {
@@ -273,9 +318,14 @@ export class Player {
     const prismFire = this.prismModifiers?.fireRatePct ?? 0;
     return (
       this.stats.fireRateMult *
+      (1 + this.endlessBonuses.fire_rate) *
       (1 + Math.min(0.45, (tempFire + prismFire) / 100)) *
       (this.rapidFireMs > 0 ? 1.75 : 1)
     );
+  }
+
+  getWeaponBaseDamageMult(): number {
+    return this.stats.damageMult * (1 + this.endlessBonuses.weapon_damage);
   }
 
   getNormalDamageMult(): number {
@@ -283,6 +333,7 @@ export class Player {
     const prismDmg = this.prismModifiers?.damagePct ?? 0;
     return (
       this.stats.damageMult *
+      (1 + this.endlessBonuses.weapon_damage) *
       (1 + Math.min(0.5, (tempDmg + prismDmg) / 100)) *
       (this.doubleDamageMs > 0 ? 2 : 1)
     );
@@ -302,7 +353,23 @@ export class Player {
 
   getEffectiveMoveSpeed(): number {
     const tempSpd = this.sumTempBuff('tempMoveSpeedPct');
-    return Math.round(this.stats.moveSpeed * (1 + Math.min(0.35, tempSpd / 100)));
+    return Math.round(
+      this.stats.moveSpeed *
+        (1 + this.endlessBonuses.move_speed) *
+        (1 + Math.min(0.35, tempSpd / 100))
+    );
+  }
+
+  getEffectiveSpecialDamageMultiplier(): number {
+    return this.stats.specialDamageMultiplier * (1 + this.endlessBonuses.special_damage);
+  }
+
+  getEffectiveSpecialCooldownMult(): number {
+    // Respect global system cooldown floor (0.55)
+    return Math.max(
+      0.55,
+      this.stats.specialCooldownMult * (1 - this.endlessBonuses.special_cooldown)
+    );
   }
 
   getEffectivePickupRadiusBonus(): number {
@@ -444,8 +511,8 @@ export class Player {
   ): boolean {
     if (this.specialCooldownMs > 0) return false;
     const spec = SPECIAL_ATTACKS[this.specialId];
-    this.specialCooldownMs = Math.round(spec.cooldownMs * this.stats.specialCooldownMult);
-    const dmgBase = Math.round(spec.damage * this.stats.specialDamageMultiplier);
+    this.specialCooldownMs = Math.round(spec.cooldownMs * this.getEffectiveSpecialCooldownMult());
+    const dmgBase = Math.round(spec.damage * this.getEffectiveSpecialDamageMultiplier());
     const specialMeta: BeamHitMeta = {
       source: 'special',
       firingActionId: 0,
@@ -943,7 +1010,8 @@ export class Player {
   }
 
   getSpecialCooldownRatio(): number {
-    const maxCd = SPECIAL_ATTACKS[this.specialId].cooldownMs * this.stats.specialCooldownMult;
+    const maxCd =
+      SPECIAL_ATTACKS[this.specialId].cooldownMs * this.getEffectiveSpecialCooldownMult();
     return 1 - Math.min(1, this.specialCooldownMs / Math.max(1000, maxCd));
   }
 

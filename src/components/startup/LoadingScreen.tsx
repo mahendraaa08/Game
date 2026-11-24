@@ -1,49 +1,94 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 interface LoadingScreenProps {
   exiting: boolean;
+  progress: number;
+  stageLabel?: string;
 }
 
-const LOADING_CHARS = ['L', 'O', 'A', 'D', 'I', 'N', 'G', '.', '.', '.'] as const;
+export const LoadingScreen: React.FC<LoadingScreenProps> = ({
+  exiting,
+  progress,
+  stageLabel,
+}) => {
+  const [dotCount, setDotCount] = useState(1);
+  const clampedProgress = Math.max(0, Math.min(100, Math.round(progress)));
 
-export const LoadingScreen: React.FC<LoadingScreenProps> = ({ exiting }) => {
+  useEffect(() => {
+    const reduced =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (reduced) {
+      setDotCount(3);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setDotCount((prev) => (prev >= 3 ? 1 : prev + 1));
+    }, 420);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  const dots = '.'.repeat(dotCount);
+
   return (
     <section
       aria-label="Loading"
       aria-busy={!exiting}
-      className={`fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-[#040711] px-6 select-none transition-[opacity,transform] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+      className={`fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-[#040711] px-6 select-none transition-[opacity,transform] duration-400 ease-[cubic-bezier(0.16,1,0.3,1)] ${
         exiting ? 'pointer-events-none scale-[1.015] opacity-0' : 'opacity-100 scale-100'
       }`}
     >
-      {/* Clean Deep-Space Atmospheric Vignette (Zero Clutter) */}
+      {/* Subtle Deep-Space Atmospheric Vignette */}
       <div
         aria-hidden="true"
-        className="loading-aura pointer-events-none absolute inset-0"
+        className="pointer-events-none absolute inset-0"
         style={{
           background:
-            'radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.12) 0%, rgba(12, 25, 52, 0.34) 34%, rgba(4, 7, 17, 1) 72%)',
+            'radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.09) 0%, rgba(12, 25, 52, 0.28) 34%, rgba(4, 7, 17, 1) 72%)',
         }}
       />
 
-      {/* Minimalist "LOADING..." Typographic Focal Centerpiece */}
-      <div className="startup-emblem-enter relative z-10 flex items-center justify-center">
-        <span className="sr-only">LOADING...</span>
-        <div
-          aria-hidden="true"
-          className="flex items-center justify-center gap-2.5 sm:gap-3.5 font-display text-2xl sm:text-3xl md:text-[34px] font-bold text-sky-50 drop-shadow-[0_0_22px_rgba(56,189,248,0.34)]"
-        >
-          {LOADING_CHARS.map((ch, idx) => (
-            <span
-              key={idx}
-              className={`loading-letter ${idx >= 7 ? 'text-cyan-300' : 'text-sky-50'}`}
-              style={{
-                animationDelay: `${idx * 95}ms`,
-              }}
-            >
-              {ch}
+      {/* Minimalist Centered Progress Bar Focal Block */}
+      <div className="startup-emblem-enter relative z-10 w-full max-w-[340px] sm:max-w-[380px]">
+        {/* Small "Loading" Text with Repeating Dots + Percentage */}
+        <div className="mb-2.5 flex items-baseline justify-between gap-3">
+          <div className="flex items-baseline text-xs font-medium tracking-[0.14em] text-slate-300 uppercase">
+            <span>Loading</span>
+            <span aria-hidden="true" className="inline-block w-[1.35em] text-left text-cyan-300">
+              {dots}
             </span>
-          ))}
+          </div>
+
+          <span className="font-mono-num tabular-nums text-xs font-semibold text-cyan-300">
+            {clampedProgress}%
+          </span>
         </div>
+
+        {/* Primary Progress Bar */}
+        <div
+          role="progressbar"
+          aria-label="Game initialization progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={clampedProgress}
+          className="relative h-2.5 w-full overflow-hidden rounded-full border border-slate-700/75 bg-[#081022]/90 p-[2px] shadow-[0_0_24px_rgba(14,165,233,0.14)]"
+        >
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-400 to-sky-200 transition-[width] duration-200 ease-out"
+            style={{ width: `${clampedProgress}%` }}
+          />
+        </div>
+
+        {/* Subtle Real Stage Indicator */}
+        {stageLabel && (
+          <p className="mt-2.5 truncate text-center text-[11px] tracking-wide text-slate-500">
+            {stageLabel}
+          </p>
+        )}
       </div>
     </section>
   );

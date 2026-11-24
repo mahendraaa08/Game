@@ -42,6 +42,7 @@ export class LevelResultScene extends Phaser.Scene {
         if (data.nextLevelNumber) {
           this.scene.start('GameScene', {
             mode: 'campaign',
+            campaignDifficulty: data.campaignDifficulty,
             levelNumber: data.nextLevelNumber,
             weaponId: data.weaponId,
             specialId: data.specialId,
@@ -52,7 +53,9 @@ export class LevelResultScene extends Phaser.Scene {
       EventBus.on('ui:restart-level', () => {
         this.scene.start('GameScene', {
           mode: data.mode,
+          campaignDifficulty: data.campaignDifficulty,
           challengeId: data.challengeId,
+          challengeDifficulty: data.challengeDifficulty,
           levelNumber: data.levelNumber,
           weaponId: data.weaponId,
           specialId: data.specialId,

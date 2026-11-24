@@ -1,4 +1,5 @@
 import { roundCredits, type CurrencyAmount } from './EconomyConfig';
+import { CAMPAIGN_DIFFICULTIES, type CampaignDifficulty } from './GameModeConfig';
 
 export const MAX_PLAYER_LEVEL = 99;
 
@@ -23,12 +24,17 @@ export const PLAYER_EXP_SOURCES = {
   achievementClaim: 250,
 } as const;
 
-export function getCampaignClearTotalExp(levelNumber: number): number {
+export function getCampaignClearTotalExp(
+  levelNumber: number,
+  difficulty: CampaignDifficulty = 'normal'
+): number {
   const lvl = Math.max(1, Math.floor(levelNumber));
-  return (
-    PLAYER_EXP_SOURCES.campaignSectorClearBase +
-    lvl * PLAYER_EXP_SOURCES.campaignSectorPerLevel +
-    PLAYER_EXP_SOURCES.runCompletionBase
+  const diffMult = Math.max(0.85, CAMPAIGN_DIFFICULTIES[difficulty]?.rewardMult ?? 1);
+  return Math.round(
+    (PLAYER_EXP_SOURCES.campaignSectorClearBase +
+      lvl * PLAYER_EXP_SOURCES.campaignSectorPerLevel +
+      PLAYER_EXP_SOURCES.runCompletionBase) *
+      diffMult
   );
 }
 

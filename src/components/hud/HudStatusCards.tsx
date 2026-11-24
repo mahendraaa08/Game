@@ -318,7 +318,8 @@ export const ScoreHudCard = memo<{
   score: number;
   combo: number;
   challengeProgressText: string | null;
-}>(({ modeLabel, levelName, waveLabel, score, combo, challengeProgressText }) => {
+  endlessUpgradeCount?: number;
+}>(({ modeLabel, levelName, waveLabel, score, combo, challengeProgressText, endlessUpgradeCount = 0 }) => {
   return (
     <div className="flex min-w-[126px] sm:min-w-[164px] flex-col items-end justify-between rounded-xl border border-slate-700/65 bg-[#060c1a]/84 px-2.5 py-2 text-right backdrop-blur-sm sm:px-3.5 sm:py-2.5 shadow-lg shadow-black/30">
       <div className="flex w-full items-center justify-end gap-1.5 border-b border-slate-800/80 pb-1">
@@ -359,6 +360,10 @@ export const ScoreHudCard = memo<{
         {challengeProgressText ? (
           <span className="font-mono-num text-[10px] font-semibold text-amber-300">
             {challengeProgressText}
+          </span>
+        ) : endlessUpgradeCount > 0 ? (
+          <span className="font-mono-num text-[10px] font-semibold text-purple-300">
+            +{endlessUpgradeCount} Upgr · SCORE
           </span>
         ) : (
           <span className="font-mono-num text-[9.5px] font-semibold uppercase tracking-[0.12em] text-slate-400">

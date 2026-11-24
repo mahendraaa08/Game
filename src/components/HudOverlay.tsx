@@ -299,6 +299,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             score={hud.score}
             combo={hud.combo}
             challengeProgressText={hud.challengeProgressText}
+            endlessUpgradeCount={hud.mode === 'endless' ? (hud.endlessUpgradeCount ?? 0) : 0}
           />
 
           <button

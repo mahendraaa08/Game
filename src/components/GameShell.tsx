@@ -14,7 +14,9 @@ import {
 } from '../game/systems/ProgressionManager';
 import {
   AppRoute,
+  BossRushRecoveryDraftPayload,
   BossWarningPayload,
+  EndlessUpgradeDraftPayload,
   EventBus,
   GameOverPayload,
   LevelResultPayload,
@@ -30,6 +32,10 @@ import {
 } from '../game/utils/StorageManager';
 import { DedicatedScreenShell } from './DedicatedScreenShell';
 import { HudOverlay } from './HudOverlay';
+import {
+  BossRushRecoveryModal,
+  EndlessUpgradeDraftModal,
+} from './InRunDraftModals';
 import { ModeSelectorOverlay } from './ModeSelectorOverlay';
 import {
   GameOverModal,
@@ -59,7 +65,9 @@ const INITIAL_HUD: HudSnapshot = {
   score: 0,
   combo: 1,
   mode: 'campaign',
-  modeLabel: 'S01',
+  modeLabel: 'EASY S01',
+  campaignDifficulty: 'easy',
+  endlessUpgradeCount: 0,
   levelNumber: 1,
   levelName: 'EARTH DEFENSE',
   objective: '',
@@ -118,6 +126,8 @@ function prefersReducedMotion(): boolean {
 export const GameShell: React.FC = () => {
   const [sceneId, setSceneId] = useState<SceneId>('BootScene');
   const [startupStage, setStartupStage] = useState<StartupStage>('loading');
+  const [loadingProgress, setLoadingProgress] = useState<number>(4);
+  const [loadingStageLabel, setLoadingStageLabel] = useState<string>('Initializing systems');
   const [storageStatus, setStorageStatus] = useState<StorageHealthStatus>('empty');
 
   const [routeStack, setRouteStack] = useState<AppRoute[]>(['menu']);
@@ -128,6 +138,9 @@ export const GameShell: React.FC = () => {
   const [levelResult, setLevelResult] = useState<LevelResultPayload | null>(null);
   const [gameOverData, setGameOverData] = useState<GameOverPayload | null>(null);
   const [victoryData, setVictoryData] = useState<VictoryPayload | null>(null);
+  const [endlessDraft, setEndlessDraft] = useState<EndlessUpgradeDraftPayload | null>(null);
+  const [bossRushRecoveryDraft, setBossRushRecoveryDraft] =
+    useState<BossRushRecoveryDraftPayload | null>(null);
   const [activeLevelUpModal, setActiveLevelUpModal] = useState<LevelUpPayload | null>(null);
   const [inspectedShipId, setInspectedShipId] = useState<ShipId>(progress.selectedShip);
   const [inspectedWeaponId, setInspectedWeaponId] = useState<WeaponId>(progress.selectedWeapon);
@@ -237,6 +250,10 @@ export const GameShell: React.FC = () => {
       }),
       EventBus.on('scene:changed', (next) => {
         setSceneId(next);
+        if (next !== 'GameScene' && next !== 'BossScene' && next !== 'PauseMenuScene') {
+          setEndlessDraft(null);
+          setBossRushRecoveryDraft(null);
+        }
 
         if (next === 'MainMenuScene') {
           engineReadyRef.current = true;
@@ -303,6 +320,12 @@ export const GameShell: React.FC = () => {
       EventBus.on('player:leveled-up', syncProgress),
       EventBus.on('hud:update', (snap) => setHud(snap)),
       EventBus.on('boss:warning', (warn) => setBossWarning(warn)),
+      EventBus.on('endless:upgrade-draft', (payload) => setEndlessDraft(payload)),
+      EventBus.on('boss_rush:recovery-draft', (payload) => setBossRushRecoveryDraft(payload)),
+      EventBus.on('ui:abort-mission', () => {
+        setEndlessDraft(null);
+        setBossRushRecoveryDraft(null);
+      }),
       EventBus.on('level:result', (res) => setLevelResult(res)),
       EventBus.on('game:over', (res) => setGameOverData(res)),
       EventBus.on('campaign:victory', (res) => setVictoryData(res)),
@@ -315,6 +338,11 @@ export const GameShell: React.FC = () => {
       },
       {
         isAborted: () => destroyed,
+        onProgress: (percent, stageLabel) => {
+          if (destroyed) return;
+          setLoadingProgress(percent);
+          setLoadingStageLabel(stageLabel);
+        },
         onStage: (stage) => {
           if (destroyed) return;
           if (stage === 'storage') {
@@ -456,9 +484,13 @@ export const GameShell: React.FC = () => {
       {/* Isolated Phaser Canvas Container */}
       <div id="phaser-root" className="absolute inset-0 h-full w-full" />
 
-      {/* Startup Loading Screen (Always shown on initial load & reload for >=4s & real init) */}
+      {/* Startup Loading Screen (Real initialization progress 0-100%) */}
       {(startupStage === 'loading' || startupStage === 'loading_exit') && (
-        <LoadingScreen exiting={startupStage === 'loading_exit'} />
+        <LoadingScreen
+          exiting={startupStage === 'loading_exit'}
+          progress={loadingProgress}
+          stageLabel={loadingStageLabel}
+        />
       )}
 
       {/* First-Time Guest Login Card (Shown only when no confirmed progress exists) */}
@@ -588,7 +620,7 @@ export const GameShell: React.FC = () => {
       {isStartupDone && isNonCombatUiScene && activeRoute === 'exchange' && (
         <DedicatedScreenShell
           title="Exchange"
-          subtitle="Vault Currency Terminal · Convert Credits & Void Gems"
+          subtitle="Convert Credits and Void Gems"
           backLabel={backTargetLabel}
           onBack={popRoute}
           credits={progress.credits}
@@ -623,7 +655,25 @@ export const GameShell: React.FC = () => {
         <HudOverlay
           hud={hud}
           bossWarning={bossWarning}
-          isPaused={sceneId === 'PauseMenuScene'}
+          isPaused={sceneId === 'PauseMenuScene' || Boolean(endlessDraft || bossRushRecoveryDraft)}
+        />
+      )}
+      {isStartupDone && sceneId === 'GameScene' && endlessDraft && (
+        <EndlessUpgradeDraftModal
+          data={endlessDraft}
+          onSelect={(statId) => {
+            setEndlessDraft(null);
+            EventBus.emit('ui:select-endless-upgrade', statId);
+          }}
+        />
+      )}
+      {isStartupDone && sceneId === 'GameScene' && !endlessDraft && bossRushRecoveryDraft && (
+        <BossRushRecoveryModal
+          data={bossRushRecoveryDraft}
+          onSelect={(recoveryId) => {
+            setBossRushRecoveryDraft(null);
+            EventBus.emit('ui:select-boss-rush-recovery', recoveryId);
+          }}
         />
       )}
       {isStartupDone && sceneId === 'PauseMenuScene' && <PauseModal />}

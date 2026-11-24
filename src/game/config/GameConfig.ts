@@ -1,4 +1,4 @@
-import { GameMode } from './GameModeConfig';
+import { CampaignDifficulty, ChallengeDifficulty, GameMode } from './GameModeConfig';
 import { ShipId } from './ShipConfig';
 import { WeaponId } from './WeaponConfig';
 
@@ -44,6 +44,9 @@ export interface HudSnapshot {
   combo: number;
   mode: GameMode;
   modeLabel: string;
+  campaignDifficulty?: CampaignDifficulty;
+  challengeDifficulty?: ChallengeDifficulty;
+  endlessUpgradeCount?: number;
   levelNumber: number;
   levelName: string;
   objective: string;

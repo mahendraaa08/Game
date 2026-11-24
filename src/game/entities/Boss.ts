@@ -8,6 +8,13 @@ import { allocateTargetId, Targetable } from './Targetable';
 
 type BossMoveMode = 'patrol' | 'reposition' | 'stalk' | 'surge_dip' | 'phase_glide';
 
+export interface BossCombatModifiers {
+  damageMult?: number;
+  attackRateMult?: number;
+  projectileSpeedMult?: number;
+  aggressionMult?: number;
+}
+
 interface PendingBossBeat {
   delayMs: number;
   fn: (playerX: number, playerY: number, projectiles: ProjectileManager) => void;
@@ -66,6 +73,11 @@ export class BossEntity implements Targetable {
   private paralyzeImmunityMs = 0;
   private entranceTween?: Phaser.Tweens.Tween;
 
+  private damageMult = 1;
+  private attackRateMult = 1;
+  private projectileSpeedMult = 1;
+  private aggressionMult = 1;
+
   private onSpawnMinion: (enemyClass: EnemyClass, x: number, y: number) => void;
   private onPhaseShift: (newPhase: 1 | 2 | 3) => void;
   private onBossDefeated: (boss: BossEntity) => void;
@@ -76,13 +88,18 @@ export class BossEntity implements Targetable {
     onSpawnMinion: (enemyClass: EnemyClass, x: number, y: number) => void,
     onPhaseShift: (newPhase: 1 | 2 | 3) => void,
     onBossDefeated: (boss: BossEntity) => void,
-    hpMultiplier = 1
+    hpMultiplier = 1,
+    combatMods?: BossCombatModifiers
   ) {
     this.scene = scene;
     this.def = BOSS_CONFIGS[bossId];
     this.onSpawnMinion = onSpawnMinion;
     this.onPhaseShift = onPhaseShift;
     this.onBossDefeated = onBossDefeated;
+    this.damageMult = Phaser.Math.Clamp(combatMods?.damageMult ?? 1, 0.5, 3.0);
+    this.attackRateMult = Phaser.Math.Clamp(combatMods?.attackRateMult ?? 1, 0.65, 2.0);
+    this.projectileSpeedMult = Phaser.Math.Clamp(combatMods?.projectileSpeedMult ?? 1, 0.7, 1.65);
+    this.aggressionMult = Phaser.Math.Clamp(combatMods?.aggressionMult ?? 1, 0.7, 1.8);
 
     this.maxHp = Math.max(1, Math.round(this.def.maxHp * hpMultiplier));
     this.hp = this.maxHp;
@@ -338,17 +355,18 @@ export class BossEntity implements Targetable {
     this.updateLasers(dt, dtMs, playerX, playerY, h, projectiles, onLaserHitPlayer);
 
     // 3. Pending multi-beat attack callbacks (zero orphaned timers)
+    const scaledProj = this.createScaledProjectileAdapter(projectiles);
     for (let i = this.pendingBeats.length - 1; i >= 0; i--) {
       const beat = this.pendingBeats[i];
       beat.delayMs -= dtMs;
       if (beat.delayMs <= 0) {
         this.pendingBeats.splice(i, 1);
-        beat.fn(playerX, playerY, projectiles);
+        beat.fn(playerX, playerY, scaledProj);
       }
     }
 
     // 4. Primary Attack Cadence & Weapon Pod Windup Glow
-    this.attackTimerMs -= dtMs;
+    this.attackTimerMs -= dtMs * this.attackRateMult;
     if (this.attackTimerMs <= 380 && this.attackTimerMs > 0) {
       const glow = 1 - this.attackTimerMs / 380;
       const podColor = this.phase === 3 ? 0xfda4af : 0xfef08a;
@@ -358,23 +376,70 @@ export class BossEntity implements Targetable {
     }
 
     if (this.attackTimerMs <= 0) {
-      this.executeAttackPattern(playerX, playerY, projectiles);
+      this.executeAttackPattern(playerX, playerY, scaledProj);
       const baseCd =
         this.def.id === 'void_emperor'
           ? 1120
           : this.def.id === 'shadow_titan'
           ? 1280
           : 1420;
-      this.attackTimerMs = Math.max(580, baseCd - (this.phase - 1) * 230);
+      this.attackTimerMs = Math.max(540, baseCd - (this.phase - 1) * 230);
     }
+  }
+
+  private createScaledProjectileAdapter(projectiles: ProjectileManager): ProjectileManager {
+    if (
+      Math.abs(this.damageMult - 1) < 0.001 &&
+      Math.abs(this.projectileSpeedMult - 1) < 0.001
+    ) {
+      return projectiles;
+    }
+    const dmgMult = this.damageMult;
+    const spdMult = this.projectileSpeedMult;
+    return {
+      spawnEnemyBullet: (
+        x: number,
+        y: number,
+        vx: number,
+        vy: number,
+        damage: number,
+        textureKey?: string,
+        radius?: number,
+        tint?: number,
+        options?: Parameters<ProjectileManager['spawnEnemyBullet']>[8]
+      ) => {
+        const scaledOpts = options
+          ? {
+              ...options,
+              splitSpeed:
+                options.splitSpeed !== undefined ? options.splitSpeed * spdMult : undefined,
+              splitDamage:
+                options.splitDamage !== undefined
+                  ? Math.max(1, Math.round(options.splitDamage * dmgMult))
+                  : undefined,
+            }
+          : undefined;
+        projectiles.spawnEnemyBullet(
+          x,
+          y,
+          vx * spdMult,
+          vy * spdMult,
+          Math.max(1, Math.round(damage * dmgMult)),
+          textureKey,
+          radius,
+          tint,
+          scaledOpts
+        );
+      },
+    } as ProjectileManager;
   }
 
   private updateMovement(dt: number, dtMs: number, w: number, h: number, playerX: number): void {
     const margin = Math.max(115, this.def.width * 0.62);
     const speedMult = this.phase === 1 ? 1 : this.phase === 2 ? 1.28 : 1.54;
-    const baseSpd = this.def.moveSpeed * speedMult;
+    const baseSpd = this.def.moveSpeed * speedMult * this.aggressionMult;
 
-    this.moveModeTimerMs -= dtMs;
+    this.moveModeTimerMs -= dtMs * Math.min(1.3, Math.max(0.8, this.aggressionMult));
     if (this.moveModeTimerMs <= 0) {
       this.pickNextMoveMode(w);
     }
@@ -622,7 +687,9 @@ export class BossEntity implements Targetable {
     }
   ): void {
     const h = this.scene.scale.height;
-    const timerMs = options?.timerMs ?? 820;
+    const paceScale = Phaser.Math.Clamp(this.aggressionMult, 0.85, 1.25);
+    const timerMs = Math.max(560, Math.round((options?.timerMs ?? 820) / paceScale));
+    const lockThresholdMs = Math.max(240, Math.round((options?.lockThresholdMs ?? 330) / paceScale));
     this.activeLasers.push({
       originOffsetX,
       originOffsetY,
@@ -630,9 +697,9 @@ export class BossEntity implements Targetable {
       targetY: h + 12,
       timerMs,
       maxTimerMs: timerMs,
-      lockThresholdMs: options?.lockThresholdMs ?? 330,
-      trackSpeed: options?.trackSpeed ?? 2.2,
-      damage: options?.damage ?? 28,
+      lockThresholdMs,
+      trackSpeed: (options?.trackSpeed ?? 2.2) * Phaser.Math.Clamp(this.aggressionMult, 0.85, 1.25),
+      damage: Math.max(1, Math.round((options?.damage ?? 28) * this.damageMult)),
       width: options?.width ?? 30,
       color: options?.color ?? 0xf43f5e,
     });

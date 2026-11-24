@@ -5,6 +5,13 @@ import { SoundManager } from '../audio/SoundManager';
 import { ProjectileManager } from './ProjectileManager';
 import { allocateTargetId, Targetable } from './Targetable';
 
+export interface EnemySpawnModifiers {
+  hpMult?: number;
+  damageMult?: number;
+  attackRateMult?: number;
+  projectileSpeedMult?: number;
+}
+
 export class EnemyEntity implements Targetable {
   scene: Phaser.Scene;
   sprite: Phaser.GameObjects.Sprite;
@@ -26,6 +33,8 @@ export class EnemyEntity implements Targetable {
   private age = 0;
   private rewardGranted = false;
   private difficultyMult = 1;
+  private attackRateMult = 1;
+  private projectileSpeedMult = 1;
   private phaseOffset = 0;
   private strafeDir = 1;
   private vx = 0;
@@ -93,12 +102,18 @@ export class EnemyEntity implements Targetable {
     x: number,
     y: number,
     behavior?: EnemyBehavior,
-    difficultyMult = 1
+    difficultyMult = 1,
+    mods?: EnemySpawnModifiers
   ): void {
     this.targetId = allocateTargetId();
     this.def = ENEMY_CONFIGS[enemyClass];
     this.behavior = behavior ?? this.def.defaultBehavior;
-    this.difficultyMult = Math.max(0.85, difficultyMult);
+    this.difficultyMult = Math.max(0.75, difficultyMult);
+    this.attackRateMult = Math.max(0.65, Math.min(2.0, mods?.attackRateMult ?? 1));
+    this.projectileSpeedMult = Math.max(0.75, Math.min(1.6, mods?.projectileSpeedMult ?? 1));
+    const hpScale = Math.max(0.5, mods?.hpMult ?? 1);
+    const dmgScale = Math.max(0.5, mods?.damageMult ?? 1);
+
     this.active = true;
     this.rewardGranted = false;
     this.age = 0;
@@ -110,15 +125,17 @@ export class EnemyEntity implements Targetable {
     this.divePullout = false;
     this.formationTargetY = 115 + Math.random() * 135;
 
-    this.maxHp = Math.round(this.def.maxHp * this.difficultyMult);
+    this.maxHp = Math.max(1, Math.round(this.def.maxHp * this.difficultyMult * hpScale));
     this.hp = this.maxHp;
-    this.maxShieldHp = this.def.shieldHp ? Math.round(this.def.shieldHp * (0.9 + this.difficultyMult * 0.12)) : 0;
+    this.maxShieldHp = this.def.shieldHp
+      ? Math.round(this.def.shieldHp * (0.9 + this.difficultyMult * 0.12) * hpScale)
+      : 0;
     this.shieldHp = this.maxShieldHp;
-    this.damage = Math.round(this.def.damage * (0.9 + this.difficultyMult * 0.1));
+    this.damage = Math.max(1, Math.round(this.def.damage * (0.9 + this.difficultyMult * 0.1) * dmgScale));
     this.radius = this.def.radius;
     this.scoreReward = this.def.scoreReward;
 
-    const cdScale = Math.max(0.76, 1 - (this.difficultyMult - 1) * 0.14);
+    const cdScale = Math.max(0.58, (1 - (this.difficultyMult - 1) * 0.14) / this.attackRateMult);
     this.fireTimerMs = (550 + Math.random() * (this.def.fireCooldownMs * 0.7)) * cdScale;
     this.windupMs = 0;
     this.attackCycle = Math.floor(Math.random() * 3);
@@ -560,7 +577,7 @@ export class EnemyEntity implements Targetable {
       }
 
       if (this.fireTimerMs <= 0) {
-        const cdScale = Math.max(0.76, 1 - (this.difficultyMult - 1) * 0.14);
+        const cdScale = Math.max(0.58, (1 - (this.difficultyMult - 1) * 0.14) / this.attackRateMult);
         this.fireTimerMs = this.def.fireCooldownMs * cdScale;
         this.fireAttack(playerX, playerY, projectiles);
       }
@@ -622,7 +639,7 @@ export class EnemyEntity implements Targetable {
   private fireBurstStep(playerX: number, playerY: number, projectiles: ProjectileManager): void {
     const sx = this.sprite.x;
     const sy = this.sprite.y + 16;
-    const spd = this.def.projectileSpeed;
+    const spd = this.def.projectileSpeed * this.projectileSpeedMult;
     const dmg = this.damage;
 
     if (this.burstMode === 'scout_tap') {
@@ -705,7 +722,7 @@ export class EnemyEntity implements Targetable {
   private fireAttack(playerX: number, playerY: number, projectiles: ProjectileManager): void {
     const sx = this.sprite.x;
     const sy = this.sprite.y + 16;
-    const spd = this.def.projectileSpeed;
+    const spd = this.def.projectileSpeed * this.projectileSpeedMult;
     const dmg = this.damage;
     const cycle = this.attackCycle++;
 

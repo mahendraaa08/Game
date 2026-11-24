@@ -42,9 +42,14 @@ export class MainMenuScene extends Phaser.Scene {
     this.unsubs.push(
       EventBus.on('ui:start-level', (levelNumber) => {
         const progress = StorageManager.load();
-        const safeLevel = Math.min(levelNumber, progress.highestUnlockedLevel);
+        const rawDiff = progress.selectedCampaignDifficulty ?? 'easy';
+        const safeDiff =
+          progress.campaignProgress[rawDiff]?.highestUnlockedLevel >= 1 ? rawDiff : 'easy';
+        const maxUnlocked = Math.max(1, progress.campaignProgress[safeDiff]?.highestUnlockedLevel ?? 1);
+        const safeLevel = Math.min(Math.max(1, levelNumber), maxUnlocked);
         this.scene.start('GameScene', {
           mode: 'campaign',
+          campaignDifficulty: safeDiff,
           levelNumber: safeLevel,
           weaponId: progress.selectedWeapon,
           specialId: progress.selectedSpecial,
@@ -53,11 +58,17 @@ export class MainMenuScene extends Phaser.Scene {
       }),
       EventBus.on('ui:start-mode', (req) => {
         const progress = StorageManager.load();
-        const lvl = req.levelNumber ?? progress.highestUnlockedLevel;
+        const rawDiff = req.campaignDifficulty ?? progress.selectedCampaignDifficulty ?? 'easy';
+        const safeDiff =
+          progress.campaignProgress[rawDiff]?.highestUnlockedLevel >= 1 ? rawDiff : 'easy';
+        const maxUnlocked = Math.max(1, progress.campaignProgress[safeDiff]?.highestUnlockedLevel ?? 1);
+        const lvl = req.levelNumber ?? maxUnlocked;
         this.scene.start('GameScene', {
           mode: req.mode,
-          levelNumber: req.mode === 'campaign' ? Math.min(lvl, progress.highestUnlockedLevel) : lvl,
+          campaignDifficulty: req.mode === 'campaign' ? safeDiff : undefined,
+          levelNumber: req.mode === 'campaign' ? Math.min(Math.max(1, lvl), maxUnlocked) : lvl,
           challengeId: req.challengeId,
+          challengeDifficulty: req.challengeDifficulty,
           weaponId: progress.selectedWeapon,
           specialId: progress.selectedSpecial,
           carryScore: 0,
